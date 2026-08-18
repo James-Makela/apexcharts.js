@@ -22,7 +22,7 @@ export default class DimGrid {
     if (
       gl.noData ||
       gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length ===
-        cnf.series.length
+        cnf.series.length || cnf.grid.padding.ignoreBarPad
     ) {
       return 0
     }

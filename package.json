@@ -85,11 +85,11 @@
       "import": "./dist/boxPlot.esm.js",
       "require": "./dist/boxPlot.common.js"
     },
-  "./histogram": {
-    "types": "./types/apexcharts.d.ts",
-    "import": "./dist/histogram.esm.js",
-    "require": "./dist/histogram.common.js"
-  },
+    "./histogram": {
+      "types": "./types/apexcharts.d.ts",
+      "import": "./dist/histogram.esm.js",
+      "require": "./dist/histogram.common.js"
+    },
     "./violin": {
       "types": "./types/apexcharts.d.ts",
       "import": "./dist/violin.esm.js",
@@ -222,10 +222,10 @@
       "import": "./dist/features/context-menu.esm.js",
       "require": "./dist/features/context-menu.common.js"
     },
-  "./features/stats": {
-    "import": "./dist/features/stats.esm.js",
-    "require": "./dist/features/stats.common.js"
-  },
+    "./features/stats": {
+      "import": "./dist/features/stats.esm.js",
+      "require": "./dist/features/stats.common.js"
+    },
     "./features/all": {
       "import": "./dist/features/all.esm.js",
       "require": "./dist/features/all.common.js"
@@ -285,7 +285,7 @@
     "@blazediff/core": "1.0.0",
     "@eslint/js": "^9.0.0",
     "@playwright/test": "1.58.2",
-    "@rollup/plugin-terser": "0.4.4",
+    "@rollup/plugin-terser": "1.0.0",
     "@vitest/coverage-v8": "^4.0.18",
     "babel-jest": "30.2.0",
     "chalk": "3.0.0",
@@ -301,10 +301,10 @@
     "jest-puppeteer": "^10.0.1",
     "jsdom": "^28.0.0",
     "nunjucks": "3.2.4",
-    "nyc": "15.0.0",
+    "nyc": "18.0.0",
     "pngjs": "3.4.0",
     "prettier": "^3.2.0",
-    "puppeteer": "22.15.0",
+    "puppeteer": "25.8.0",
     "puppeteer-cluster": "0.24.0",
     "simple-git-hooks": "2.13.1",
     "terser": "5.46.0",

@@ -18351,7 +18351,7 @@ var __async = (__this, __arguments, generator) => {
     gridPadForColumnsInNumericAxis(gridWidth) {
       const { w: w2 } = this;
       const { config: cnf, globals: gl } = w2;
-      if (gl.noData || gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length === cnf.series.length) {
+      if (gl.noData || gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length === cnf.series.length || cnf.grid.padding.ignoreBarPad) {
         return 0;
       }
       const hasBar = (type2) => ["bar", "rangeBar", "candlestick", "boxPlot", "violin"].includes(type2);
