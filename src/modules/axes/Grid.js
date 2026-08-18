@@ -115,10 +115,12 @@ class Grid {
       barWidthRight = Math.max(w.layout.gridPad.right, gl.barPadForNumericAxis)
     }
 
+    const xOffset = w.config.grid?.padding?.ignoreBarPad ? 0 : -strokeSize / 2 - 2
+
     w.dom.elGridRect = graphics.drawRect(
+      xOffset,
       -strokeSize / 2 - 2,
-      -strokeSize / 2 - 2,
-      w.layout.gridWidth + strokeSize + 4,
+      w.layout.gridWidth + Math.abs(xOffset) * 2,
       w.layout.gridHeight + strokeSize + 4,
       0,
       '#fff',

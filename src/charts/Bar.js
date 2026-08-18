@@ -607,7 +607,11 @@ class Bar {
         })
       )
 
-      renderedPath.attr('clip-path', `url(#gridRectBarMask${w.globals.cuid})`)
+      const maskId = w.config.grid?.padding?.ignoreBarPad
+        ? `gridRectMask${w.globals.cuid}`
+        : `gridRectBarMask${w.globals.cuid}`
+
+      renderedPath.attr('clip-path', `url(#${maskId})`)
 
       // Cross-type morph, objects -> mark: the piece layer flies the outgoing
       // dots here and tiles this mark with them, so the mark holds hidden

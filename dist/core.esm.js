@@ -12887,6 +12887,7 @@ class Grid {
     return null;
   }
   createGridMask() {
+    var _a, _b;
     const w = this.w;
     const gl = w.globals;
     const graphics = new Graphics(this.w);
@@ -12910,10 +12911,11 @@ class Grid {
       barWidthLeft = Math.max(w.layout.gridPad.left, gl.barPadForNumericAxis);
       barWidthRight = Math.max(w.layout.gridPad.right, gl.barPadForNumericAxis);
     }
+    const xOffset = ((_b = (_a = w.config.grid) == null ? void 0 : _a.padding) == null ? void 0 : _b.ignoreBarPad) ? 0 : -strokeSize / 2 - 2;
     w.dom.elGridRect = graphics.drawRect(
+      xOffset,
       -strokeSize / 2 - 2,
-      -strokeSize / 2 - 2,
-      w.layout.gridWidth + strokeSize + 4,
+      w.layout.gridWidth + Math.abs(xOffset) * 2,
       w.layout.gridHeight + strokeSize + 4,
       0,
       "#fff"

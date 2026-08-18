@@ -2561,7 +2561,7 @@ class Bar {
     type,
     classes
   }) {
-    var _a;
+    var _a, _b, _c;
     const w = this.w;
     const graphics = new Graphics(this.w, this.ctx);
     const emit = seriesEmitter(this.ctx, graphics);
@@ -2679,7 +2679,8 @@ class Bar {
           bindEventsOnPaths: false
         })
       );
-      renderedPath.attr("clip-path", `url(#gridRectBarMask${w.globals.cuid})`);
+      const maskId = ((_c = (_b = w.config.grid) == null ? void 0 : _b.padding) == null ? void 0 : _c.ignoreBarPad) ? `gridRectMask${w.globals.cuid}` : `gridRectBarMask${w.globals.cuid}`;
+      renderedPath.attr("clip-path", `url(#${maskId})`);
       if (pieceClaimed) {
         renderedPath.node.setAttribute("opacity", "0");
         renderedPath.node.setAttribute("data-piece-hidden", "1");

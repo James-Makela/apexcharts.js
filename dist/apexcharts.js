@@ -12903,6 +12903,7 @@ var __async = (__this, __arguments, generator) => {
       return null;
     }
     createGridMask() {
+      var _a, _b;
       const w2 = this.w;
       const gl = w2.globals;
       const graphics = new Graphics(this.w);
@@ -12926,10 +12927,11 @@ var __async = (__this, __arguments, generator) => {
         barWidthLeft = Math.max(w2.layout.gridPad.left, gl.barPadForNumericAxis);
         barWidthRight = Math.max(w2.layout.gridPad.right, gl.barPadForNumericAxis);
       }
+      const xOffset = ((_b = (_a = w2.config.grid) == null ? void 0 : _a.padding) == null ? void 0 : _b.ignoreBarPad) ? 0 : -strokeSize / 2 - 2;
       w2.dom.elGridRect = graphics.drawRect(
+        xOffset,
         -strokeSize / 2 - 2,
-        -strokeSize / 2 - 2,
-        w2.layout.gridWidth + strokeSize + 4,
+        w2.layout.gridWidth + Math.abs(xOffset) * 2,
         w2.layout.gridHeight + strokeSize + 4,
         0,
         "#fff"
@@ -47307,7 +47309,7 @@ var __async = (__this, __arguments, generator) => {
       type,
       classes
     }) {
-      var _a;
+      var _a, _b, _c;
       const w2 = this.w;
       const graphics = new Graphics(this.w, this.ctx);
       const emit = seriesEmitter(this.ctx, graphics);
@@ -47425,7 +47427,8 @@ var __async = (__this, __arguments, generator) => {
             bindEventsOnPaths: false
           })
         );
-        renderedPath.attr("clip-path", `url(#gridRectBarMask${w2.globals.cuid})`);
+        const maskId = ((_c = (_b = w2.config.grid) == null ? void 0 : _b.padding) == null ? void 0 : _c.ignoreBarPad) ? `gridRectMask${w2.globals.cuid}` : `gridRectBarMask${w2.globals.cuid}`;
+        renderedPath.attr("clip-path", `url(#${maskId})`);
         if (pieceClaimed) {
           renderedPath.node.setAttribute("opacity", "0");
           renderedPath.node.setAttribute("data-piece-hidden", "1");
