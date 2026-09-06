@@ -46,6 +46,18 @@ export default class BarDataLabels {
     const w = this.w
     const graphics = new Graphics(this.barCtx.w)
 
+    // On a waterfall the series value is the LEVEL the bar reached, while the
+    // label states the step it made (the delta, or the sum for a subtotal /
+    // total bar). Resolved once and used for BOTH the measurement and the drawn
+    // text: measuring a string that is never drawn would size the overflow
+    // clamps wrongly, and handing a user's own formatter the level would leave
+    // no way to reach the number actually on the chart.
+    const steps = w.waterfallData && w.waterfallData.values
+    const waterfallStep =
+      steps && steps[realIndex] && steps[realIndex][j] != null
+        ? steps[realIndex][j]
+        : null
+
     const strokeWidth = Array.isArray(this.barCtx.strokeWidth)
       ? this.barCtx.strokeWidth[realIndex]
       : this.barCtx.strokeWidth
@@ -113,8 +125,17 @@ export default class BarDataLabels {
       // `i` which is the compacted bar-subset index in a combo chart. Otherwise
       // the label is measured/formatted from a different series than the value
       // actually drawn (drawCalculatedDataLabels below uses realIndex).
-      const yLabel = w.seriesData.series[realIndex][j]
+      const yLabel =
+        waterfallStep !== null
+          ? waterfallStep
+          : w.seriesData.series[realIndex][j]
 
+      // Measure in the SAME font the label will be drawn in. Data labels
+      // default to fontWeight 600, and the default measurement is taken at
+      // 'regular', which under-reports the width by 3-7% on these strings. That
+      // shortfall is not cosmetic: every overflow clamp below is driven by
+      // `textRects.width`, so an under-measured label is clamped to a position
+      // that still runs off the chart.
       textRects = graphics.getTextRects(
         w.config.dataLabels.formatter
           ? w.config.dataLabels.formatter(yLabel, {
@@ -125,6 +146,10 @@ export default class BarDataLabels {
             })
           : w.formatters.yLabelFormatters[0](yLabel),
         parseFloat(dataLabelsConfig.style.fontSize).toString(),
+        dataLabelsConfig.style.fontFamily,
+        undefined,
+        true,
+        dataLabelsConfig.style.fontWeight,
       )
     }
 
@@ -156,14 +181,33 @@ export default class BarDataLabels {
       dataLabelsPos = this.calculateColumnsDataLabelsPosition(params)
     }
 
+    // A waterfall's float is centred on its OWN span. The horizontal-bar
+    // formula anchors the label to the bar's far edge assuming it grew from the
+    // baseline, and a step that ran BACKWARDS has both bounds positive, so
+    // nothing downstream can tell: the label was placed a full bar-width to the
+    // left of the bar it belongs to. The recorded box says where the bar is.
+    if (
+      waterfallStep !== null &&
+      this.barCtx.isHorizontal &&
+      barDataLabelsConfig.position === 'center'
+    ) {
+      const box = w.waterfallData.geometry?.[realIndex]?.[j]
+      if (box && box.horizontal) {
+        dataLabelsPos.dataLabelsX = (box.levelStart + box.levelEnd) / 2 + offX
+      }
+    }
+
     dataLabels = this.drawCalculatedDataLabels({
       x: dataLabelsPos.dataLabelsX,
       y: dataLabelsPos.dataLabelsY,
-      val: this.barCtx.isRangeBar
-        ? [y1, y2]
-        : w.config.chart.stackType === '100%'
-          ? series[realIndex][j]
-          : w.seriesData.series[realIndex][j],
+      val:
+        waterfallStep !== null
+          ? waterfallStep
+          : this.barCtx.isRangeBar
+            ? [y1, y2]
+            : w.config.chart.stackType === '100%'
+              ? series[realIndex][j]
+              : w.seriesData.series[realIndex][j],
       i: realIndex,
       j,
       barWidth,
@@ -179,8 +223,10 @@ export default class BarDataLabels {
         barWidth,
         barHeight,
         realIndex,
+        j,
         textAnchor: dataLabelsPos.totalDataLabelsAnchor,
         val: this.getStackedTotalDataLabel({ realIndex, j }),
+        rawVal: this.getStackedTotalValue({ realIndex, j }),
         dataLabelsConfig,
         barTotalDataLabelsConfig,
       })
@@ -232,8 +278,13 @@ export default class BarDataLabels {
     return this.barCtx.lastActiveBarSerieIndex === realIndex
   }
 
-  /** @param {{realIndex: any, j: any}} opts */
-  getStackedTotalDataLabel({ realIndex, j }) {
+  /**
+   * The raw (unformatted) stacked total at this data point. Split out of
+   * getStackedTotalDataLabel so the label transition can count the total up
+   * from its previous number and re-run the formatter itself each frame.
+   * @param {{realIndex: any, j: any}} opts
+   */
+  getStackedTotalValue({ realIndex, j }) {
     const w = this.w
 
     // With grouped stacks the total is the sum of this group's series only;
@@ -241,10 +292,16 @@ export default class BarDataLabels {
     // unrelated groups into one number. See #4173.
     const ctx = this.getTotalGroupContext(realIndex)
     const byGroups = w.seriesData.stackedSeriesTotalsByGroups
-    let val =
-      ctx && byGroups && byGroups[ctx.groupIndex]
-        ? byGroups[ctx.groupIndex][j]
-        : this.barCtx.stackedSeriesTotals[j]
+    return ctx && byGroups && byGroups[ctx.groupIndex]
+      ? byGroups[ctx.groupIndex][j]
+      : this.barCtx.stackedSeriesTotals[j]
+  }
+
+  /** @param {{realIndex: any, j: any}} opts */
+  getStackedTotalDataLabel({ realIndex, j }) {
+    const w = this.w
+
+    let val = this.getStackedTotalValue({ realIndex, j })
     if (this.totalFormatter) {
       val = this.totalFormatter(val, {
         ...w,
@@ -636,33 +693,50 @@ export default class BarDataLabels {
     }
 
     if (!w.config.chart.stacked) {
-      if (dataLabelsConfig.textAnchor === 'start') {
-        if (dataLabelsX - textRects.width < 0) {
-          // Pin the label to the plot edge, but keep honoring the user's
-          // offsetX from that edge — otherwise a `position:'bottom'` +
-          // `textAnchor:'start'` label (whose dataLabelsX equals the offset for
-          // left-rooted bars) silently loses any offsetX smaller than its own
-          // text width. offX is 0 by default, so this is a no-op unless set.
-          dataLabelsX = valIsNegative
-            ? textRects.width + strokeWidth - offX
-            : strokeWidth + offX
-        } else if (dataLabelsX + textRects.width > w.layout.gridWidth) {
-          dataLabelsX = valIsNegative
-            ? w.layout.gridWidth - strokeWidth
-            : w.layout.gridWidth - textRects.width - strokeWidth
-        }
-      } else if (dataLabelsConfig.textAnchor === 'middle') {
-        if (dataLabelsX - textRects.width / 2 < 0) {
-          dataLabelsX = textRects.width / 2 + strokeWidth
-        } else if (dataLabelsX + textRects.width / 2 > w.layout.gridWidth) {
-          dataLabelsX = w.layout.gridWidth - textRects.width / 2 - strokeWidth
-        }
-      } else if (dataLabelsConfig.textAnchor === 'end') {
-        if (dataLabelsX < 1) {
-          dataLabelsX = textRects.width + strokeWidth
-        } else if (dataLabelsX + 1 > w.layout.gridWidth) {
-          dataLabelsX = w.layout.gridWidth - textRects.width - strokeWidth
-        }
+      // Keep the label inside the plot area.
+      //
+      // This has to reason about the anchor the label will RENDER with, not the
+      // configured one. `drawCalculatedDataLabels` swaps start<->end for
+      // negative values on a horizontal bar, so a `textAnchor:'end'` label on a
+      // negative series actually grows to the RIGHT of `dataLabelsX`. The
+      // previous version branched on the configured anchor and so guarded the
+      // opposite edge to the one the text was about to cross, which let long
+      // labels run clean off the chart (a `position:'center'` +
+      // `textAnchor:'end'` label on a negative series was clipped by the SVG
+      // edge, and its `textAnchor:'start'` mirror escaped to the left).
+      const flipped =
+        valIsNegative && dataLabelsConfig.textAnchor !== 'middle'
+          ? dataLabelsConfig.textAnchor === 'start'
+            ? 'end'
+            : 'start'
+          : dataLabelsConfig.textAnchor
+
+      // How much of the text sits either side of `dataLabelsX`. A vertical
+      // label is rotated about that point, so it is the text HEIGHT that spans
+      // horizontally, half to each side, whatever the anchor.
+      let spanLeft
+      if (barDataLabelsConfig.orientation === 'vertical') {
+        spanLeft = textRects.height / 2
+      } else if (flipped === 'end') {
+        spanLeft = textRects.width
+      } else if (flipped === 'middle') {
+        spanLeft = textRects.width / 2
+      } else {
+        spanLeft = 0
+      }
+      const span =
+        barDataLabelsConfig.orientation === 'vertical'
+          ? textRects.height
+          : textRects.width
+      const spanRight = span - spanLeft
+
+      // Only shift a label that does not fit; one wider than the plot area
+      // cannot be satisfied at both edges, so favour the left.
+      if (dataLabelsX + spanRight > w.layout.gridWidth - strokeWidth) {
+        dataLabelsX = w.layout.gridWidth - spanRight - strokeWidth
+      }
+      if (dataLabelsX - spanLeft < strokeWidth) {
+        dataLabelsX = spanLeft + strokeWidth
       }
     }
 
@@ -700,10 +774,23 @@ export default class BarDataLabels {
 
     let elDataLabelsWrap = null
 
-    const isSeriesNotCollapsed =
-      w.globals.collapsedSeriesIndices.indexOf(i) > -1
+    const isSeriesCollapsed = w.globals.collapsedSeriesIndices.indexOf(i) > -1
+    // A series collapsing in THIS update keeps painting its bars for the length
+    // of the exit tween (see the fill guard in Bar.renderSeries), so its labels
+    // have to ride along, otherwise the slice sits there unlabelled the whole
+    // way down while every other slice keeps its number.
+    const isSeriesCollapsing =
+      (w.globals.collapsingSeriesIndices || []).indexOf(i) > -1
 
-    if (dataLabelsConfig.enabled && !isSeriesNotCollapsed) {
+    if (isSeriesCollapsing) {
+      // Its series has already been zero-filled, so `val` is 0 (or blank) even
+      // though the bar on screen is still at its old height. Label it with what
+      // it was until it has finished shrinking away.
+      const prev = w.globals.prevDataLabels?.get(`${i}::${datumKey(w, i, j)}`)
+      if (prev && isFinite(prev.val)) val = prev.val
+    }
+
+    if (dataLabelsConfig.enabled && (!isSeriesCollapsed || isSeriesCollapsing)) {
       elDataLabelsWrap = graphics.group({
         class: 'apexcharts-data-labels',
         transform: rotate,
@@ -770,7 +857,11 @@ export default class BarDataLabels {
 
       if (
         w.config.chart.stacked &&
-        this.barCtx.barOptions.dataLabels.hideOverflowingLabels
+        this.barCtx.barOptions.dataLabels.hideOverflowingLabels &&
+        // A collapsing series is measured against its NEW extent, which is
+        // already zero, so this would blank a label whose bar is still at full
+        // height on screen. It starts out fitting and fades away with the mark.
+        !isSeriesCollapsing
       ) {
         // if there is not enough space to draw the label in the bar/column rect, check hideOverflowingLabels property to prevent overflowing on wrong rect
         // Note: This issue is only seen in stacked charts
@@ -814,12 +905,14 @@ export default class BarDataLabels {
     return elDataLabelsWrap
   }
 
-  /** @param {{ x?: any, y?: any, val?: any, realIndex?: any, textAnchor?: any, barWidth?: any, barHeight?: any, dataLabelsConfig?: any, barTotalDataLabelsConfig?: any }} opts */
+  /** @param {{ x?: any, y?: any, val?: any, rawVal?: any, realIndex?: any, j?: any, textAnchor?: any, barWidth?: any, barHeight?: any, dataLabelsConfig?: any, barTotalDataLabelsConfig?: any }} opts */
   drawTotalDataLabels({
     x,
     y,
     val,
+    rawVal,
     realIndex,
+    j,
     textAnchor,
     barTotalDataLabelsConfig,
   }) {
@@ -843,6 +936,40 @@ export default class BarDataLabels {
         fontSize: barTotalDataLabelsConfig.style.fontSize,
         fontWeight: barTotalDataLabelsConfig.style.fontWeight,
       })
+
+      // The total is a SIBLING of the per-segment label groups (it hangs off
+      // the series-wide `.apexcharts-datalabels` wrap), and it tracks the top
+      // of the whole stack rather than any one segment, so it carries its own
+      // key, anchor and raw value and gets its own tween. See
+      // DataLabelTransition.
+      totalDataLabelText.attr({
+        class: 'apexcharts-datalabel-total',
+        cx: x,
+        cy: y,
+      })
+      const dlCfg = this.w.config.dataLabels
+      if (dlCfg.animate?.enabled || dlCfg.countUp?.enabled) {
+        // Keyed by GROUP, not by the series that draws it. The total is drawn
+        // by the topmost ACTIVE series, so hiding the last series changes the
+        // drawer (and its realIndex); a realIndex-based key then matches
+        // nothing from the previous frame and the ride silently degrades to a
+        // snap - but only when the LAST series is toggled, which is exactly how
+        // it escaped. Group membership comes from config and survives legend
+        // toggles. The drawing series still rides along in its own attribute
+        // for the formatter's seriesIndex.
+        const { groupIndex } = this.barCtx.barHelpers.getGroupIndex(realIndex)
+        totalDataLabelText.node.setAttribute(
+          'data:dlTotalKey',
+          `${groupIndex}::${datumKey(this.w, realIndex, j)}`,
+        )
+        totalDataLabelText.node.setAttribute(
+          'data:dlTotalSeries',
+          String(realIndex),
+        )
+        if (typeof rawVal === 'number' && isFinite(rawVal)) {
+          totalDataLabelText.node.setAttribute('data:dlTotalVal', String(rawVal))
+        }
+      }
     }
 
     return totalDataLabelText

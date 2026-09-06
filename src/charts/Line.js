@@ -59,6 +59,12 @@ class Line {
 
     /** @type {any} */
     this.prevSeriesY = []
+    /**
+     * Top of the stack so far, keyed by x identity rather than by data-point
+     * ordinal. See _stackKey / _recordStackTops.
+     * @type {Map<any, number>}
+     */
+    this.prevSeriesYByX = new Map()
     this.categoryAxisCorrection = 0
     this.yaxisIndex = 0
     /** @type {number} */ this.xDivision = 0
@@ -98,6 +104,7 @@ class Line {
     this.yRatio = coreUtils.getLogYRatios(this.yRatio)
     // We call draw() for each series group
     this.prevSeriesY = []
+    this.prevSeriesYByX = new Map()
 
     // push all series in an array, so we can draw in reverse order
     // (for stacked charts)
@@ -262,6 +269,10 @@ class Line {
       }
 
       this._handlePaths({ type, realIndex, i, paths })
+
+      // Batched markers accumulate across the j loop above and become one path
+      // element here, at the end of the series.
+      this.markers.flushBatch(this.elPointsMain, realIndex)
 
       this.elSeries.add(this.elPointsMain)
       this.elSeries.add(this.elDataLabelsWrap)
@@ -459,6 +470,81 @@ class Line {
     }
   }
 
+  /**
+   * The identity a stacked baseline is looked up by.
+   *
+   * On a numeric or datetime axis each series carries its own x array, and two
+   * series' Nth points are not the same x when one of them is missing an entry.
+   * So the key is the x VALUE there. On a category axis every series is indexed
+   * against the shared category list, so the ordinal already IS the identity
+   * (and the pixel x is a running sum, unsafe to compare as a float).
+   *
+   * Returns undefined when this ordinal has no x, which happens on every series
+   * shorter than the longest one: the loop runs `dataPoints - 1` times for all
+   * of them. Those iterations must not write to or read from the map.
+   * @param {number} realIndex
+   * @param {number} ordinal
+   * @returns {any}
+   */
+  _stackKey(realIndex, ordinal) {
+    if (!this.w.axisFlags.isXNumeric) return ordinal
+    const xs = this.w.seriesData.seriesX[realIndex]
+    return xs ? xs[ordinal] : undefined
+  }
+
+  /**
+   * Pixel y of the top of the stack at one point of the series being drawn, or
+   * undefined when nothing has been stacked there yet (so the caller starts
+   * from the axis baseline).
+   * @param {number} realIndex
+   * @param {number} ordinal
+   * @returns {number | undefined}
+   */
+  stackTopAt(realIndex, ordinal) {
+    const key = this._stackKey(realIndex, ordinal)
+    if (key === undefined || key === null) return undefined
+    return this.prevSeriesYByX.get(key)
+  }
+
+  /**
+   * Fold a drawn series into the running stack top, so the next series can find
+   * its baseline by x (#4886).
+   *
+   * A point the series does not have simply leaves the previous top in place,
+   * which is the same thing as contributing 0 there. That is exactly what the
+   * workaround posted on the issue does by hand (pad every series onto the union
+   * of all x with zeros), and it is the behaviour the reporter expected.
+   *
+   * Collapsed series are skipped rather than folded in. Today a collapsed series
+   * renders a full-length yArrj sitting on the running baseline, so folding it
+   * would be a no-op anyway, but skipping states the intent and keeps this
+   * correct if that representation ever changes.
+   * @param {number} realIndex
+   * @param {any[]} yArrj
+   */
+  _recordStackTops(realIndex, yArrj) {
+    const w = this.w
+    if (!Array.isArray(yArrj)) return
+    if (
+      w.globals.collapsedSeriesIndices.indexOf(realIndex) !== -1 ||
+      w.globals.ancillaryCollapsedSeriesIndices.indexOf(realIndex) !== -1
+    ) {
+      return
+    }
+
+    for (let j = 0; j < yArrj.length; j++) {
+      const key = this._stackKey(realIndex, j)
+      if (key === undefined || key === null) continue
+      // A null y is a gap in this series, not a new top: leave whatever the
+      // series below contributed. The ordinal path used to hand the null
+      // straight to the next series as its baseline, where it coerced to 0 and
+      // put that point at the top of the plot.
+      const y = yArrj[j]
+      if (!Utils.isNumber(y)) continue
+      this.prevSeriesYByX.set(key, y)
+    }
+  }
+
   /** @param {{type: any, realIndex: any, i: any, paths: any}} opts */
   _handlePaths({ type, realIndex, i, paths }) {
     const w = this.w
@@ -471,6 +557,7 @@ class Line {
 
     // push all current y values array to main PrevY Array
     this.prevSeriesY.push(paths.yArrj)
+    this._recordStackTops(realIndex, paths.yArrj)
 
     // Streaming scroll: when this update is a windowed continuation of the
     // previous render (rolling window / append under xaxis.range), morph from
@@ -576,18 +663,44 @@ class Line {
     // moveTo/lineTo loop instead of parsing the d string into a Path2D.
     const numericXY = paths.numericXY
 
+    // A null splits a series into segments, but a gap in SVG is just another
+    // subpath: every segment already begins with an M, so the whole series
+    // fits in ONE path element rather than one element per segment. Each extra
+    // element cost a DOM node, its attributes, its listeners and a getBBox,
+    // which is why a series with many nulls rendered so disproportionately
+    // slowly (#3249: ~20us per null against ~0.5us per ordinary point, so 286
+    // nulls meant 288 path elements and a 3x render).
+    //
+    // For a line this is pixel-identical. For an area it also makes the fill
+    // gradient one continuous ramp across the series instead of restarting at
+    // every gap, which is what a single series should look like.
+    //
+    // rangeArea is excluded: its segments were already combined pairwise above
+    // (upper + lower per segment) and its fill depends on that pairing. Canvas
+    // mode is unaffected either way, since `numericXY` already carries the
+    // whole series rather than per-segment coordinates.
+    const mergeSegments = type === 'line' || type === 'area'
+    const linePathsToDraw =
+      mergeSegments && paths.linePaths.length > 1
+        ? [paths.linePaths.join(' ')]
+        : paths.linePaths
+    const areaPathsToDraw =
+      mergeSegments && paths.areaPaths.length > 1
+        ? [paths.areaPaths.join(' ')]
+        : paths.areaPaths
+
     if (type === 'area') {
       const pathFill = fill.fillPath({
         seriesNumber: realIndex,
       })
 
-      for (let p = 0; p < paths.areaPaths.length; p++) {
+      for (let p = 0; p < areaPathsToDraw.length; p++) {
         const renderedPath = emit.renderPaths({
           ...defaultRenderedPathOptions,
           pathFrom: streamScroll
             ? projectPathToPrevFrame(paths.areaPaths[p], streamScroll)
             : (reconcile?.area?.from ?? paths.pathFromArea),
-          pathTo: paths.areaPaths[p],
+          pathTo: areaPathsToDraw[p],
           pathToNumeric: numericXY
             ? {
                 xs: numericXY.xs,
@@ -629,7 +742,7 @@ class Line {
       }
 
       // range-area paths are drawn using linePaths
-      for (let p = 0; p < paths.linePaths.length; p++) {
+      for (let p = 0; p < linePathsToDraw.length; p++) {
         let pathFill = lineFill
         if (type === 'rangeArea') {
           pathFill = fill.fillPath({
@@ -641,7 +754,7 @@ class Line {
           pathFrom: streamScroll
             ? projectPathToPrevFrame(paths.linePaths[p], streamScroll)
             : (reconcile?.line?.from ?? paths.pathFromLine),
-          pathTo: paths.linePaths[p],
+          pathTo: linePathsToDraw[p],
           pathToNumeric: numericXY
             ? { xs: numericXY.xs, ys: numericXY.ys }
             : undefined,
@@ -821,16 +934,27 @@ class Line {
           // series cannot be used as this one's stacking baseline - originally
           // for apexcharts.js#1372.
           //
-          // This walk is currently belt-and-braces: a collapsed series still
-          // renders a full-length yArrj that sits exactly on the running
-          // baseline (it contributes 0), so every candidate index resolves to
-          // the same y and the walk cannot change the drawn geometry. It is
-          // kept correct rather than removed because it is the only thing
-          // standing between "a collapsed series stops contributing" and "a
-          // collapsed series corrupts the stack" if that representation ever
-          // goes back to emptying the array.
+          // This walk IS load-bearing, contrary to what this comment said when
+          // the three defects below were fixed in 39d56302c. That change was
+          // labelled behaviour-neutral on the reasoning that a collapsed series
+          // still renders a full-length yArrj sitting on the running baseline,
+          // so every candidate index resolves to the same y. The representation
+          // part is true, but the conclusion was not: the walk returned the
+          // WRONG index, not merely a different one that happened to agree.
           //
-          // Three defects were fixed here while it was behaviour-neutral:
+          // It was in fact the fix for #4984 (four series, the third declared
+          // `hidden: true` in the config). Measured on the reporter's own
+          // config: 6.8.0 draws the top series' second point at y=115.3 where it
+          // belongs at 57.7, and 6.9.0 onwards is correct. With the double
+          // decrement, series D's walk from index 2 landed on index 0 (A) rather
+          // than index 1 (B), so it stacked on A's top instead of B's.
+          //
+          // Only the second point onward was wrong, which is why hand-checking
+          // the first category would have looked fine: point 0 does not come
+          // through here at all, it comes from determineFirstPrevY, which reads
+          // prevSeriesY[i - 1][0] directly and never walks.
+          //
+          // The three defects, for the record:
           //   - `pii` was decremented inside the loop *and* by the for-update,
           //     stepping over two positions per collapsed series.
           //   - `pii > 0` never tested index 0, and `return 0` handed back
@@ -855,8 +979,18 @@ class Line {
           }
           const pIdx = prevIndex(i - 1)
           // Every earlier series hidden: this one stacks from the baseline.
-          lineYPosition =
-            pIdx < 0 ? this.zeroY : this.prevSeriesY[pIdx][j + 1]
+          if (pIdx < 0) {
+            lineYPosition = this.zeroY
+          } else {
+            // Resolve the baseline by x, not by ordinal (#4886). With ragged x
+            // arrays this series' ordinal j+1 is a different date from the
+            // previous series' ordinal j+1, so the ordinal lookup stacked onto
+            // the wrong point entirely: in the reported data it displaced a
+            // series by up to 92px of a 387px plot. A miss means no earlier
+            // series has a value at this x, so there is nothing to stack on.
+            const top = this.stackTopAt(realIndex, j + 1)
+            lineYPosition = top === undefined ? this.zeroY : top
+          }
         } else {
           // the first series will not have prevY values
           lineYPosition = this.zeroY
@@ -986,7 +1120,12 @@ class Line {
       // Progressive marker reveal handles per-marker opacity timing (synced
       // to the line draw), so the legacy group-level hide is bypassed on
       // initial mount. Data updates and resizes still use the old code path.
-      const useProgressive = !w.globals.dataChanged && !w.globals.resized
+      // A batched series has no per-marker element to time, so it takes the
+      // group-level reveal (the whole batch appears when the draw completes).
+      const useProgressive =
+        !w.globals.dataChanged &&
+        !w.globals.resized &&
+        !w.globals.markers.batched
       if (!useProgressive && w.seriesData.series[i].length > 1) {
         this.elPointsMain.node.classList.add('apexcharts-element-hidden')
       }

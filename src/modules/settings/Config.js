@@ -1,5 +1,6 @@
 // @ts-check
 import Defaults from './Defaults'
+import { TYPE_ALIASES } from './TypeAliases'
 import Utils from './../../utils/Utils'
 import Options from './Options'
 import { Environment } from '../../utils/Environment.js'
@@ -55,8 +56,14 @@ export default class Config {
         opts = defaults.stacked100(opts)
       }
 
-      if (opts.plotOptions?.bar?.isDumbbell) {
-        opts = defaults.dumbbell(opts)
+      // `chart.type: 'dumbbell'` picks its own connector thickness through
+      // Defaults.dumbbell, so this is only for the bare flag on a range bar.
+      // Written into opts, it would otherwise beat the type's own default.
+      if (
+        opts.plotOptions?.bar?.isDumbbell &&
+        opts.chart.requestedType !== 'dumbbell'
+      ) {
+        opts = defaults.dumbbellSizing(opts)
       }
 
       // If user has specified a dark theme, make the tooltip dark too
@@ -114,13 +121,9 @@ export default class Config {
   normalizeAliasedChartType(opts) {
     if (!opts || !opts.chart) return opts
     const requested = opts.chart.type
-    if (
-      requested !== 'funnel' &&
-      requested !== 'pyramid' &&
-      requested !== 'gauge' &&
-      requested !== 'waffle' &&
-      requested !== 'histogram'
-    ) {
+    // One list, in Defaults, so the names that normalize here are the same ones
+    // registerSeriesType refuses to let a custom type take.
+    if (!requested || !TYPE_ALIASES[requested]) {
       return opts
     }
     opts.chart.requestedType = requested
@@ -158,6 +161,56 @@ export default class Config {
       }
     } else if (requested === 'gauge') {
       opts.chart.type = 'radialBar'
+    } else if (requested === 'waterfall') {
+      // A waterfall bar floats between the level it started at and the level it
+      // left behind, which is exactly what a range column already draws. So the
+      // type routes to `rangeBar` (NOT `bar`: a plain bar always grows from the
+      // baseline) and features/waterfall supplies the two things a range column
+      // has no opinion about: the running totals, and the connectors.
+      //
+      // Stacking a waterfall is meaningless (the bars are already a cumulative
+      // walk) and would fight the range pathway, so it is forced off.
+      opts.chart.stacked = false
+      opts.chart.type = 'rangeBar'
+    } else if (requested === 'dumbbell') {
+      // A dumbbell is an interval with its two ends marked, which is what a
+      // range bar with `isDumbbell` already draws. So the type routes to
+      // `rangeBar` and features/dumbbell supplies the one thing a range bar has
+      // no opinion about: turning the two measures the reader compares into the
+      // single interval per row the renderer takes.
+      //
+      // Horizontal by default because the categories are names, and a name
+      // reads along the row it labels rather than turned on its side under a
+      // column. Set `plotOptions.bar.horizontal: false` for the column form.
+      opts.plotOptions = opts.plotOptions || {}
+      opts.plotOptions.bar = opts.plotOptions.bar || {}
+      opts.plotOptions.bar.isDumbbell = true
+      if (opts.plotOptions.bar.horizontal == null) {
+        opts.plotOptions.bar.horizontal = true
+      }
+      // Stacking is meaningless here (the rows are not parts of a whole) and
+      // would fight the range pathway, so it is forced off.
+      opts.chart.stacked = false
+      opts.chart.type = 'rangeBar'
+    } else if (requested === 'streamgraph') {
+      // A streamgraph band floats between a baseline that is not zero and that
+      // baseline plus its own value, which is exactly what a range area already
+      // draws. So the type routes to `rangeArea` (NOT stacked `area`: a stacked
+      // area's every fill closes to the plot floor) and features/streamgraph
+      // supplies the two things a range area has no opinion about: where the
+      // baseline goes, and the names written on the bands.
+      //
+      // `chart.stacked` would fight the range pathway — the stacking IS the
+      // transform's job here — so it is forced off.
+      opts.chart.stacked = false
+      // The form has no zero line and no axis to read against, so an axis of
+      // stacking offsets would be actively misleading. Set only when the user
+      // has not chosen otherwise.
+      opts.yaxis = opts.yaxis || {}
+      if (!Array.isArray(opts.yaxis) && opts.yaxis.show == null) {
+        opts.yaxis.show = false
+      }
+      opts.chart.type = 'rangeArea'
     } else if (requested === 'histogram') {
       // `histogram` renders through the bar pathway: the raw observations are
       // binned in Data.binHistogramData into one column per bin. The x-axis
@@ -169,6 +222,14 @@ export default class Config {
         opts.xaxis.type = 'numeric'
       }
       opts.chart.type = 'bar'
+    } else if (requested === 'raincloud') {
+      // A raincloud is a violin taken apart: half the density curve (the
+      // cloud), the five-number box beside it, the raw observations jittered
+      // on the other side (the rain). Every layer is a violin renderer
+      // capability, so the type routes to `violin`; features/raincloud
+      // supplies the statistics and Defaults.raincloud() flips the layout
+      // presets (kept out of here so each stays user-overridable).
+      opts.chart.type = 'violin'
     }
     return opts
   }

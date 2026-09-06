@@ -219,6 +219,7 @@ export default class Globals {
       'collapsedSeriesIndices',
       'ancillaryCollapsedSeries',
       'ancillaryCollapsedSeriesIndices',
+      'collapsingSeriesIndices',
       'allSeriesCollapsed',
       'risingSeries',
       'previousPaths',
@@ -406,6 +407,12 @@ export default class Globals {
         colors: [],
         size: config.markers.size,
         largestSize: 0,
+        // Set once per render by Markers.setGlobalMarkerSize: this chart's
+        // markers are drawn as one path element per series (a subpath per
+        // point) rather than one element per point, so there are no
+        // `.apexcharts-marker` nodes to enlarge, ride or hit-test. Everything
+        // that reads per-point marker nodes has to consult this.
+        batched: false,
       },
 
       // ── Device / environment detected once at startup ─────────────────────────
@@ -441,6 +448,11 @@ export default class Globals {
       collapsedSeriesIndices: [],
       ancillaryCollapsedSeries: [],
       ancillaryCollapsedSeriesIndices: [],
+      // Series collapsing on THIS render only (the legend click that hid it).
+      // Transient, unlike collapsedSeriesIndices it is cleared as soon as the
+      // render it triggered is done, so the exit tween can keep the outgoing
+      // marks painted while every later render treats the series as hidden.
+      collapsingSeriesIndices: [],
       risingSeries: [], // series being re-shown after collapse
       ignoreYAxisIndexes: [], // y-axis indices excluded during series collapse
 
@@ -472,6 +484,9 @@ export default class Globals {
       // captured by Series.getPreviousPaths(). Consulted (like previousPaths)
       // only while a data-change morph renders. See StreamScroll.
       prevStreamFrame: null,
+      // Set for the duration of one render when a streaming scroll is driving
+      // it; see captureStreamFrame / detectStreamScroll.
+      streamScrolled: false,
       // Axis-chrome snapshot (tick label texts/positions + gridline positions)
       // captured alongside prevStreamFrame; consumed once by AxisTransition
       // after a variable-length re-render mounts.
@@ -537,9 +552,18 @@ export default class Globals {
    * Why sharing the data arrays is safe: internal "mutations" of a series'
    * data are property REPLACEMENTS (`series[i].data = []` on legend collapse),
    * which cannot reach the captured copies because each series object was
-   * copied at capture time. The one in-place mutator (appendData's push loop)
-   * re-captures immediately after mutating, so the pending snapshot never
-   * spans the mutation.
+   * copied at capture time.
+   *
+   * The one in-place mutator is appendData(), whose push loop grows the shared
+   * data array. Re-capturing after it does not undo that: the pushed points
+   * are already in the array both snapshots point at, so a snapshot taken
+   * before the append reads back as appended. That is the documented
+   * behaviour of appendData(overwriteInitialSeries = true), and the `false`
+   * case is not honoured for a separate, older reason: Data.parseData()
+   * re-captures initialSeries unconditionally on the re-render appendData
+   * triggers. Detaching would mean copying the data arrays, which is exactly
+   * the per-point cost this snapshot exists to avoid. The same exception
+   * applies to `initialConfig.series`, which is captured with the same shape.
    *
    * @param {Record<string, any>} globals
    */
@@ -558,11 +582,7 @@ export default class Globals {
         return snap
       },
       set(value) {
-        src = Array.isArray(value)
-          ? value.map((s) =>
-              s && typeof s === 'object' && !Array.isArray(s) ? { ...s } : s,
-            )
-          : value
+        src = Utils.copySeriesShallow(value)
         snap = null
         // Read-only peek for hot-path consumers (tooltip's same-length check
         // runs per update): reading it does NOT materialize the deep snapshot.
@@ -582,7 +602,15 @@ export default class Globals {
 
     this.defineLazyInitialSeries(globals)
 
-    globals.initialConfig = Utils.extend({}, config)
+    // Utils.extend() copies arrays by reference (isObject() excludes arrays),
+    // so initialConfig.series WAS config.series. Collapsing a series replaces
+    // series[i].data with [] in place, and the snapshot lost the data with it.
+    const initialConfig =
+      /** @type {NonNullable<typeof globals.initialConfig>} */ (
+        Utils.extend({}, config)
+      )
+    initialConfig.series = Utils.copySeriesShallow(config.series)
+    globals.initialConfig = initialConfig
     globals.initialSeries = config.series
 
     globals.lastXAxis = Utils.clone(

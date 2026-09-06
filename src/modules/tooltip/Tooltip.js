@@ -245,6 +245,20 @@ export default class Tooltip {
       tooltipEl.classList.add('apexcharts-tooltip-fill-series')
     }
 
+    // `compact`: one tight line instead of a card. The x label loses its own
+    // title bar and sits inline before the value, the marker goes, and the
+    // padding and font shrink. Meant for panels a normal card would cover
+    // (small multiples, sparklines, dashboard tiles). With a SINGLE series the
+    // series-name label goes too, because in a one-series panel it repeats
+    // what the panel header already says; with several series the names are
+    // the only thing distinguishing the rows, so they stay.
+    if (this.tConfig.compact) {
+      tooltipEl.classList.add('apexcharts-tooltip-compact')
+      if (w.config.series.length === 1) {
+        tooltipEl.classList.add('apexcharts-tooltip-value-only')
+      }
+    }
+
     // Optional user-supplied solid background — set on the CSS variable so
     // the rest of the glass theme (border, shadow) still applies cleanly.
     // An opaque value also visually disables the backdrop blur.
@@ -326,7 +340,13 @@ export default class Tooltip {
       this.showOnIntersect = true
     }
 
-    if (w.config.markers.size === 0 || w.globals.markers.largestSize === 0) {
+    if (
+      w.config.markers.size === 0 ||
+      w.globals.markers.largestSize === 0 ||
+      // batched markers have no per-point node to enlarge, so the hover dot is
+      // served by the same single marker a markers.size: 0 chart uses
+      w.globals.markers.batched
+    ) {
       // when user don't want to show points all the time, but only on when hovering on series
       this.marker.drawDynamicPoints()
     }
@@ -674,6 +694,12 @@ export default class Tooltip {
    */
   /** @param {Record<string, any>} opt @param {any} e */
   onSeriesHover(opt, e) {
+    // Note down the element under the pointer NOW, while the event is still
+    // propagating. The draw below can be deferred past the end of dispatch, and
+    // by then a chart inside a shadow root reports the host element as the
+    // target instead of the bar/marker/cell we need (#3237).
+    Utils.hoverTarget(e)
+
     // If a user is moving their mouse quickly, don't bother updating the tooltip every single frame
 
     const targetDelay = 20
@@ -803,7 +829,7 @@ export default class Tooltip {
     ) {
       if (this.tConfig.onDatasetHover.highlightDataSeries) {
         const series = new Series(chartCtx.w)
-        series.toggleSeriesOnHover(e, e.target.parentNode)
+        series.toggleSeriesOnHover(e, Utils.hoverTarget(e)?.parentNode)
       }
     }
 
@@ -888,8 +914,16 @@ export default class Tooltip {
     if (!tooltipEl) return
     const xcrosshairs = this.getElXCrosshairs()
 
+    // A 2-D cell chart is hit-tested per CELL, not per x index, so it has its
+    // own handler and must never fall into the sticky/synced path below: that
+    // path resolves one x index, prints every series row for it, and anchors
+    // the card to the axis rather than the cell. In a group (a trellis panel
+    // is always grouped) that turned a one-line cell tooltip into an
+    // all-rows card pinned to the first column.
+    const isCellChart = ['heatmap', 'treemap'].includes(w.config.chart.type)
+
     let syncedCharts = []
-    if (w.config.chart.group) {
+    if (w.config.chart.group && !isCellChart) {
       // we need to fallback to sticky tooltip in case charts are synced
       syncedCharts = this.ctx.getSyncedCharts()
     }
@@ -932,8 +966,8 @@ export default class Tooltip {
       }
 
       if (
-        (isStickyTooltip && !this.showOnIntersect) ||
-        syncedCharts.length > 1
+        !isCellChart &&
+        ((isStickyTooltip && !this.showOnIntersect) || syncedCharts.length > 1)
       ) {
         this.handleStickyTooltip(e, clientX, clientY, opt)
       } else {
@@ -1071,14 +1105,15 @@ export default class Tooltip {
         tooltipEl.removeAttribute('aria-hidden')
       }
 
-      // Unit chart: the listener sits on the cluster GROUP, but e.target is the
-      // individual dot the cursor is over. Resolve it so each dot tooltips its
+      // Unit chart: the listener sits on the cluster GROUP, but the hovered
+      // element is the individual dot. Resolve it so each dot tooltips its
       // own identity (category + index within the category) instead of every
       // dot repeating the cluster aggregate.
       if (w.config.chart.type === 'unit') {
+        const hovered = Utils.hoverTarget(e)
         const unitDot =
-          e.target && typeof e.target.closest === 'function'
-            ? e.target.closest('.apexcharts-unit-area')
+          hovered && typeof hovered.closest === 'function'
+            ? hovered.closest('.apexcharts-unit-area')
             : null
         // Over a label / gap (no dot): leave the last tooltip untouched.
         if (!unitDot) return
@@ -1498,11 +1533,16 @@ export default class Tooltip {
     const bars = this.tooltipUtil.getElBars()
 
     const handlePoints = () => {
-      if (w.globals.markers.largestSize > 0 && !canvasMode) {
+      if (
+        w.globals.markers.largestSize > 0 &&
+        !canvasMode &&
+        !w.globals.markers.batched
+      ) {
         ttCtx.marker.enlargePoints(j)
       } else {
         // canvas: markers paint to a bitmap with no node to enlarge, so the
-        // box is positioned off the cached pointsArray coords instead.
+        // box is positioned off the cached pointsArray coords instead. Batched
+        // markers are one path per series, with the same consequence.
         ttCtx.tooltipPosition.moveDynamicPointsOnHover(j)
       }
     }

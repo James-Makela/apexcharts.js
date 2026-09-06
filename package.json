@@ -1,6 +1,6 @@
 {
   "name": "apexcharts",
-  "version": "6.10.0",
+  "version": "7.1.0",
   "description": "A JavaScript Chart Library",
   "repository": {
     "type": "git",
@@ -85,10 +85,30 @@
       "import": "./dist/boxPlot.esm.js",
       "require": "./dist/boxPlot.common.js"
     },
-    "./histogram": {
+  "./histogram": {
+    "types": "./types/apexcharts.d.ts",
+    "import": "./dist/histogram.esm.js",
+    "require": "./dist/histogram.common.js"
+  },
+    "./waterfall": {
       "types": "./types/apexcharts.d.ts",
-      "import": "./dist/histogram.esm.js",
-      "require": "./dist/histogram.common.js"
+      "import": "./dist/waterfall.esm.js",
+      "require": "./dist/waterfall.common.js"
+    },
+    "./dumbbell": {
+      "types": "./types/apexcharts.d.ts",
+      "import": "./dist/dumbbell.esm.js",
+      "require": "./dist/dumbbell.common.js"
+    },
+    "./streamgraph": {
+      "types": "./types/apexcharts.d.ts",
+      "import": "./dist/streamgraph.esm.js",
+      "require": "./dist/streamgraph.common.js"
+    },
+    "./raincloud": {
+      "types": "./types/apexcharts.d.ts",
+      "import": "./dist/raincloud.esm.js",
+      "require": "./dist/raincloud.common.js"
     },
     "./violin": {
       "types": "./types/apexcharts.d.ts",
@@ -144,6 +164,11 @@
       "types": "./types/unit-shapes.d.ts",
       "import": "./dist/unit-shapes.esm.js",
       "require": "./dist/unit-shapes.common.js"
+    },
+    "./pictograms": {
+      "types": "./types/pictograms.d.ts",
+      "import": "./dist/pictograms.esm.js",
+      "require": "./dist/pictograms.common.js"
     },
     "./core": {
       "types": "./types/apexcharts.d.ts",
@@ -222,9 +247,29 @@
       "import": "./dist/features/context-menu.esm.js",
       "require": "./dist/features/context-menu.common.js"
     },
-    "./features/stats": {
-      "import": "./dist/features/stats.esm.js",
-      "require": "./dist/features/stats.common.js"
+  "./features/stats": {
+    "import": "./dist/features/stats.esm.js",
+    "require": "./dist/features/stats.common.js"
+  },
+  "./features/raincloud": {
+    "import": "./dist/features/raincloud.esm.js",
+    "require": "./dist/features/raincloud.common.js"
+  },
+    "./features/waterfall": {
+      "import": "./dist/features/waterfall.esm.js",
+      "require": "./dist/features/waterfall.common.js"
+    },
+    "./features/dumbbell": {
+      "import": "./dist/features/dumbbell.esm.js",
+      "require": "./dist/features/dumbbell.common.js"
+    },
+    "./features/streamgraph": {
+      "import": "./dist/features/streamgraph.esm.js",
+      "require": "./dist/features/streamgraph.common.js"
+    },
+    "./features/trellis": {
+      "import": "./dist/features/trellis.esm.js",
+      "require": "./dist/features/trellis.common.js"
     },
     "./features/all": {
       "import": "./dist/features/all.esm.js",
@@ -332,6 +377,7 @@
     "./src/entries/*.js",
     "./src/features/*.js",
     "./src/unit-shapes/cdn.js",
+    "./src/pictograms/cdn.js",
     "./dist/*.esm.js",
     "./dist/features/*.esm.js"
   ],

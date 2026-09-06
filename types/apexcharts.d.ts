@@ -334,6 +334,29 @@ declare class ApexCharts {
   getState(): ApexCharts.ChartState
 
   /**
+   * Trellis: the panels of a trellis host in grid order (empty for a chart
+   * that is not a trellis). Requires `import 'apexcharts/features/trellis'`.
+   */
+  getPanels(): ApexCharts.ApexTrellisPanel[]
+
+  /**
+   * Trellis: one panel's own ApexCharts instance by facet key — the escape
+   * hatch to every per-chart API the trellis does not re-expose.
+   */
+  getPanel(key: string): ApexCharts | null
+
+  /**
+   * Trellis: expand one panel to the grid's full width (what clicking its
+   * header does). No-op on a chart that is not a trellis host.
+   */
+  promotePanel(key: string): Promise<void>
+
+  /**
+   * Trellis: restore the grid from a panel promotion.
+   */
+  restorePanels(): Promise<void>
+
+  /**
    * Calls a public method on a chart instance identified by chartID.
    * Useful when you don't have a direct reference to the instance.
    */
@@ -341,6 +364,17 @@ declare class ApexCharts {
 
   /** Retrieves a rendered chart instance by its chart.id config value. */
   static getChartByID(chartID: string): ApexCharts | undefined
+
+  /**
+   * Trellis: imperative entry point — creates a trellis host (options must
+   * carry `trellis.by`) and starts rendering it. `render()` on the returned
+   * instance settles with the same in-flight mount. Returns null when the
+   * trellis feature is not bundled.
+   */
+  static trellis(
+    el: HTMLElement,
+    options: ApexCharts.ApexOptions
+  ): ApexCharts | null
 
   /**
    * Scans the document for elements with data-apexcharts and data-options
@@ -461,6 +495,26 @@ declare class ApexCharts {
   static unregisterUnitLayout(name: string): typeof ApexCharts
 
   /**
+   * Registers a named unit-chart MARK (pictogram), referenceable via
+   * `plotOptions.unit.pictogram.mark: '<name>'`.
+   *
+   * The twin of `registerUnitLayout`, and the split between them is the one the
+   * unit chart is built on: a LAYOUT is where the marks go, a MARK is what one
+   * of them looks like. They compose freely, so neither has to know about the
+   * other.
+   */
+  static registerUnitMark(
+    name: string,
+    def: string | ApexUnitMarkDef,
+  ): typeof ApexCharts
+
+  /**
+   * Removes a mark registered via `registerUnitMark`. Charts referencing it by
+   * name fall back to `plotOptions.unit.pictogram.fallback`.
+   */
+  static unregisterUnitMark(name: string): typeof ApexCharts
+
+  /**
    * Registers a row source: given a chart's state, what rows is each of its
    * marks standing for?
    *
@@ -572,8 +626,10 @@ declare class ApexCharts {
    * Storyboard: scroll-driven chart choreography (scrollytelling). Beats are
    * prose elements paired with Perspective views; scrolling a beat across the
    * trigger line applies its view, and scrolling back reverses it.
-   * Requires the Storyboard feature: `import 'apexcharts/features/storyboard'`
-   * (which includes Perspectives).
+   * Requires the Storyboard feature, which is NOT in the default bundle:
+   * `import 'apexcharts/features/storyboard'` (which includes Perspectives),
+   * or add `dist/features/storyboard.js` after apexcharts.js on a script-tag
+   * page. Without it `chart.storyboard` is null and `.bind()` throws.
    */
   storyboard: {
     bind(opts?: ApexStoryboardBindOptions): number
@@ -1077,6 +1133,13 @@ declare namespace ApexCharts {
     noData?: ApexNoData
     /** Weave (#1) plugin activation list. Requires `import 'apexcharts/features/weave'`. */
     plugins?: ApexPluginActivation[]
+    /**
+     * Trellis (small multiples / faceting): split the series into a grid of
+     * pixel-aligned panels by a facet key. Requires
+     * `import 'apexcharts/features/trellis'`. NOT in the default bundle; a
+     * script-tag page adds `dist/features/trellis.js` after apexcharts.js.
+     */
+    trellis?: ApexTrellis
     plotOptions?: ApexPlotOptions
     responsive?: ApexResponsive[]
     parsing?: ApexParsing;
@@ -1132,6 +1195,166 @@ declare namespace ApexCharts {
   export type { ApexStoryboardBeat }
   export type { ApexStoryboardBeatInfo }
   export type { ApexStoryboardBindOptions }
+  export type { ApexTrellis }
+  export type { ApexTrellisPanel }
+}
+
+/**
+ * Trellis (small multiples / faceting). Requires
+ * `import 'apexcharts/features/trellis'`. NOT in the default bundle; a
+ * script-tag page adds `dist/features/trellis.js` after apexcharts.js.
+ *
+ * Setting `by` makes the chart a trellis HOST: the series array is split into
+ * one panel per facet-key value, every panel is a real chart of the host's
+ * chart.type, and the trellis owns everything shared: the scale domains, the
+ * pixel-aligned plot rectangles, the color-by-series-name map, the headers,
+ * one legend, one toolbar and the responsive column count. Series WITHOUT the
+ * facet key repeat in every panel (reference series).
+ */
+type ApexTrellis = {
+  /**
+   * Facet accessor: the name of a key on each series object (the blessed
+   * typed field is `facet`, but any key works), or a function returning the
+   * key per series.
+   */
+  by?: string | ((series: any, index: number) => string | number | undefined)
+  /**
+   * 2-D faceting: the row facet accessor. With `row`/`column` set, the grid
+   * is every (row, column) combination in row-major order with a FIXED
+   * column count; column labels draw once across the top, row labels once
+   * down the left. Mutually exclusive with `by`. A series carrying only the
+   * row key repeats across that row (a row-scoped reference series).
+   */
+  row?: string | ((series: any, index: number) => string | number | undefined)
+  /** 2-D faceting: the column facet accessor (see `row`). */
+  column?:
+    | string
+    | ((series: any, index: number) => string | number | undefined)
+  /**
+   * Missing (row, column) combinations: 'placeholder' (default) mounts a
+   * real empty panel at the shared geometry with a quiet "no data" label
+   * (`noData.text`); 'skip' keeps the slot with a tinted blank; 'hide'
+   * keeps the slot with nothing at all.
+   */
+  emptyPanels?: 'placeholder' | 'skip' | 'hide'
+  /**
+   * Tidy-row input, an alternative to `series`: a row table pivoted by the
+   * `by` / `x` / `y` / `seriesBy` COLUMN NAMES (all strings in this form).
+   * Rows win over `series` when both are given. Duplicate (panel, series, x)
+   * rows keep the last and warn; aggregate the rows first for sums or means.
+   */
+  data?: Record<string, any>[]
+  /** x-value column name (tidy form only). */
+  x?: string
+  /** y-value column name (tidy form only). */
+  y?: string
+  /** Optional series-name column (tidy form only); absent means one series per panel named after `y`. */
+  seriesBy?: string
+  /** 'auto' (default) fits `minPanelWidth` columns into the container. */
+  columns?: number | 'auto'
+  /** Drives 'auto' columns and the responsive collapse. Default 220. */
+  minPanelWidth?: number
+  /** Gap between cells, px. Default 12. */
+  gap?: number
+  /** Panel width : height when no explicit height governs. Default 1.6. */
+  aspectRatio?: number
+  /** Explicit panel height in px; wins over aspectRatio and chart.height. */
+  panelHeight?: number
+  /** Panel order. Default 'first-seen'. */
+  order?:
+    | 'first-seen'
+    | 'asc'
+    | 'desc'
+    | string[]
+    | ((a: string, b: string) => number)
+  /** Render only the first N panels (warns about the rest). */
+  limit?: number
+  /**
+   * 'auto' (default) mounts only the panels intersecting the viewport (plus
+   * one row) once the grid exceeds 64 panels; true always virtualizes; false
+   * always renders eagerly. Unmounted cells keep their header and a
+   * fixed-height skeleton, so page height and scroll position never shift; a
+   * panel that scrolls out is destroyed with its view state stashed, and a
+   * remount restores its zoom window. getPanel(key) returns null for
+   * unmounted panels.
+   */
+  virtualize?: 'auto' | boolean
+  /**
+   * Scale resolution per channel. y also takes 'independent-row' /
+   * 'independent-column' in a 2-D grid: one shared domain per row or column
+   * (comparable along the group, free across groups). Non-shared y still
+   * renders pixel-aligned panels (the gutter pass equalizes axis widths);
+   * 'independent' and 'independent-column' force their own y labels on
+   * every panel, 'independent-row' keeps them on the first column.
+   */
+  scales?: {
+    x?: 'shared' | 'independent'
+    y?: 'shared' | 'independent' | 'independent-row' | 'independent-column'
+    color?: 'shared'
+    size?: 'shared'
+  }
+  /** Per-cell facet headers. */
+  header?: {
+    show?: boolean
+    formatter?: (
+      key: string,
+      opts: { dimension?: string; index: number; count: number }
+    ) => string
+    style?: { fontSize?: string; fontWeight?: string | number; color?: string }
+  }
+  /**
+   * Axis-label policy. 'edges' (default) shows y labels on the first column
+   * and x labels on each column's bottom panel; label SPACE is always
+   * reserved everywhere so panels stay aligned. 'all' | 'none'.
+   */
+  axes?: { labels?: 'edges' | 'all' | 'none' }
+  /** One legend for the grid (toggles a series name in every panel). */
+  legend?: 'shared' | 'none'
+  /** One zoom / pan / reset toolbar for the grid. */
+  toolbar?: 'shared' | 'none'
+  /**
+   * 'panel' (default): tooltip card only in the hovered panel while the
+   * crosshair sweeps all panels. 'sync': every panel shows its own card.
+   * 'grid': ONE card near the cursor with one row per panel at the hovered x
+   * (composed from the panels' own tooltips, so every formatter is honored).
+   */
+  tooltip?: 'panel' | 'sync' | 'grid'
+  /** 'sync' (default): a zoom in any panel moves every panel. */
+  zoom?: 'sync' | 'none'
+  /**
+   * Clicking a cell's header expands that panel to the grid's full width,
+   * with an "All panels" breadcrumb back (default true). Also available as
+   * chart.promotePanel(key) / chart.restorePanels().
+   */
+  promote?: boolean
+  /**
+   * Pie/donut/polarArea only: scale each panel's radius so its AREA is
+   * proportional to the panel's total (default false). Equal-size pies
+   * cannot encode magnitude; this is what makes a pie trellis honest.
+   */
+  radiusByTotal?: boolean
+  /**
+   * Tick-interval target for the shared nice y scale (default 3, so at most
+   * ~4 labels: a small panel wears few labels well).
+   */
+  targetTicks?: number
+  /** Per-panel option override, applied last. */
+  panel?: (
+    key: string,
+    opts: { index: number; seriesNames: string[] }
+  ) => ApexCharts.ApexOptions
+}
+
+/** One trellis panel, as returned by chart.getPanels(). */
+type ApexTrellisPanel = {
+  /** 'North' in 1-D; 'Sales / Q1' in a 2-D grid. */
+  key: string
+  index: number
+  /** The panel's own ApexCharts instance (null before it mounts, and for
+   *  virtualized panels currently offscreen). */
+  chart: ApexCharts | null
+  /** The panel's cell element (header + chart mount). */
+  el: HTMLElement | null
 }
 
 type ApexDropShadow = {
@@ -1198,6 +1421,10 @@ type ApexChart = {
   | 'polarArea'
   | 'rangeBar'
   | 'rangeArea'
+  | 'waterfall'
+  | 'dumbbell'
+  | 'streamgraph'
+  | 'raincloud'
   | 'treemap'
   | 'unit'
   | 'waffle'
@@ -1207,11 +1434,23 @@ type ApexChart = {
   | 'gauge'
   /**
    * Internal — populated when `type` is a first-class alias (`'funnel'`,
-   * `'pyramid'`, `'gauge'`, `'waffle'`, `'histogram'`). The original requested
-   * type is preserved here while `type` is normalized to the underlying
-   * renderer (`'bar'`, `'radialBar'` or `'unit'`). Read-only for consumers.
+   * `'pyramid'`, `'gauge'`, `'waffle'`, `'histogram'`, `'waterfall'`,
+   * `'dumbbell'`, `'streamgraph'`, `'raincloud'`). The
+   * original requested type is preserved here while `type` is normalized to the
+   * underlying renderer (`'bar'`, `'rangeBar'`, `'rangeArea'`, `'radialBar'`,
+   * `'violin'` or `'unit'`).
+   * Read-only for consumers.
    */
-  requestedType?: 'funnel' | 'pyramid' | 'gauge' | 'waffle' | 'histogram'
+  requestedType?:
+    | 'funnel'
+    | 'pyramid'
+    | 'gauge'
+    | 'waffle'
+    | 'histogram'
+    | 'waterfall'
+    | 'dumbbell'
+    | 'streamgraph'
+    | 'raincloud'
   foreColor?: string
   fontFamily?: string
   background?: string
@@ -1383,7 +1622,9 @@ type ApexChart = {
   }
   /**
    * Measure ruler (#18): a measure/delta ruler. Requires the `measure`
-   * feature (`import 'apexcharts/features/measure'`). Hold `key` and drag
+   * feature, which is NOT in the default bundle:
+   * `import 'apexcharts/features/measure'`, or for a script-tag page add
+   * `dist/features/measure.js` after apexcharts.js. Hold `key` and drag
    * A->B on the plot, or call `chart.startMeasure()`, to read
    * dx/dy/%change/slope in data space; on release the ruler pins as a
    * data-anchored overlay that re-projects on zoom/resize. Fires `measured`.
@@ -1526,6 +1767,21 @@ type ApexChart = {
   parentHeightOffset?: number
   redrawOnParentResize?: boolean
   redrawOnWindowResize?: boolean | ((...args: any[]) => boolean)
+  /**
+   * Printing. A chart sized from the screen would be cut off at the edge of the
+   * paper, so it is laid out again for the printable page and put back
+   * afterwards.
+   */
+  print?: {
+    /** Hook `beforeprint`/`afterprint` at all. Defaults to true. */
+    enabled?: boolean
+    /**
+     * Width, in CSS pixels, to lay the chart out at while printing. A chart
+     * already narrower than this is left as it is. Defaults to 700, which suits
+     * A4 and Letter portrait; anything left over is shrunk to fit.
+     */
+    width?: number
+  }
   sparkline?: {
     enabled?: boolean
   }
@@ -1813,6 +2069,28 @@ type ApexTitleSubtitle = {
  * (`treemap`, `sunburst`). A branch may omit its own value and take the sum of
  * its children; a leaf supplies one.
  */
+/**
+ * One row of a `waterfall`.
+ *
+ * A step bar carries `y`, the signed amount it moves the running total by. A
+ * running-total bar carries `isSubtotal` (the sum of the steps since the last
+ * cut) or `isTotal` (the sum from zero) instead, and the library supplies the
+ * value. Every field is optional so a series can mix the two freely.
+ */
+type ApexWaterfallPoint = {
+  /** A category label, a timestamp, or a `Date`. */
+  x?: string | number | Date
+  /** The step. Omitted on a subtotal / total bar, which is measured for you. */
+  y?: number | null
+  /** Sum of the steps since the previous subtotal / total bar. */
+  isSubtotal?: boolean
+  /** Sum of every step from zero. */
+  isTotal?: boolean
+  /** Overrides the semantic fill from `plotOptions.waterfall.colors`. */
+  fillColor?: string
+  meta?: unknown
+}
+
 type ApexHierarchyNode = {
   /** The node's label. `name` is accepted as an alias. */
   x?: string | number
@@ -1842,6 +2120,12 @@ type ApexAxisChartSeries = {
  hidden?: boolean
  zIndex?: number
  parsing?: ApexParsing;
+ /**
+  * Trellis facet key: which panel this series belongs to. The blessed typed
+  * field for `trellis.by: 'facet'`; any other key name works from plain JS,
+  * and the `trellis.by` function form works from either.
+  */
+ facet?: string | number
  data:
  | (number | null)[]
  | {
@@ -1907,6 +2191,9 @@ type ApexAxisChartSeries = {
  // value of its own. Listed before the catch-all so authors get completion on
  // the node shape instead of falling through to `Record<string, any>`.
  | ApexHierarchyNode[]
+ // A waterfall, where a running-total row carries no `y` of its own. Same
+ // reason as the line above: completion on the row shape rather than `any`.
+ | ApexWaterfallPoint[]
  | Record<string, any>[];
 }[]
 
@@ -1968,6 +2255,13 @@ type AnnotationStyle = {
 }
 
 type XAxisAnnotations = {
+  /**
+   * Trellis (#22): which panels this annotation draws in. Absent or
+   * 'trellis' means every panel (projected through each panel's own scale);
+   * a panel key or list of keys limits it to those panels. Ignored outside a
+   * trellis host.
+   */
+  scope?: 'trellis' | string | string[]
   id?: number | string
   x?: null | number | string
   x2?: null | number | string
@@ -1987,6 +2281,13 @@ type XAxisAnnotations = {
 }
 
 type YAxisAnnotations = {
+  /**
+   * Trellis (#22): which panels this annotation draws in. Absent or
+   * 'trellis' means every panel (projected through each panel's own scale);
+   * a panel key or list of keys limits it to those panels. Ignored outside a
+   * trellis host.
+   */
+  scope?: 'trellis' | string | string[]
   id?: number | string
   y?: null | number | string
   y2?: null | number | string
@@ -2008,6 +2309,13 @@ type YAxisAnnotations = {
 }
 
 type PointAnnotations = {
+  /**
+   * Trellis (#22): which panels this annotation draws in. Absent or
+   * 'trellis' means every panel (projected through each panel's own scale);
+   * a panel key or list of keys limits it to those panels. Ignored outside a
+   * trellis host.
+   */
+  scope?: 'trellis' | string | string[]
   id?: number | string
   x?: number | string
   y?: null | number
@@ -2268,6 +2576,67 @@ type ApexTreemapLevel = {
   }
 }
 
+/**
+ * `plotOptions.bar.dumbbell`: `chart.type: 'dumbbell'`, and any range bar
+ * drawn `isDumbbell`.
+ *
+ * The connector's thickness is `plotOptions.bar.barHeight` (rows) or
+ * `columnWidth` (columns), and the size of the marked ends is `markers.size`:
+ * they are the bar and its markers, so they are configured as such.
+ */
+type ApexPlotOptionsDumbbell = {
+  connector?: {
+    /**
+     * A solid colour for the join. Left undefined, the connector is a gradient
+     * between the two endpoint colours, resolved per row so that a row where
+     * the measures cross still runs the right way.
+     */
+    color?: string
+    /** Default `0.55`. The join is context for the marked ends, not a third mark. */
+    opacity?: number
+  }
+  /**
+   * A value written at each end of the connector, in that end's own colour.
+   * Default on for `chart.type: 'dumbbell'`, off for the bare `isDumbbell`
+   * flag. With three or more measures only the two extremes are labelled:
+   * anything between them sits on the connector, where a label has nowhere to
+   * go that is not over the line or over its neighbour.
+   */
+  dataLabels?: {
+    enabled?: boolean
+    /** px clear of the marked end, outward from the connector. Default `6`. */
+    offset?: number
+    /** Default `true`: each label takes its own end's colour. */
+    colorFromMarker?: boolean
+    /**
+     * Formats one endpoint value. Defaults to the value axis' own label
+     * formatter, NOT `dataLabels.formatter` (on a range bar that one reads out
+     * `end - start`, which is the gap, not the endpoint).
+     */
+    formatter?(
+      value: number,
+      opts: {
+        seriesIndex: number
+        dataPointIndex: number
+        /** Which measure this end belongs to (its series index). */
+        endpointIndex: number
+        w: any
+      },
+    ): string
+    style?: {
+      fontSize?: string
+      fontFamily?: string
+      fontWeight?: string | number
+      /** Used when `colorFromMarker` is false; indexed by endpoint. */
+      colors?: string[]
+    }
+  }
+  tooltip?: {
+    /** Names the gap between two endpoints. Default `'Difference'`. */
+    differenceLabel?: string
+  }
+}
+
 type ApexPlotOptions = {
   line?: {
     isSlopeChart?: boolean
@@ -2287,12 +2656,18 @@ type ApexPlotOptions = {
     distributed?: boolean
     borderRadius?: number;
     borderRadiusApplication?: 'around' | 'end';
-    borderRadiusWhenStacked?: 'all' | 'last';
     hideZeroBarsWhenGrouped?: boolean
     rangeBarOverlap?: boolean
     rangeBarGroupRows?: boolean
     isDumbbell?: boolean;
+    /**
+     * Endpoint colours for the `y: [lo, hi]` form, per series:
+     * `[[startColor, endColor]]`. `chart.type: 'dumbbell'` with one series per
+     * measure takes its colours from `colors` instead, so that each dot is
+     * coloured after the series it belongs to.
+     */
     dumbbellColors?: string[][];
+    dumbbell?: ApexPlotOptionsDumbbell;
     isFunnel?: boolean;
     isFunnel3d?: boolean;
     colors?: {
@@ -2328,6 +2703,13 @@ type ApexPlotOptions = {
     zScaling?: boolean
     minBubbleRadius?: number
     maxBubbleRadius?: number
+    /**
+     * Explicit z window for the size scale. Expands the data's own z extent,
+     * never clamps it, so several bubble charts can share one size scale
+     * (a trellis pushes the union extent through these).
+     */
+    minZ?: number
+    maxZ?: number
   }
   scatter?: {
     /**
@@ -2448,6 +2830,41 @@ type ApexPlotOptions = {
      * categories.
      */
     normalize?: 'individual' | 'group'
+    /**
+     * Which side(s) of the category centerline the density is drawn on.
+     * 'both' (default) is the classic symmetric violin; 'left'/'right'
+     * (vertical charts) and 'top'/'bottom' (horizontal charts) draw a
+     * half-violin — the curve on that side, a flat baseline on the other.
+     * The raincloud chart type presets this ('right', or 'top' when
+     * horizontal).
+     */
+    side?: 'both' | 'left' | 'right' | 'top' | 'bottom'
+    /**
+     * A five-number-summary box beside the density (the raincloud
+     * "umbrella"; also available on a plain violin). Drawn only when a datum
+     * carries `y.summary` — supplied directly as
+     * `[whiskerLow, q1, median, q3, whiskerHigh]`, or derived from the raw
+     * sample by the raincloud feature. The rain/jitter layer is the outlier
+     * display, so the box draws no outlier dots of its own.
+     */
+    box?: {
+      /** Defaults to false; the raincloud preset turns it on. */
+      show?: boolean
+      /** Fraction of the category slot reserved for the box lane ('15%'). */
+      width?: string | number
+      /**
+       * How the deriving transform places the whiskers: at the data extremes
+       * ('minmax', default) or at 1.5*IQR fences clamped to the data
+       * ('tukey', the raincloud preset). A hand-supplied summary is drawn as
+       * given.
+       */
+      whiskers?: 'minmax' | 'tukey'
+      strokeWidth?: number
+      /** Box fill. Defaults to the series colour. */
+      fillColor?: string
+      /** Whisker cap length, 0..1 of the box lane width. Defaults to 0.5. */
+      capWidth?: number
+    }
     /** Individual observations ("jitter") overlaid on the violin shape. */
     points?: {
       show?: boolean
@@ -2458,6 +2875,15 @@ type ApexPlotOptions = {
       jitter?: number
       /** Clamp jitter to the density width at each value so points stay inside. */
       constrainToViolin?: boolean
+      /**
+       * 'center' (default) scatters across the slot centerline, under the
+       * density. 'left'/'right'/'top'/'bottom' move the dots into their own
+       * lane on that side — the raincloud "rain" (preset 'left', or 'bottom'
+       * when horizontal). Off-center dots ignore `constrainToViolin`.
+       */
+      position?: 'center' | 'left' | 'right' | 'top' | 'bottom'
+      /** Fraction of the category slot for the off-center lane ('40%'). */
+      laneWidth?: string | number
       /** Cap per violin; observations beyond this are stride-thinned. */
       maxPoints?: number
       opacity?: number
@@ -2533,6 +2959,18 @@ type ApexPlotOptions = {
     overlap?: boolean
   }
   heatmap?: {
+    /**
+     * Cell shape. `'circle'` and `'diamond'` are inscribed in the cell box.
+     * `'hexagon'` renders a honeycomb tilemap: alternate rows are offset by
+     * half a cell so the hexagons tessellate, each column's tick sits between
+     * its two row positions, and the lattice's overhang is reserved as extra
+     * grid padding automatically so offset rows never cover the axis labels.
+     * Hexagon applies to the categorical layout only (a numeric/datetime
+     * x axis falls back to `'rect'`). Non-rect shapes ignore `radius` and
+     * always render as SVG. Default `'rect'`.
+     */
+    shape?: 'rect' | 'hexagon' | 'circle' | 'diamond'
+    /** Cell corner radius; applies to the `'rect'` shape only. */
     radius?: number
     enableShades?: boolean
     shadeIntensity?: number
@@ -2558,6 +2996,126 @@ type ApexPlotOptions = {
        * orientation flips to point at the strip from the chart-facing side.
        */
       gradientLegend?: ApexGradientLegend
+    }
+  }
+  waterfall?: {
+    /**
+     * Semantic fills for the three kinds of bar. A datum's own `fillColor`
+     * always wins over these.
+     */
+    colors?: {
+      /** A step that raises the running total. Default `'#00A86F'`. */
+      positive?: string
+      /** A step that lowers it. Default `'#FF4560'`. */
+      negative?: string
+      /**
+       * An `isSubtotal` bar. Defaults to the series colour from the active
+       * palette, so the running totals stay distinct from the steps and still
+       * follow the theme.
+       */
+      subtotal?: string
+      /** An `isTotal` bar. Same default as `subtotal`. */
+      total?: string
+    }
+    /**
+     * The segments joining each bar's finish to the next one's start. Without
+     * them the floating columns read as unrelated bars rather than one walk.
+     */
+    connectors?: {
+      /** Default `true`. */
+      show?: boolean
+      /** Defaults to `grid.borderColor`, so it is theme-aware. */
+      color?: string
+      /** Default `1`. */
+      strokeWidth?: number
+      /** Default `3`. */
+      strokeDashArray?: number
+    }
+  }
+  streamgraph?: {
+    /**
+     * Where the baseline goes.
+     *
+     * - `'wiggle'` (default) minimizes the total weighted slope of the bands,
+     *   so the thick ones stay level. This is the classic streamgraph.
+     * - `'silhouette'` centres the stack on one horizontal line.
+     * - `'zero'` is an ordinary stacked area, on the zero line.
+     * - `'expand'` normalizes each column to its own total, so the chart reads
+     *   as composition rather than volume.
+     */
+    offset?: 'wiggle' | 'silhouette' | 'zero' | 'expand'
+    /**
+     * The order the bands stack in, bottom first.
+     *
+     * - `'inside-out'` (default) puts the series that peak earliest in the
+     *   middle and fans later peaks outward, each band going to whichever side
+     *   is currently thinner. The middle of the stack moves least under a
+     *   wiggle baseline, so this is what keeps a streamgraph readable.
+     * - `'inverse'` is the series order, reversed.
+     * - `'none'` is the series order as given.
+     */
+    order?: 'inside-out' | 'inverse' | 'none'
+    /**
+     * Hovering a band fades the others — the surface's only acknowledgement
+     * that it can be used.
+     *
+     * It fades the others rather than marking the hovered band because the
+     * bands touch edge to edge and leave no room to mark anything: a drop
+     * shadow falls onto both neighbours, and an edge stroke is centred on a
+     * boundary the band shares. Fading needs no room, and it leaves the hovered
+     * band's colour exactly as it was.
+     *
+     * A faded band's name is recoloured to `chart.foreColor` rather than faded
+     * with it: the name takes black or white by the contrast of the band at
+     * full strength, so fading the band alone would leave white text on a band
+     * that has gone pale.
+     */
+    hover?: {
+      /** Default `true`. */
+      show?: boolean
+      /**
+       * What the other bands drop to. Default `0.35`; much above ~0.5 the
+       * hovered band stops reading as picked out.
+       */
+      opacity?: number
+    }
+    /**
+     * The series name written on the band itself, where that band is thickest.
+     * On by default: a drifting band is far easier to find by its own name than
+     * by matching a colour to a key, which leaves the legend free to be the
+     * thing you click rather than the only place the names appear.
+     */
+    labels?: {
+      /** Default `true`. */
+      show?: boolean
+      /**
+       * A band narrower than this many pixels is left unlabelled rather than
+       * given a name truncated past the point of being a name. Default `24`.
+       */
+      minWidth?: number
+      /** Lower bound for `fontSize: 'auto'`, in px. Default `9`. */
+      minFontSize?: number
+      /** Upper bound for `fontSize: 'auto'`, in px. Default `30`. */
+      maxFontSize?: number
+      style?: {
+        /**
+         * `'auto'` (default) sizes each name to the band it sits on, bounded by
+         * `minFontSize` / `maxFontSize`. That is the convention of the form: a
+         * streamgraph's claim is that thickness is quantity, and one fixed size
+         * states it in the same voice for a band carrying half the total and
+         * one carrying a rounding error. Give a literal (`'12px'`) to draw
+         * every name at the same size.
+         */
+        fontSize?: string
+        fontFamily?: string
+        /** Default `600`. */
+        fontWeight?: string | number
+        /**
+         * Per-series override. By default each label takes black or white,
+         * whichever reads on its own band.
+         */
+        colors?: string[]
+      }
     }
   }
   funnel?: {
@@ -2782,8 +3340,41 @@ type ApexPlotOptions = {
      * per-unit object form with unique ids/names.
      */
     transition?: 'group' | 'flow' | 'identity'
-    /** Mark shape for each unit. `'image'` renders an icon (isotype pictogram). */
-    shape?: 'circle' | 'square' | 'image'
+    /**
+     * What ONE unit looks like. Independent of `layout`, which is where the
+     * units go, so `positions: heart` with `shape: 'pictogram'` arranges glyphs
+     * into a heart and every other pairing is equally valid.
+     *
+     * `'image'` fetches a raster / multi-colour icon; `'pictogram'` draws a
+     * vector glyph (see `pictogram`) and is the one that scales to thousands
+     * of units.
+     */
+    shape?: 'circle' | 'square' | 'image' | 'pictogram'
+    /**
+     * `shape: 'pictogram'`. A glyph is drawn as one `<path>` per unit, filled
+     * in that unit's own colour - no request, no decode, and no recolour
+     * filter.
+     *
+     * There is deliberately no size: a glyph is fitted to the box the dot
+     * itself would have occupied, so `size` and `spacing` size a pictogram
+     * exactly as they size a dot.
+     */
+    pictogram?: {
+      /**
+       * The glyph: a registered name, a `{path, viewBox?, fillRule?}` object,
+       * raw path data, or an array (one per series). A datum's own `mark`
+       * overrides all of it, so one crowd can mix glyphs.
+       */
+      mark?: ApexUnitMarkRef | ApexUnitMarkRef[]
+      /** Which side of the glyph binds to the dot's box. */
+      fit?: 'contain' | 'width' | 'height'
+      /** Nudge for glyphs that read light. */
+      scale?: number
+      /** 0..0.9 of the pitch, opening the lattice up. */
+      padding?: number
+      /** Drawn when a mark cannot be resolved. */
+      fallback?: 'circle' | 'square'
+    }
     /** Icon used when `shape: 'image'`. */
     image?: {
       /** Icon URL or data URI. */
@@ -3494,6 +4085,18 @@ type ApexMarkers = {
     size?: number
     sizeOffset?: number
   }
+  /**
+   * Opt-in (default 0 = off). Above this many points in a series, that series'
+   * markers are drawn as one path element per marker size (a subpath per point)
+   * instead of one element per point, which cuts the cost of a marker-heavy
+   * render several-fold. Also covers the markers `showNullDataPoints` adds to
+   * isolated points, which is what makes a null-heavy series slow even at
+   * `size: 0`. Not pixel-identical: overlapping markers are rasterized as one
+   * region and lose their individual outlines, so dense clusters read flatter.
+   * Only applies where markers are already non-interactive and uniform, and
+   * such a series has no `.apexcharts-marker` nodes.
+   */
+  largeDatasetThreshold?: number
 }
 
 type ApexNoData = {
@@ -3555,9 +4158,10 @@ type ApexDataLabels = {
   }
   dropShadow?: ApexDropShadow
   /**
-   * Ride data labels to their new position on a data-change update (e.g. a bar
-   * chart race) instead of snapping. Off by default. Bar/column only; speed and
-   * easing follow chart.animations.dynamicAnimation.
+   * Ride data labels to their new position on a data-change update instead of
+   * snapping. On by default, so labels reflow on the same clock as the bars,
+   * markers and axis ticks. Bar/column only; speed and easing follow
+   * chart.animations.dynamicAnimation.
    */
   animate?: {
     enabled?: boolean
@@ -3597,6 +4201,15 @@ type ApexTooltip = {
   intersect?: boolean
   inverseOrder?: boolean
   arrow?: boolean
+  /**
+   * One tight line instead of a card: the x label sits inline before the
+   * value, the marker goes, the padding and font shrink. Meant for panels a
+   * normal card would cover (small multiples, sparklines, dashboard tiles).
+   * A single-series chart also drops the series-name label; with several
+   * series the names stay, since they are what tells the rows apart.
+   * @default false
+   */
+  compact?: boolean
   custom?:
     | ((opts: ApexTooltipCustomOpts) => string | number | Element | { nodeName: string })
     | Array<(opts: ApexTooltipCustomOpts) => string | number | Element | { nodeName: string }>
@@ -3977,6 +4590,23 @@ interface ApexUnitPosition {
  * coordinates. Omitting a mark's id removes it, and it animates out through the
  * normal exit path.
  */
+/**
+ * One glyph a unit can be drawn as. Fill-only: the chart positions a mark with
+ * a uniform `scale()` fitted to the radius the layout chose, so any stroke
+ * width would scale with it.
+ */
+interface ApexUnitMarkDef {
+  name?: string
+  /** Outline path data, in `viewBox` units. */
+  path: string
+  /** Defaults to `[0, 0, 100, 100]`, the catalog's convention. */
+  viewBox?: [number, number, number, number]
+  fillRule?: 'nonzero' | 'evenodd'
+}
+
+/** A registered mark name, raw path data, or the mark itself. */
+type ApexUnitMarkRef = string | ApexUnitMarkDef
+
 type ApexUnitLayout = (
   objects: ApexUnitObject[],
   rect: { x: number; y: number; width: number; height: number },

@@ -4,6 +4,7 @@ import CoreUtils from './modules/CoreUtils'
 import DataLabels from './modules/DataLabels'
 import PerformanceCache from './utils/PerformanceCache'
 import Defaults from './modules/settings/Defaults'
+import { TYPE_ALIASES } from './modules/settings/TypeAliases'
 import Grid from './modules/axes/Grid'
 import Markers from './modules/Markers'
 import Range from './modules/Range'
@@ -26,6 +27,10 @@ import {
   registerUnitLayout,
   unregisterUnitLayout,
 } from './modules/UnitLayoutRegistry'
+import {
+  registerUnitMark,
+  unregisterUnitMark,
+} from './modules/UnitMarkRegistry'
 import {
   registerRowSource,
   unregisterRowSource,
@@ -82,6 +87,7 @@ export default class ApexCharts {
   /** @type {any} */ tooltip
   /** @type {any} */ data
   /** @type {any} */ animations
+
   /** @type {any} */ exports
   /** @type {any} */ legend
   /** @type {any} */ toolbar
@@ -97,15 +103,23 @@ export default class ApexCharts {
   /** @type {string[]} */ publicMethods = []
   /** @type {string[]} */ eventList = []
   /** @type {Promise<any> | null} */ _renderPromise = null
+  /** @type {number | null} */ _parentResizeWaiter = null
+  /** @type {{width: any, viewBoxAdded?: boolean, minHeight?: string} | null} */
+  _printRestore = null
+  /** @type {any} */ beforePrintHandler
+  /** @type {any} */ afterPrintHandler
   /** @type {any} */ config
   /** @type {any} */ perspectives
   /** @type {any} */ storyboard
   /** @type {any} */ history
   /** @type {any} */ linkedViews
+  /** @type {any} */ trellis
   /** @type {any} */ ink
   /** @type {any} */ measure
   /** @type {any} */ contextMenu
   /** @type {any} */ weave
+  /** @type {any} */ waterfall
+  /** @type {any} */ streamgraph
   /** @type {any} */ renderer
   /** @type {any} */ rendererController
 
@@ -157,6 +171,8 @@ export default class ApexCharts {
     if (Environment.isBrowser()) {
       this.windowResizeHandler = this._windowResizeHandler.bind(this)
       this.parentResizeHandler = this._parentResizeCallback.bind(this)
+      this.beforePrintHandler = this._beforePrint.bind(this)
+      this.afterPrintHandler = this._afterPrint.bind(this)
     }
   }
 
@@ -202,13 +218,98 @@ export default class ApexCharts {
 
         this.events.fireEvent('beforeMount', [this, this.w])
 
+        // Trellis (#22): a host carrying `trellis.by` (or `row`/`column`,
+        // P4) delegates rendering to the orchestrator (real panel charts in
+        // a coordinated grid) instead of the single-chart pipeline. Resolved
+        // here, before the resize listeners: the trellis owns relayout
+        // through its own container ResizeObserver, so the host must not
+        // self-rerender on resize.
+        const trellisCfg = this.w.config.trellis
+        const wantsTrellis = !!(
+          trellisCfg &&
+          (trellisCfg.by || trellisCfg.row || trellisCfg.column)
+        )
+        const isTrellisHost = !!(
+          wantsTrellis &&
+          this.trellis &&
+          this.trellis.isActive()
+        )
+        if (wantsTrellis && !this.trellis) {
+          console.warn(
+            "ApexCharts: `trellis` requires the trellis feature, which is not in the default bundle. Bundler: import 'apexcharts/features/trellis'. Script tag: add <script src='.../dist/features/trellis.js'> after apexcharts.js. Rendering as a single chart.",
+          )
+        }
+
+        // Same guard for the measure ruler: asking for it without the feature
+        // present used to fail in total silence, which is the worst possible
+        // outcome for someone whose chart stopped having a ruler after an
+        // upgrade. Config-driven, so it fires whether or not they ever call
+        // startMeasure().
+        if (this.w.config.chart?.measure?.enabled && !this.measure) {
+          console.warn(
+            "ApexCharts: `chart.measure` requires the measure feature, which is not in the default bundle. Bundler: import 'apexcharts/features/measure'. Script tag: add <script src='.../dist/features/measure.js'> after apexcharts.js.",
+          )
+        }
+
+        // And for linked views. `chart.link` carries the crossfilter dimension
+        // config too, so an absent feature means the chart quietly stops
+        // participating in its dashboard rather than erroring anywhere.
+        if (this.w.config.chart?.link?.enabled && !this.linkedViews) {
+          console.warn(
+            "ApexCharts: `chart.link` requires the link feature, which is not in the default bundle. Bundler: import 'apexcharts/features/link'. Script tag: add <script src='.../dist/features/link.js'> after apexcharts.js.",
+          )
+        }
+
+        // And for the ink layer. Two ways in, so check both: the global switch
+        // and a single annotation asking to be draggable. Without the feature
+        // the annotation still DRAWS, it just cannot be moved, which is exactly
+        // the kind of half-working state nobody thinks to file a bug about.
+        if (!this.ink) {
+          const inkOn = this.w.config.chart?.ink?.enabled
+          const anyDraggable = (this.w.config.annotations?.points ?? []).some(
+            (/** @type {any} */ p) => p && p.draggable,
+          )
+          if (inkOn || anyDraggable) {
+            console.warn(
+              "ApexCharts: `chart.ink` / `annotations.points[].draggable` requires the ink feature, which is not in the default bundle. Bundler: import 'apexcharts/features/ink'. Script tag: add <script src='.../dist/features/ink.js'> after apexcharts.js.",
+            )
+          }
+        }
+
+        // And for the context menu. Absent, the browser's own menu opens on
+        // right-click, which looks enough like "nothing happened" that it
+        // reads as a broken build rather than a missing import.
+        if (this.w.config.chart?.contextMenu?.enabled && !this.contextMenu) {
+          console.warn(
+            "ApexCharts: `chart.contextMenu` requires the context-menu feature, which is not in the default bundle. Bundler: import 'apexcharts/features/context-menu'. Script tag: add <script src='.../dist/features/context-menu.js'> after apexcharts.js.",
+          )
+        }
+
+        // And for Rewind. Absent, edits still apply and simply cannot be undone
+        // — Ctrl-Z does nothing, which users read as a lost keystroke rather
+        // than a missing feature.
+        if (this.w.config.chart?.history?.enabled && !this.history) {
+          console.warn(
+            "ApexCharts: `chart.history` requires the history feature, which is not in the default bundle. Bundler: import 'apexcharts/features/history'. Script tag: add <script src='.../dist/features/history.js'> after apexcharts.js.",
+          )
+        }
+
         // add event listeners in browser environment
         if (Environment.isBrowser()) {
-          window.addEventListener('resize', this.windowResizeHandler)
-          addResizeListener(
-            /** @type {HTMLElement} */ (this.el.parentNode),
-            this.parentResizeHandler,
-          )
+          if (!isTrellisHost) {
+            window.addEventListener('resize', this.windowResizeHandler)
+            addResizeListener(
+              /** @type {HTMLElement} */ (this.el.parentNode),
+              this.parentResizeHandler,
+            )
+            // Printing reports no resize of any kind, so it needs its own pair
+            // of hooks. Same function references every time, so a second
+            // render() cannot double-register them.
+            if (this._printEnabled()) {
+              window.addEventListener('beforeprint', this.beforePrintHandler)
+              window.addEventListener('afterprint', this.afterPrintHandler)
+            }
+          }
 
           const rootNode = /** @type {any} */ (
             this.el.getRootNode && this.el.getRootNode()
@@ -239,6 +340,30 @@ export default class ApexCharts {
               doc.head.appendChild(css)
             }
           }
+        }
+
+        if (isTrellisHost) {
+          this.trellis
+            .render()
+            .then(() => {
+              // License: the trellis is a gated premium feature; the enforcer
+              // addresses the host through w.dom.elWrap, which the trellis
+              // orchestrator has just populated.
+              enforceLicense(this.w, this)
+              if (typeof this.w.config.chart.events.mounted === 'function') {
+                this.w.config.chart.events.mounted(this, this.w)
+              }
+              this.events.fireEvent('mounted', [this, this.w])
+              resolve(this)
+            })
+            .catch((/** @type {any} */ e) => {
+              const enriched = e instanceof Error ? e : new Error(String(e))
+              const err = /** @type {any} */ (enriched)
+              err.chartId = this.w?.globals?.chartID
+              err.el = this.el
+              reject(enriched)
+            })
+          return
         }
 
         const graphData = this.create(this.w.config.series, {})
@@ -522,6 +647,15 @@ export default class ApexCharts {
         }
       }
 
+      // Waterfall: the segments joining each floating column to the next. Drawn
+      // from the geometry the bars were committed at, so it has to follow them.
+      me.waterfall?.drawConnectors()
+
+      // Streamgraph: the names written on the bands, and the hover outline.
+      // Both are placed from the geometry the bands were committed at, so they
+      // have to follow them.
+      me.streamgraph?.draw()
+
       if (w.config.xaxis.crosshairs.position === 'front') {
         me.crosshairs.drawXCrosshairs()
       }
@@ -639,6 +773,12 @@ export default class ApexCharts {
    * After calling this, the instance should not be used again.
    */
   destroy() {
+    // Trellis (#22): destroy every panel (each unregisters itself from
+    // Apex._chartInstances), disconnect the container observer and drop the
+    // grid DOM before the host's own teardown runs.
+    if (this.trellis) {
+      this.trellis.teardown()
+    }
     // allow a fresh render() on this instance after teardown
     this._renderPromise = null
     // remove event listeners in browser environment
@@ -651,6 +791,10 @@ export default class ApexCharts {
       // cancel any pending resize redraw so a queued update() can't run against
       // a torn-down chart after destroy(). See react-apexcharts#602.
       clearTimeout(this.w.globals.resizeTimer ?? undefined)
+      clearTimeout(this._parentResizeWaiter ?? undefined)
+      this._parentResizeWaiter = null
+      window.removeEventListener('beforeprint', this.beforePrintHandler)
+      window.removeEventListener('afterprint', this.afterPrintHandler)
     }
     // remove the chart's instance from the global Apex._chartInstances
     const chartID = this.w.config.chart.id
@@ -708,6 +852,16 @@ export default class ApexCharts {
       )
       options = { ...options }
       delete options.series
+    }
+
+    // Trellis (#22): an option change on a live trellis host is structural
+    // (it can move the split, the scales, the layout or any panel option), so
+    // it merges into the host's config and re-renders the whole grid.
+    if (this.trellis && this.trellis._mounted) {
+      this.opts = Utils.extend(this.opts || {}, options || {})
+      this.w.config = Utils.extend(w.config, options || {})
+      this.trellis.teardown()
+      return this.render()
     }
 
     // when called externally, clear some global variables
@@ -806,6 +960,12 @@ export default class ApexCharts {
       )
       return Promise.resolve(this)
     }
+    // Trellis (#22): the host re-splits and fans the new slices out to its
+    // panels (same key set: in-place panel updates; changed key set: a full
+    // trellis re-render).
+    if (this.trellis && this.trellis._mounted) {
+      return this.trellis.updateSeries(newSeries, animate)
+    }
     this.data.resetParsingFlags()
 
     // clears collapse/path bookkeeping without restoring (and deep-cloning)
@@ -860,17 +1020,29 @@ export default class ApexCharts {
       me.series.getPreviousPaths()
     }
 
-    // Histogram: config.series holds the binned rows, and the only copy of the
-    // sample is the raw stash, so new observations are appended there and the
-    // bars are recomputed from the enlarged sample. Appending to the binned
-    // rows instead would add bars whose x is an observation value.
-    const histRaw = me.w.globals.histogramRawSeries
-    if (histRaw) {
-      for (let i = 0; i < histRaw.length; i++) {
+    // Histogram, waterfall and dumbbell: `config.series` holds rows this
+    // library derived (binned counts, accumulated [start, end] pairs, merged
+    // endpoints) and the raw stash is the only copy of the input. New rows are
+    // appended THERE and the derivation re-runs over the enlarged input.
+    // Appending to the derived rows instead would add bars whose x is an
+    // observation value, or whose y is a level rather than a step with the walk
+    // restarting from zero at the join, or endpoints appended to the one series
+    // that happens to be carrying the merge.
+    const derivedRaw =
+      me.w.globals.histogramRawSeries ||
+      me.w.globals.waterfallRawSeries ||
+      me.w.globals.dumbbellRawSeries ||
+      me.w.globals.streamgraphRawSeries
+    if (derivedRaw) {
+      for (let i = 0; i < derivedRaw.length; i++) {
         const src = /** @type {any} */ (newData[i])
-        if (src && Array.isArray(src.data) && Array.isArray(histRaw[i].data)) {
+        if (
+          src &&
+          Array.isArray(src.data) &&
+          Array.isArray(derivedRaw[i].data)
+        ) {
           for (let j = 0; j < src.data.length; j++) {
-            histRaw[i].data.push(src.data[j])
+            derivedRaw[i].data.push(src.data[j])
           }
         }
       }
@@ -966,10 +1138,9 @@ export default class ApexCharts {
           // as the series morph (no-op otherwise; consumes prevChromeFrame).
           applyAxisTransition(this.w)
 
-          // Opt-in bar-chart-race polish: ride data labels to their new slot
-          // and count their value up, on the same clock as the morph (no-op
-          // unless dataLabels.animate/countUp is enabled and a frame was
-          // captured this update).
+          // Ride data labels to their new slot (and, opt-in, count their value
+          // up) on the same clock as the morph. No-op when nothing moved or no
+          // frame was captured this update.
           applyDataLabelTransition(this.w)
 
           if (typeof this.w.config.chart.events.updated === 'function') {
@@ -1331,6 +1502,36 @@ export default class ApexCharts {
           dataLabels.dataLabelsBackground()
         }
 
+        // Waterfall connectors: the series above were redrawn, so the layer
+        // that joins them is stale. drawConnectors replaces it in place.
+        this.waterfall?.drawConnectors()
+
+        // Same for the streamgraph chrome: the bands moved, so the names
+        // sitting on them are in the wrong places until this replaces them,
+        // and any hover outline is tracing a shape that has gone.
+        this.streamgraph?.draw()
+
+        // Same reflow tweens the full render runs, and for the same reason: a
+        // same-shape updateSeries is the MOST common update there is, and it
+        // lands here, not in update(). Without these the ruler and the labels
+        // snap to their final places on the first frame while the marks morph
+        // for another few hundred ms. Both consume the frame captured by
+        // Series.getPreviousPaths() before this render, and both no-op when
+        // nothing moved, including when the scale did not change and the axis
+        // chrome was preserved in place rather than redrawn.
+        //
+        // Ordering: after bringForward()/dataLabelsBackground(), so a label
+        // group is in its final parent with its background rect inside it and
+        // one translate carries the pair.
+        //
+        // A streaming scroll is the one case that opts out of the ruler tween:
+        // StreamScroll is already producing continuous motion many times a
+        // second, so sliding every tick label on top of it buys nothing visible
+        // and the extra per-frame DOM writes show up as velocity jitter in the
+        // scroll itself.
+        if (!gl.streamScrolled) applyAxisTransition(w)
+        applyDataLabelTransition(w)
+
         // Reattach tooltip event listeners to new series elements.
         if (Environment.isBrowser() && w.config.tooltip.enabled && !gl.noData) {
           w.globals.tooltip?.drawTooltip(xyRatios)
@@ -1366,6 +1567,27 @@ export default class ApexCharts {
     const group = /** @type {ApexCharts[]} */ (this.getGroupedCharts())
     group.splice(0, 0, this)
     return group
+  }
+
+  /**
+   * Trellis (#22): the panels of a trellis host, in grid order. Empty for a
+   * chart that is not a trellis.
+   *
+   * @returns {Array<{ key: string, index: number, chart: ApexCharts|null, el: HTMLElement|null }>}
+   */
+  getPanels() {
+    return this.trellis ? this.trellis.getPanels() : []
+  }
+
+  /**
+   * Trellis (#22): one panel's own ApexCharts instance by facet key — the
+   * escape hatch to every per-chart API the trellis does not re-expose.
+   *
+   * @param {string} key
+   * @returns {ApexCharts|null}
+   */
+  getPanel(key) {
+    return this.trellis ? this.trellis.getPanel(key) : null
   }
 
   /**
@@ -1407,6 +1629,32 @@ export default class ApexCharts {
       (/** @type {any} */ ch) => ch.id === chartId,
     )[0]
     return c && c.chart
+  }
+
+  /**
+   * Trellis (#22): imperative entry point. Creates a trellis host and starts
+   * rendering it; `render()` is idempotent, so `await chart.render()` on the
+   * returned instance settles with the same in-flight mount.
+   *
+   * Requires the trellis feature, which is NOT in the default bundle
+   * (`import 'apexcharts/features/trellis'`, or add `dist/features/trellis.js`
+   * after apexcharts.js on a script-tag page); warns and returns null otherwise.
+   *
+   * @param {HTMLElement} el
+   * @param {ApexOptions} options must carry `trellis.by` (or `trellis.row`
+   *   / `trellis.column` for a 2-D grid)
+   * @returns {ApexCharts|null}
+   */
+  static trellis(el, options) {
+    if (!InitCtxVariables._featureRegistry.get('trellis')) {
+      console.warn(
+        "ApexCharts.trellis requires the trellis feature, which is not in the default bundle. Bundler: import 'apexcharts/features/trellis'. Script tag: add <script src='.../dist/features/trellis.js'> after apexcharts.js.",
+      )
+      return null
+    }
+    const chart = new ApexCharts(el, options)
+    chart.render()
+    return chart
   }
 
   /**
@@ -1586,7 +1834,13 @@ export default class ApexCharts {
     // custom type shadow a built-in would silently break every chart on the
     // page. Re-registering a CUSTOM name replaces it (idempotent, like
     // registerPlugin); a built-in name is rejected.
-    if (hasChartClass(name) && !isCustom(name)) {
+    //
+    // An alias name (`dumbbell`, `funnel`, `gauge`, ...) is rejected on the same
+    // grounds even though it has no class of its own: Config normalizes it to
+    // the renderer it routes to before dispatch ever reaches the registry, so a
+    // custom type registered under one of those names would take the
+    // registration and then never be drawn.
+    if ((hasChartClass(name) && !isCustom(name)) || TYPE_ALIASES[name]) {
       console.warn(
         `[apexcharts] registerSeriesType("${name}") would override the built-in "${name}" chart type; pick another name.`,
       )
@@ -1684,6 +1938,43 @@ export default class ApexCharts {
   }
 
   /**
+   * Register a named unit-chart MARK (pictogram), referenceable via
+   * `plotOptions.unit.pictogram.mark: '<name>'` with
+   * `plotOptions.unit.shape: 'pictogram'`.
+   *
+   * This is the twin of registerUnitLayout, and the split between them is the
+   * one the unit chart is built on: a LAYOUT is where the marks go, a MARK is
+   * what one of them looks like. They compose freely - a person glyph arranged
+   * into a heart, a house glyph on a waffle grid - so neither has to know about
+   * the other.
+   *
+   * A mark is fill-only path data. The chart positions it with a uniform
+   * `scale()` fitted to the radius the layout chose, so the glyph occupies the
+   * box the dot would have and any stroke width would scale with it.
+   *
+   * @param {string} name  the mark name, e.g. 'person'
+   * @param {string|any} def path data in a 0..100 box, or
+   *   `{path, viewBox?, fillRule?}`
+   * @returns {typeof ApexCharts}
+   */
+  static registerUnitMark(name, def) {
+    registerUnitMark(name, def)
+    return ApexCharts
+  }
+
+  /**
+   * Remove a mark registered via registerUnitMark. Charts referencing it by
+   * name fall back to `plotOptions.unit.pictogram.fallback` on their next
+   * render.
+   * @param {string} name
+   * @returns {typeof ApexCharts}
+   */
+  static unregisterUnitMark(name) {
+    unregisterUnitMark(name)
+    return ApexCharts
+  }
+
+  /**
    * Register a row source: given a chart's state, what rows is each of its
    * marks standing for?
    *
@@ -1748,9 +2039,11 @@ export default class ApexCharts {
    * reduction under `chart.link`. Selecting in one chart re-aggregates the
    * others over the filtered subset.
    *
-   * Lives in core (always callable) but the engine ships in the `link` feature
-   * (`import 'apexcharts/features/link'`, included in the full bundle); without
-   * it this warns and returns null so the engine shakes out when unused.
+   * Lives in core (always callable) but the engine ships in the `link` feature,
+   * which is NOT in the default bundle (`import 'apexcharts/features/link'`, or
+   * add `dist/features/link.js` after apexcharts.js on a script-tag page);
+   * without it this warns and returns null so the engine shakes out when
+   * unused.
    *
    * @param {{ id: string, records?: any[] }} opts
    * @returns {any} the coordinator handle, or null if the feature is absent
@@ -1765,7 +2058,7 @@ export default class ApexCharts {
     const factory = /** @type {any} */ (ApexCharts)._crossfilterFactory
     if (!factory) {
       console.warn(
-        `[apexcharts] ApexCharts.crossfilter(...) requires the link feature: import 'apexcharts/features/link'.`,
+        `[apexcharts] ApexCharts.crossfilter(...) requires the link feature, which is not in the default bundle. Bundler: import 'apexcharts/features/link'. Script tag: add <script src='.../dist/features/link.js'> after apexcharts.js.`,
       )
       return null
     }
@@ -2156,6 +2449,11 @@ export default class ApexCharts {
       throw new Error(
         'apexcharts: Exports feature is not registered. Import apexcharts/features/exports.',
       )
+    // Trellis (#22, P3): a trellis host exports ONE composed image of the
+    // whole grid (its panels' own export paths do the per-panel work).
+    if (this.trellis && this.trellis._mounted) {
+      return this.trellis.exports.dataURI(options)
+    }
     return this.ctx.exports.dataURI(options)
   }
 
@@ -2171,6 +2469,9 @@ export default class ApexCharts {
       throw new Error(
         'apexcharts: Exports feature is not registered. Import apexcharts/features/exports.',
       )
+    if (this.trellis && this.trellis._mounted) {
+      return this.trellis.exports.svgString()
+    }
     return this.ctx.exports.getSvgString(scale)
   }
 
@@ -2185,7 +2486,32 @@ export default class ApexCharts {
       throw new Error(
         'apexcharts: Exports feature is not registered. Import apexcharts/features/exports.',
       )
+    if (this.trellis && this.trellis._mounted) {
+      return this.trellis.exports.download('csv')
+    }
     return this.ctx.exports.exportToCSV(options)
+  }
+
+  /**
+   * Trellis (#22, P3): expand one panel to the grid's full width (what
+   * clicking its header does). No-op on a chart that is not a trellis host.
+   * @param {string} key the panel's facet key
+   * @returns {Promise<void>}
+   */
+  promotePanel(key) {
+    return this.trellis && this.trellis._mounted
+      ? this.trellis.promote(key)
+      : Promise.resolve()
+  }
+
+  /**
+   * Trellis (#22, P3): restore the grid from a panel promotion.
+   * @returns {Promise<void>}
+   */
+  restorePanels() {
+    return this.trellis && this.trellis._mounted
+      ? this.trellis.restorePromotion()
+      : Promise.resolve()
   }
 
   paper() {
@@ -2335,11 +2661,162 @@ export default class ApexCharts {
   }
 
   _parentResizeCallback() {
+    if (!this.w.config.chart.redrawOnParentResize) return
+
+    // The container can change size while the chart is animating: a sidebar
+    // collapsing just after load, or a resize landing in the middle of an
+    // updateSeries on a live dashboard. Redrawing right then would cancel the
+    // running animation, but simply dropping the resize left the chart stuck at
+    // its old width for good, because a ResizeObserver reports each size change
+    // exactly once and nothing ever asks again (#1584). Wait for the animation
+    // to finish, then re-check the container.
+    if (!this.w.globals.animationEnded) {
+      this._deferParentResize()
+      return
+    }
+
+    this._windowResize()
+  }
+
+  /**
+   * Re-check the container once the running animation is over. Bounded, because
+   * a chart that never flips animationEnded (one drawing no series, say) must
+   * not swallow the resize that is waiting on it.
+   */
+  _deferParentResize() {
+    if (this._parentResizeWaiter) return
+
+    const startedAt = Date.now()
+    // animationEnded flips at roughly twice the configured speed (per-series
+    // stagger and the fill/marker tails), so the deadline is the animation's own
+    // duration plus a second: long enough that it is only ever reached by a
+    // chart that never flips the flag at all, and clamped so neither a
+    // sub-second speed nor a wildly long one can make it useless.
+    const speed = this.w.config.chart.animations?.speed || 800
+    const giveUpAfter = Math.min(Math.max(1000 + speed * 2, 1500), 15000)
+
+    const check = () => {
+      this._parentResizeWaiter = null
+      if (this.w.globals.isDestroyed || !Utils.elementExists(this.el)) return
+
+      if (
+        this.w.globals.animationEnded ||
+        Date.now() - startedAt >= giveUpAfter
+      ) {
+        // _windowResize() weighs the container against the size the chart was
+        // last drawn at, so an animation that moved nothing costs one no-op.
+        this._windowResize()
+        return
+      }
+      this._parentResizeWaiter = window.setTimeout(check, 100)
+    }
+
+    this._parentResizeWaiter = window.setTimeout(check, 100)
+  }
+
+  /**
+   * Whether this chart handles printing.
+   *
+   * A missing or undefined `print` means the default, on: the options merge
+   * copies an explicitly-undefined value straight over the default object, so
+   * `print: undefined` (what `{ print }` yields when the caller omits it) must
+   * not read as "off". `print: false` is not the documented shape, but it is the
+   * obvious way to ask for off, so it counts as off.
+   */
+  _printEnabled() {
+    const print = this.w.config.chart.print
+    return print !== false && print?.enabled !== false
+  }
+
+  /**
+   * Lay the chart out for the printable page.
+   *
+   * The sheet is a layout the page never sees. Nothing measures it, no resize
+   * is reported for it, and matchMedia('print') is still false while this
+   * handler runs, so a chart sized from a 1600px screen prints at 1600px and
+   * its right-hand side falls off the paper (#3352). Re-laying it out at a
+   * printable width keeps the labels at their intended size, where scaling a
+   * screen-width chart down to a sheet would shrink 12px text to 4px.
+   */
+  _beforePrint() {
+    if (this._printRestore || !this._printEnabled()) return
+
+    const w = this.w
+    // ?? mirrors the Options default, for a config that dropped the object
+    const printWidth = w.config.chart.print?.width ?? 700
+    this._printRestore = { width: w.config.chart.width }
+
     if (
-      this.w.globals.animationEnded &&
-      this.w.config.chart.redrawOnParentResize
+      typeof printWidth === 'number' &&
+      printWidth > 0 &&
+      w.globals.svgWidth > printWidth
     ) {
-      this._windowResize()
+      // Synchronously: the browser snapshots the page the moment this handler
+      // returns, so anything deferred misses the print altogether. Nothing here
+      // may touch the initial config or the synced group, which is why this
+      // takes the internal path rather than the public updateOptions().
+      this.updateHelpers._updateOptions(
+        { chart: { width: printWidth } },
+        false,
+        false,
+        false,
+        false,
+      )
+    }
+
+    // An identity viewBox on whatever is now drawn. The print stylesheet caps
+    // the SVG at the width of the page, and a viewBox is what turns that cap
+    // into a scale rather than a crop, so a paper narrower than expected (wide
+    // margins, a small sheet) still gets the whole chart.
+    const svg = w.dom?.Paper?.node
+    if (svg && !svg.getAttribute('viewBox')) {
+      svg.setAttribute(
+        'viewBox',
+        `0 0 ${w.globals.svgWidth} ${w.globals.svgHeight}`,
+      )
+      this._printRestore.viewBoxAdded = true
+      // The stylesheet's shrink-to-fit rules key off this class, so they can
+      // never apply to an SVG that has no viewBox to scale by.
+      w.dom?.elWrap?.classList.add('apexcharts-printing')
+      // Core reserves the chart's height on the host as an inline min-height
+      // (parentHeightOffset), which no stylesheet can override. Left in place, a
+      // chart scaled down to fit a narrow column prints above a white gap the
+      // size of the height it gave up.
+      const host = /** @type {HTMLElement} */ (this.el)
+      if (host && host.style) {
+        this._printRestore.minHeight = host.style.minHeight
+        host.style.minHeight = '0'
+      }
+    }
+  }
+
+  /** Put back what _beforePrint() changed. */
+  _afterPrint() {
+    if (!this._printRestore) return
+
+    const w = this.w
+    const restore = this._printRestore
+    this._printRestore = null
+
+    if (restore.viewBoxAdded) {
+      w.dom?.Paper?.node?.removeAttribute('viewBox')
+      w.dom?.elWrap?.classList.remove('apexcharts-printing')
+      const host = /** @type {HTMLElement} */ (this.el)
+      if (host && host.style) {
+        host.style.minHeight = restore.minHeight ?? ''
+      }
+    }
+    if (w.config.chart.width !== restore.width) {
+      this.updateHelpers._updateOptions(
+        { chart: { width: restore.width } },
+        false,
+        false,
+        false,
+        false,
+      )
+      // Both re-renders resized the host, which the parent observer reports:
+      // that redraw would only repeat the one just done.
+      clearTimeout(w.globals.resizeTimer ?? undefined)
     }
   }
 
@@ -2347,6 +2824,11 @@ export default class ApexCharts {
    * Handle window resize and re-draw the whole chart.
    */
   _windowResize() {
+    // Debounce: a container animated with a CSS transition reports a new size
+    // every frame, and each call used to queue its own 150ms render, so one
+    // 300ms sidebar transition cost 16 full chart rebuilds. Only the last size
+    // is worth drawing.
+    clearTimeout(this.w.globals.resizeTimer ?? undefined)
     this.w.globals.resizeTimer = window.setTimeout(() => {
       const gl = this.w.globals
 

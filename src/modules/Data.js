@@ -13,9 +13,10 @@ import {
 
 /**
  * Chart types whose series carries raw observations and therefore cannot draw
- * anything until `apexcharts/features/stats` supplies the statistic.
+ * anything until the named opt-in feature supplies the statistic
+ * (type → feature module under `apexcharts/features/<name>`).
  */
-const RAW_SAMPLE_TYPES = ['histogram']
+const RAW_SAMPLE_FEATURES = { histogram: 'stats', raincloud: 'raincloud' }
 
 export default class Data {
   /**
@@ -340,7 +341,14 @@ export default class Data {
           } else {
             this.w.axisFlags.dataFormatXNumeric = true
             this.w.axisFlags.isXNumeric = true
-            this.twoDSeriesX.push(parseFloat(x))
+            // The two lines above have already decided this x is numeric.
+            // parseFloat() reads a Date through toString(), which starts with
+            // a weekday name, so every Date arrived here as NaN. A Date's
+            // numeric value is its epoch, the same one the datetime branch
+            // above reads.
+            this.twoDSeriesX.push(
+              x instanceof Date ? x.getTime() : parseFloat(x),
+            )
           }
         }
       } else if (isXArr) {
@@ -489,9 +497,11 @@ export default class Data {
    * Parse a violin series. Each data point carries a precomputed density
    * profile (the violin shape) and an array of raw observations (the jitter):
    *
-   *   { x, y: { density: [[value, weight], ...], points: [v1, v2, ...] } }
+   *   { x, y: { density: [[value, weight], ...], points: [v1, v2, ...],
+   *             summary?: [whiskerLow, q1, median, q3, whiskerHigh] } }
    *
-   * Array fallback form: [x, densityPairs, pointsArray].
+   * Array fallback form: [x, densityPairs, pointsArray, summary?]. The
+   * optional summary feeds the box lane (raincloud, or violin `box.show`).
    *
    * Density `weight` need not be normalized — Violin.js scales each violin by
    * its own maxWeight. The representative scalar pushed into the main series
@@ -507,6 +517,7 @@ export default class Data {
 
     /** @type {any[]} */ const densityArr = []
     /** @type {any[]} */ const pointsArr = []
+    /** @type {Array<number[] | null>} */ const summaryArr = []
     /** @type {number[]} */ const minArr = []
     /** @type {number[]} */ const maxArr = []
     /** @type {number[]} */ const placeholders = []
@@ -515,6 +526,7 @@ export default class Data {
       const d = data[j]
       const dens = d?.y?.density ?? d?.[1] ?? []
       const pts = d?.y?.points ?? d?.[2] ?? []
+      const summary = this._parseViolinSummary(d?.y?.summary ?? d?.[3])
 
       /** @type {number[]} */ const values = []
       /** @type {number[]} */ const weights = []
@@ -546,8 +558,16 @@ export default class Data {
         if (p > maxVal) maxVal = p
       }
 
+      if (summary) {
+        // Whiskers normally sit inside the observation range, but a
+        // hand-supplied summary is drawn as given, so let it size the axis.
+        if (summary[0] < minVal) minVal = summary[0]
+        if (summary[4] > maxVal) maxVal = summary[4]
+      }
+
       densityArr.push({ values, weights, maxWeight })
       pointsArr.push(cleanPts)
+      summaryArr.push(summary)
       minArr.push(minVal === Infinity ? 0 : minVal)
       maxArr.push(maxVal === -Infinity ? 0 : maxVal)
       // Representative value: density mode, else median of points, else 0.
@@ -562,12 +582,33 @@ export default class Data {
 
     w.violinData.seriesViolinDensity[i] = densityArr
     w.violinData.seriesViolinPoints[i] = pointsArr
+    w.violinData.seriesViolinSummary[i] = summaryArr
     w.violinData.seriesViolinMin[i] = minArr
     w.violinData.seriesViolinMax[i] = maxArr
 
     // Overwrite the y-placeholders that handleFormatXY/2DArray pushed (it could
     // not interpret the object/array y) with the representative scalars.
     this.twoDSeries = placeholders
+  }
+
+  /**
+   * Validate a five-number summary ([whiskerLow, q1, median, q3, whiskerHigh]):
+   * exactly five finite, non-decreasing numbers, else null. Pure shape check;
+   * the statistics themselves come from the datum (hand-supplied or a stats
+   * transform).
+   *
+   * @param {any} raw
+   * @returns {number[] | null}
+   */
+  _parseViolinSummary(raw) {
+    if (!Array.isArray(raw) || raw.length !== 5) return null
+    /** @type {number[]} */ const out = []
+    for (let k = 0; k < 5; k++) {
+      const v = Utils.parseNumber(raw[k])
+      if (v === null || (k > 0 && v < out[k - 1])) return null
+      out.push(v)
+    }
+    return out
   }
 
   /**
@@ -1578,9 +1619,38 @@ export default class Data {
   applySeriesTransform(ser) {
     const cnf = this.w.config
     const name = cnf.chart.requestedType || cnf.chart.type
+
+    // A transform-derived slice is refilled by its transform on every parse,
+    // and a chart that has CHANGED type no longer runs the one that filled it.
+    // Cleared here rather than at the read sites: the waterfall's steps are read
+    // by the label and the tooltip, and left behind they made a plain bar chart
+    // print the numbers of the waterfall it used to be.
+    if (name !== 'waterfall' && this.w.waterfallData.geometry) {
+      this.w.waterfallData = {
+        values: [],
+        cumulative: [],
+        kinds: [],
+        geometry: null,
+      }
+    }
+    // Same reason: the endpoint identities are read by the markers, the end
+    // labels and the tooltip, and left behind they would have a plain range bar
+    // colouring its ends after series it no longer has.
+    if (name !== 'dumbbell' && this.w.dumbbellData) {
+      this.w.dumbbellData = null
+    }
+    // Same reason again: the band values are read by the tooltip and the band
+    // labels, and left behind they would have a plain range area writing the
+    // names of a streamgraph it used to be over bands it no longer has.
+    if (name !== 'streamgraph' && this.w.streamgraphData) {
+      this.w.streamgraphData = null
+    }
+
     const transform = getSeriesTransform(name)
     if (transform) return transform(ser, this.w)
-    if (!Array.isArray(ser) || RAW_SAMPLE_TYPES.indexOf(name) === -1) return ser
+    const feature =
+      /** @type {Record<string,string>} */ (RAW_SAMPLE_FEATURES)[name]
+    if (!Array.isArray(ser) || !feature) return ser
     // Without the feature there is no statistic to compute, and drawing the
     // raw sample as one mark per observation would be a silent, unusable mess
     // (a 1800-point sample would render 1800 bars). Warn once per chart:
@@ -1588,9 +1658,11 @@ export default class Data {
     if (!this._warnedMissingTransform) {
       this._warnedMissingTransform = true
       console.warn(
-        `ApexCharts: chart.type '${name}' needs the stats feature. Add ` +
-          `\`import 'apexcharts/features/stats'\`, or import from ` +
-          `'apexcharts/${name}'.`,
+        `ApexCharts: chart.type '${name}' requires the ${feature} feature, ` +
+          `which is not in this bundle. Bundler: import ` +
+          `'apexcharts/features/${feature}' (or from 'apexcharts/${name}'). ` +
+          `Script tag: add <script src='.../dist/features/${feature}.js'> ` +
+          `after apexcharts.js.`,
       )
     }
     return ser.map((/** @type {any} */ s) => ({ ...s, data: [] }))
@@ -1932,6 +2004,21 @@ export default class Data {
       // snapshotting it would make resetSeries() restore counts as if they
       // were observations, and every reset would bin one level deeper.
       gl.initialSeries = gl.histogramRawSeries
+    } else if (gl.dumbbellRawSeries) {
+      // Same reason again: `ser` is the merged rows, so snapshotting it would
+      // make resetSeries() restore one series of pairs in place of the measures
+      // the chart was given, and the endpoint names would not come back.
+      gl.initialSeries = gl.dumbbellRawSeries
+    } else if (gl.streamgraphRawSeries) {
+      // Same reason again: `ser` is the stacked bands, so snapshotting it would
+      // make resetSeries() restore stacking offsets as if they were values, and
+      // every reset would stack one level deeper.
+      gl.initialSeries = gl.streamgraphRawSeries
+    } else if (gl.waterfallRawSeries) {
+      // Same reason again: `ser` is the accumulated pairs, so snapshotting it
+      // would make resetSeries() restore levels as if they were deltas, and
+      // every reset would accumulate one level deeper.
+      gl.initialSeries = gl.waterfallRawSeries
     } else if (gl.treemapRawSeries) {
       // Same reason again: `ser` is the flattened leaves, so snapshotting it
       // would make resetSeries() restore a treemap that has lost its levels.

@@ -47,6 +47,28 @@ if (Environment.isBrowser()) {
   }
 }
 
+/**
+ * Versioned globalThis slot, matching ChartFactory / ThemeRegistry /
+ * RendererController.
+ *
+ * A class static would live once per copy of this module, and a page can hold
+ * two: `import 'apexcharts'` and `import 'apexcharts/features/trellis'` used to
+ * resolve different cores, so the add-on registered into a Map no chart ever
+ * read and the feature silently did nothing. The build now shares one core, so
+ * this is belt as well as braces, but every other registry is already shared
+ * and being the one exception is what made that failure possible.
+ */
+const FEATURE_REGISTRY_KEY = '__apexcharts_features_v1__'
+
+if (!(/** @type {any} */ (globalThis)[FEATURE_REGISTRY_KEY])) {
+  ;/** @type {any} */ (globalThis)[FEATURE_REGISTRY_KEY] = new Map()
+}
+
+/** @returns {Map<string, new (w: object, ctx: object) => unknown>} */
+function getFeatureRegistry() {
+  return /** @type {any} */ (globalThis)[FEATURE_REGISTRY_KEY]
+}
+
 export default class InitCtxVariables {
   /**
    * Registry of optional feature modules.
@@ -58,7 +80,9 @@ export default class InitCtxVariables {
    * Core modules that every chart needs are NOT in this registry — they are
    * always instantiated unconditionally in initModules().
    */
-  static _featureRegistry = new Map()
+  static get _featureRegistry() {
+    return getFeatureRegistry()
+  }
 
   /**
    * Register one or more optional feature modules.
@@ -266,6 +290,26 @@ export default class InitCtxVariables {
     // the host feature isn't bundled.
     const WeaveCtor = reg.get('weave')
     ctx.weave = WeaveCtor ? new WeaveCtor(w, ctx) : null
+
+    // Waterfall: ctx.waterfall (the connector layer of `chart.type:
+    // 'waterfall'`). Eager and self-inert: isActive() is false for every chart
+    // that is not a waterfall, and drawConnectors() is a no-op then.
+    const WaterfallCtor = reg.get('waterfall')
+    ctx.waterfall = WaterfallCtor ? new WaterfallCtor(w, ctx) : null
+
+    // Streamgraph: ctx.streamgraph (the band-label layer of `chart.type:
+    // 'streamgraph'`). Eager and self-inert: isActive() is false for every
+    // chart that is not a streamgraph, and drawLabels() is a no-op then.
+    const StreamgraphCtor = reg.get('streamgraph')
+    ctx.streamgraph = StreamgraphCtor ? new StreamgraphCtor(w, ctx) : null
+
+    // Trellis (#22): ctx.trellis (opt-in small multiples via a top-level
+    // `trellis.by` config key). Eager and self-inert: isActive() is false for
+    // every chart without the key, INCLUDING the panel charts a trellis host
+    // itself creates. When active, the host's render()/destroy()/updateSeries()
+    // delegate to it instead of the single-chart pipeline.
+    const TrellisCtor = reg.get('trellis')
+    ctx.trellis = TrellisCtor ? new TrellisCtor(w, ctx) : null
 
     // Facet OS watcher: ctx.osThemeWatcher (opt-in `theme.follow:'os'`). Eager
     // so the initial mode is resolved onto w.config before Theme.init in the

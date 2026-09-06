@@ -9,6 +9,7 @@ import {
 } from 'fs'
 import { fileURLToPath } from 'url'
 import terser from '@rollup/plugin-terser'
+import { coreExternalPlugin } from './build/shared-modules.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -40,6 +41,7 @@ export const SUB_ENTRIES = {
   sunburst: resolve(__dirname, 'src/entries/sunburst.js'),
   unit: resolve(__dirname, 'src/entries/unit.js'),
   'unit-shapes': resolve(__dirname, 'src/unit-shapes/index.js'),
+  pictograms: resolve(__dirname, 'src/pictograms/index.js'),
   // Alias entries — one per public chart type name
   area: resolve(__dirname, 'src/entries/area.js'),
   scatter: resolve(__dirname, 'src/entries/scatter.js'),
@@ -49,6 +51,10 @@ export const SUB_ENTRIES = {
   rangeBar: resolve(__dirname, 'src/entries/rangeBar.js'),
   boxPlot: resolve(__dirname, 'src/entries/boxPlot.js'),
   histogram: resolve(__dirname, 'src/entries/histogram.js'),
+  waterfall: resolve(__dirname, 'src/entries/waterfall.js'),
+  dumbbell: resolve(__dirname, 'src/entries/dumbbell.js'),
+  streamgraph: resolve(__dirname, 'src/entries/streamgraph.js'),
+  raincloud: resolve(__dirname, 'src/entries/raincloud.js'),
   donut: resolve(__dirname, 'src/entries/donut.js'),
   polarArea: resolve(__dirname, 'src/entries/polarArea.js'),
   'features/annotations': resolve(__dirname, 'src/features/annotations.js'),
@@ -73,6 +79,11 @@ export const SUB_ENTRIES = {
   'features/measure': resolve(__dirname, 'src/features/measure.js'),
   'features/context-menu': resolve(__dirname, 'src/features/context-menu.js'),
   'features/stats': resolve(__dirname, 'src/features/stats.js'),
+  'features/raincloud': resolve(__dirname, 'src/features/raincloud.js'),
+  'features/waterfall': resolve(__dirname, 'src/features/waterfall.js'),
+  'features/dumbbell': resolve(__dirname, 'src/features/dumbbell.js'),
+  'features/streamgraph': resolve(__dirname, 'src/features/streamgraph.js'),
+  'features/trellis': resolve(__dirname, 'src/features/trellis.js'),
   'features/all': resolve(__dirname, 'src/features/all.js'),
 }
 
@@ -88,6 +99,238 @@ export const UMD_ENTRIES = {
     file: resolve(__dirname, 'src/unit-shapes/cdn.js'),
     global: 'ApexUnitShapes',
     out: 'unit-shapes.js',
+  },
+  pictograms: {
+    file: resolve(__dirname, 'src/pictograms/cdn.js'),
+    global: 'ApexPictograms',
+    out: 'pictograms.js',
+  },
+  // Tier-2 features: not in the full bundle, so this is the only way a page
+  // without a bundler can reach them. Built from the SAME entry bundlers
+  // import, because a feature entry already registers itself on load; `shared`
+  // makes its core imports resolve off the global instead of inlining core.
+  'features/trellis': {
+    file: resolve(__dirname, 'src/features/trellis.js'),
+    global: 'ApexTrellis',
+    out: 'features/trellis.js',
+    shared: true,
+  },
+  'features/measure': {
+    file: resolve(__dirname, 'src/features/measure.js'),
+    global: 'ApexMeasure',
+    out: 'features/measure.js',
+    shared: true,
+  },
+  'features/link': {
+    file: resolve(__dirname, 'src/features/link.js'),
+    global: 'ApexLink',
+    out: 'features/link.js',
+    shared: true,
+  },
+  'features/ink': {
+    file: resolve(__dirname, 'src/features/ink.js'),
+    global: 'ApexInk',
+    out: 'features/ink.js',
+    shared: true,
+  },
+  'features/storyboard': {
+    file: resolve(__dirname, 'src/features/storyboard.js'),
+    global: 'ApexStoryboard',
+    out: 'features/storyboard.js',
+    shared: true,
+  },
+  'features/renderer-canvas': {
+    file: resolve(__dirname, 'src/features/renderer-canvas.js'),
+    global: 'ApexRendererCanvas',
+    out: 'features/renderer-canvas.js',
+    shared: true,
+  },
+  'features/context-menu': {
+    file: resolve(__dirname, 'src/features/context-menu.js'),
+    global: 'ApexContextMenu',
+    out: 'features/context-menu.js',
+    shared: true,
+  },
+  'features/history': {
+    file: resolve(__dirname, 'src/features/history.js'),
+    global: 'ApexHistory',
+    out: 'features/history.js',
+    shared: true,
+  },
+  'features/perspectives': {
+    file: resolve(__dirname, 'src/features/perspectives.js'),
+    global: 'ApexPerspectives',
+    out: 'features/perspectives.js',
+    shared: true,
+  },
+  // The lean-core CDN baseline (plan 08's other half). Bundles the chart class
+  // and nothing else, and attaches the same __internals surface the full bundle
+  // does, so every add-on below layers onto either one unchanged.
+  core: {
+    file: resolve(__dirname, 'src/entries/core-umd.js'),
+    global: 'ApexCharts',
+    out: 'apexcharts.core.js',
+    alsoMin: true,
+  },
+  // Chart types, script-loadable. A lean-core page renders nothing until it
+  // loads at least one of these. Alias names (area, column, donut, ...) are
+  // registered by their parent: 'area' comes from line.js, not its own file.
+  'line': {
+    file: resolve(__dirname, 'src/entries/line.js'),
+    global: 'ApexLine',
+    out: 'line.js',
+    shared: true,
+  },
+  'bar': {
+    file: resolve(__dirname, 'src/entries/bar.js'),
+    global: 'ApexBar',
+    out: 'bar.js',
+    shared: true,
+  },
+  'candlestick': {
+    file: resolve(__dirname, 'src/entries/candlestick.js'),
+    global: 'ApexCandlestick',
+    out: 'candlestick.js',
+    shared: true,
+  },
+  'violin': {
+    file: resolve(__dirname, 'src/entries/violin.js'),
+    global: 'ApexViolin',
+    out: 'violin.js',
+    shared: true,
+  },
+  'pie': {
+    file: resolve(__dirname, 'src/entries/pie.js'),
+    global: 'ApexPie',
+    out: 'pie.js',
+    shared: true,
+  },
+  'radialBar': {
+    file: resolve(__dirname, 'src/entries/radialBar.js'),
+    global: 'ApexRadialBar',
+    out: 'radialBar.js',
+    shared: true,
+  },
+  'radar': {
+    file: resolve(__dirname, 'src/entries/radar.js'),
+    global: 'ApexRadar',
+    out: 'radar.js',
+    shared: true,
+  },
+  'heatmap': {
+    file: resolve(__dirname, 'src/entries/heatmap.js'),
+    global: 'ApexHeatmap',
+    out: 'heatmap.js',
+    shared: true,
+  },
+  'treemap': {
+    file: resolve(__dirname, 'src/entries/treemap.js'),
+    global: 'ApexTreemap',
+    out: 'treemap.js',
+    shared: true,
+  },
+  'sunburst': {
+    file: resolve(__dirname, 'src/entries/sunburst.js'),
+    global: 'ApexSunburst',
+    out: 'sunburst.js',
+    shared: true,
+  },
+  'unit': {
+    file: resolve(__dirname, 'src/entries/unit.js'),
+    global: 'ApexUnit',
+    out: 'unit.js',
+    shared: true,
+  },
+  // Tier-1 features. In the full bundle already; a lean-core page opts in.
+  'features/exports': {
+    file: resolve(__dirname, 'src/features/exports.js'),
+    global: 'ApexExports',
+    out: 'features/exports.js',
+    shared: true,
+  },
+  'features/legend': {
+    file: resolve(__dirname, 'src/features/legend.js'),
+    global: 'ApexLegend',
+    out: 'features/legend.js',
+    shared: true,
+  },
+  'features/toolbar': {
+    file: resolve(__dirname, 'src/features/toolbar.js'),
+    global: 'ApexToolbar',
+    out: 'features/toolbar.js',
+    shared: true,
+  },
+  'features/annotations': {
+    file: resolve(__dirname, 'src/features/annotations.js'),
+    global: 'ApexAnnotations',
+    out: 'features/annotations.js',
+    shared: true,
+  },
+  'features/keyboard': {
+    file: resolve(__dirname, 'src/features/keyboard.js'),
+    global: 'ApexKeyboard',
+    out: 'features/keyboard.js',
+    shared: true,
+  },
+  'features/morph': {
+    file: resolve(__dirname, 'src/features/morph.js'),
+    global: 'ApexMorph',
+    out: 'features/morph.js',
+    shared: true,
+  },
+  'features/drilldown': {
+    file: resolve(__dirname, 'src/features/drilldown.js'),
+    global: 'ApexDrilldown',
+    out: 'features/drilldown.js',
+    shared: true,
+  },
+  'features/weave': {
+    file: resolve(__dirname, 'src/features/weave.js'),
+    global: 'ApexWeave',
+    out: 'features/weave.js',
+    shared: true,
+  },
+  'features/marks': {
+    file: resolve(__dirname, 'src/features/marks.js'),
+    global: 'ApexMarks',
+    out: 'features/marks.js',
+    shared: true,
+  },
+  'features/facet': {
+    file: resolve(__dirname, 'src/features/facet.js'),
+    global: 'ApexFacet',
+    out: 'features/facet.js',
+    shared: true,
+  },
+  'features/stats': {
+    file: resolve(__dirname, 'src/features/stats.js'),
+    global: 'ApexStats',
+    out: 'features/stats.js',
+    shared: true,
+  },
+  'features/raincloud': {
+    file: resolve(__dirname, 'src/features/raincloud.js'),
+    global: 'ApexRaincloud',
+    out: 'features/raincloud.js',
+    shared: true,
+  },
+  'features/waterfall': {
+    file: resolve(__dirname, 'src/features/waterfall.js'),
+    global: 'ApexWaterfall',
+    out: 'features/waterfall.js',
+    shared: true,
+  },
+  'features/dumbbell': {
+    file: resolve(__dirname, 'src/features/dumbbell.js'),
+    global: 'ApexDumbbell',
+    out: 'features/dumbbell.js',
+    shared: true,
+  },
+  'features/streamgraph': {
+    file: resolve(__dirname, 'src/features/streamgraph.js'),
+    global: 'ApexStreamgraph',
+    out: 'features/streamgraph.js',
+    shared: true,
   },
 }
 
@@ -112,24 +355,56 @@ export default defineConfig(({ mode }) => {
   if (mode === 'sub-entry-umd') {
     const umd = UMD_ENTRIES[subEntryName]
     if (!umd) throw new Error(`No UMD_ENTRIES entry for "${subEntryName}"`)
+    // A feature add-on is written against core's internals, so its shared
+    // imports resolve off the global the full bundle already put on the page
+    // rather than being inlined a second time. A self-contained add-on
+    // (a shape catalog, say) needs none of that and opts out.
+    const umdPlugins = umd.shared
+      ? [coreExternalPlugin({ target: 'global' })]
+      : []
     return {
       build: {
         lib: { entry: umd.file, name: umd.global, formats: ['umd'] },
         outDir: 'dist',
         emptyOutDir: false,
         sourcemap: false,
+        // Off here, on per output: vite's default esbuild pass would minify
+        // every output including the lean core's readable build, leaving
+        // apexcharts.core.js and .core.min.js the same size. Terser below is
+        // the single place minification happens, as in the main bundle.
+        minify: false,
         target: 'es2015',
         cssCodeSplit: false,
         rollupOptions: {
           external: ['apexcharts'],
           output: [
+            // Add-ons ship minified under their plain name; only the lean
+            // core also emits a readable build, mirroring apexcharts.js /
+            // apexcharts.min.js so the two baselines look alike.
+            ...(umd.alsoMin
+              ? [
+                  {
+                    format: 'umd',
+                    name: umd.global,
+                    entryFileNames: umd.out,
+                    globals: { apexcharts: 'ApexCharts' },
+                    banner,
+                    exports: 'default',
+                  },
+                ]
+              : []),
             {
               format: 'umd',
               name: umd.global,
-              entryFileNames: umd.out,
+              entryFileNames: umd.alsoMin
+                ? umd.out.replace(/\.js$/, '.min.js')
+                : umd.out,
               globals: { apexcharts: 'ApexCharts' },
               banner,
-              exports: 'named',
+              // The lean core IS the class on the global, like apexcharts.js.
+              // 'named' would wrap it in a namespace object and
+              // `new ApexCharts(...)` would throw "is not a constructor".
+              exports: umd.alsoMin ? 'default' : 'named',
               plugins: isDev
                 ? []
                 : [
@@ -148,7 +423,7 @@ export default defineConfig(({ mode }) => {
       },
       resolve: { extensions: ['.js', '.json'] },
       define: { 'process.env.NODE_ENV': JSON.stringify('production') },
-      plugins: [svgInlineLoader(), cssAsString()],
+      plugins: [...umdPlugins, svgInlineLoader(), cssAsString()],
     }
   }
 
@@ -204,198 +479,6 @@ export default defineConfig(({ mode }) => {
     // Exception: the 'core' entry itself produces apexcharts/core, so it must
     // bundle src/apexcharts.js rather than referencing it externally.
     const isCoreEntry = subEntryName === 'core'
-    const coreSourcePath = resolve(__dirname, 'src/apexcharts.js')
-    const coreExternalId = 'apexcharts/core'
-
-    // Shared utility modules bundled into core and re-exported under __apex_*
-    // names. Each entry maps an absolute source path to a shim descriptor:
-    //   { default: '__apex_X' }  → export default _m  (for default-only modules)
-    //   { named: { Local: '__apex_Local', ... } }  → export { __apex_X as Local }
-    //   { default: '__apex_X', named: { ... } }  → both
-    const sharedModules = {
-      [resolve(__dirname, 'src/charts/Scatter.js')]:
-        { default: '__apex_charts_Scatter' },
-      [resolve(__dirname, 'src/modules/Animations.js')]:
-        { default: '__apex_Animations', named: { computeStagger: '__apex_Animations_computeStagger', applyAnimationPolicy: '__apex_Animations_applyAnimationPolicy', prefersReducedMotion: '__apex_Animations_prefersReducedMotion', applyProgressiveReveal: '__apex_Animations_applyProgressiveReveal' } },
-      [resolve(__dirname, 'src/modules/Base.js')]:
-        { default: '__apex_Base' },
-      [resolve(__dirname, 'src/modules/ChartFactory.js')]:
-        { named: { register: '__apex_ChartFactory_register', getChartClass: '__apex_ChartFactory_getChartClass', isCustom: '__apex_ChartFactory_isCustom' } },
-      [resolve(__dirname, 'src/modules/Core.js')]:
-        { default: '__apex_Core' },
-      [resolve(__dirname, 'src/modules/CoreUtils.js')]:
-        { default: '__apex_CoreUtils' },
-      [resolve(__dirname, 'src/modules/Crosshairs.js')]:
-        { default: '__apex_Crosshairs' },
-      [resolve(__dirname, 'src/modules/Data.js')]:
-        { default: '__apex_Data' },
-      [resolve(__dirname, 'src/modules/DataLabels.js')]:
-        { default: '__apex_DataLabels' },
-      [resolve(__dirname, 'src/modules/Events.js')]:
-        { default: '__apex_Events' },
-      [resolve(__dirname, 'src/modules/Fill.js')]:
-        { default: '__apex_Fill' },
-      [resolve(__dirname, 'src/modules/Filters.js')]:
-        { default: '__apex_Filters' },
-      [resolve(__dirname, 'src/modules/Formatters.js')]:
-        { default: '__apex_Formatters' },
-      [resolve(__dirname, 'src/modules/Graphics.js')]:
-        { default: '__apex_Graphics' },
-      [resolve(__dirname, 'src/modules/Markers.js')]:
-        { default: '__apex_Markers' },
-      [resolve(__dirname, 'src/modules/Range.js')]:
-        { default: '__apex_Range' },
-      [resolve(__dirname, 'src/modules/Responsive.js')]:
-        { default: '__apex_Responsive' },
-      [resolve(__dirname, 'src/modules/Scales.js')]:
-        { default: '__apex_Scales' },
-      [resolve(__dirname, 'src/modules/Series.js')]:
-        { default: '__apex_Series' },
-      [resolve(__dirname, 'src/modules/Theme.js')]:
-        { default: '__apex_Theme' },
-      [resolve(__dirname, 'src/modules/TimeScale.js')]:
-        { default: '__apex_TimeScale' },
-      [resolve(__dirname, 'src/modules/TitleSubtitle.js')]:
-        { default: '__apex_TitleSubtitle' },
-      [resolve(__dirname, 'src/modules/axes/Axes.js')]:
-        { default: '__apex_axes_Axes' },
-      [resolve(__dirname, 'src/modules/axes/AxesUtils.js')]:
-        { default: '__apex_axes_AxesUtils' },
-      [resolve(__dirname, 'src/modules/axes/Grid.js')]:
-        { default: '__apex_axes_Grid' },
-      [resolve(__dirname, 'src/modules/axes/XAxis.js')]:
-        { default: '__apex_axes_XAxis' },
-      [resolve(__dirname, 'src/modules/axes/YAxis.js')]:
-        { default: '__apex_axes_YAxis' },
-      [resolve(__dirname, 'src/modules/dimensions/Dimensions.js')]:
-        { default: '__apex_dimensions_Dimensions' },
-      [resolve(__dirname, 'src/modules/dimensions/Grid.js')]:
-        { default: '__apex_dimensions_Grid' },
-      [resolve(__dirname, 'src/modules/dimensions/Helpers.js')]:
-        { default: '__apex_dimensions_Helpers' },
-      [resolve(__dirname, 'src/modules/dimensions/XAxis.js')]:
-        { default: '__apex_dimensions_XAxis' },
-      [resolve(__dirname, 'src/modules/dimensions/YAxis.js')]:
-        { default: '__apex_dimensions_YAxis' },
-      [resolve(__dirname, 'src/modules/helpers/Destroy.js')]:
-        { default: '__apex_helpers_Destroy' },
-      [resolve(__dirname, 'src/modules/helpers/InitCtxVariables.js')]:
-        { default: '__apex_helpers_InitCtxVariables' },
-      [resolve(__dirname, 'src/modules/helpers/Localization.js')]:
-        { default: '__apex_helpers_Localization' },
-      [resolve(__dirname, 'src/modules/helpers/UpdateHelpers.js')]:
-        { default: '__apex_helpers_UpdateHelpers' },
-      [resolve(__dirname, 'src/modules/settings/Config.js')]:
-        { default: '__apex_Config' },
-      [resolve(__dirname, 'src/modules/settings/Defaults.js')]:
-        { default: '__apex_Defaults' },
-      [resolve(__dirname, 'src/modules/settings/Globals.js')]:
-        { default: '__apex_Globals' },
-      [resolve(__dirname, 'src/modules/settings/Options.js')]:
-        { default: '__apex_Options' },
-      [resolve(__dirname, 'src/modules/tooltip/AxesTooltip.js')]:
-        { default: '__apex_tooltip_AxesTooltip' },
-      [resolve(__dirname, 'src/modules/tooltip/Intersect.js')]:
-        { default: '__apex_tooltip_Intersect' },
-      [resolve(__dirname, 'src/modules/tooltip/Labels.js')]:
-        { default: '__apex_tooltip_Labels' },
-      [resolve(__dirname, 'src/modules/tooltip/Marker.js')]:
-        { default: '__apex_tooltip_Marker' },
-      [resolve(__dirname, 'src/modules/tooltip/Position.js')]:
-        { default: '__apex_tooltip_Position' },
-      [resolve(__dirname, 'src/modules/tooltip/Tooltip.js')]:
-        { default: '__apex_tooltip_Tooltip' },
-      [resolve(__dirname, 'src/modules/tooltip/Utils.js')]:
-        { default: '__apex_tooltip_Utils' },
-      [resolve(__dirname, 'src/ssr/BrowserAPIs.js')]:
-        { named: { BrowserAPIs: '__apex_BrowserAPIs_BrowserAPIs' } },
-      [resolve(__dirname, 'src/ssr/DOMShim.js')]:
-        { named: { SSRDOMShim: '__apex_DOMShim_SSRDOMShim', SSRElement: '__apex_DOMShim_SSRElement', SSRClassList: '__apex_DOMShim_SSRClassList' } },
-      [resolve(__dirname, 'src/svg/PathMorphing.js')]:
-        { named: { parsePath: '__apex_PathMorphing_parsePath', morphPaths: '__apex_PathMorphing_morphPaths', pathBbox: '__apex_PathMorphing_pathBbox', arrayToPath: '__apex_PathMorphing_arrayToPath' } },
-      [resolve(__dirname, 'src/svg/SVGAnimation.js')]:
-        { named: { SVGAnimationRunner: '__apex_SVGAnimation_SVGAnimationRunner', installAnimationMethods: '__apex_SVGAnimation_installAnimationMethods' } },
-      [resolve(__dirname, 'src/svg/SVGContainer.js')]:
-        { default: '__apex_SVGContainer' },
-      [resolve(__dirname, 'src/svg/SVGDraggable.js')]:
-        { named: { installDraggable: '__apex_SVGDraggable_installDraggable' } },
-      [resolve(__dirname, 'src/svg/SVGElement.js')]:
-        { default: '__apex_SVGElement' },
-      [resolve(__dirname, 'src/svg/SVGFilter.js')]:
-        { named: { SVGFilter: '__apex_SVGFilter_SVGFilter', FilterBuilder: '__apex_SVGFilter_FilterBuilder', installFilterMethods: '__apex_SVGFilter_installFilterMethods' } },
-      [resolve(__dirname, 'src/svg/SVGGradient.js')]:
-        { named: { SVGGradient: '__apex_SVGGradient_SVGGradient' } },
-      [resolve(__dirname, 'src/svg/SVGPattern.js')]:
-        { named: { SVGPattern: '__apex_SVGPattern_SVGPattern' } },
-      [resolve(__dirname, 'src/svg/SVGSelectable.js')]:
-        { named: { installSelectable: '__apex_SVGSelectable_installSelectable' } },
-      [resolve(__dirname, 'src/svg/index.js')]:
-        { named: { SVG: '__apex_index_SVG', Box: '__apex_index_Box' } },
-      [resolve(__dirname, 'src/svg/math.js')]:
-        { named: { SVGNS: '__apex_math_SVGNS', Point: '__apex_math_Point', Matrix: '__apex_math_Matrix', Box: '__apex_math_Box' } },
-      [resolve(__dirname, 'src/utils/Constants.js')]:
-        { named: { LINE_HEIGHT_RATIO: '__apex_Constants_LINE_HEIGHT_RATIO', NICE_SCALE_ALLOWED_MAG_MSD: '__apex_Constants_NICE_SCALE_ALLOWED_MAG_MSD', NICE_SCALE_DEFAULT_TICKS: '__apex_Constants_NICE_SCALE_DEFAULT_TICKS' } },
-      [resolve(__dirname, 'src/utils/DateTime.js')]:
-        { default: '__apex_DateTime' },
-      [resolve(__dirname, 'src/utils/Environment.js')]:
-        { named: { Environment: '__apex_Environment_Environment' } },
-      [resolve(__dirname, 'src/utils/PerformanceCache.js')]:
-        { default: '__apex_PerformanceCache' },
-      [resolve(__dirname, 'src/utils/Resize.js')]:
-        { named: { addResizeListener: '__apex_Resize_addResizeListener', removeResizeListener: '__apex_Resize_removeResizeListener' } },
-      [resolve(__dirname, 'src/utils/ThemePalettes.js')]:
-        { named: { getThemePalettes: '__apex_ThemePalettes_getThemePalettes' } },
-      [resolve(__dirname, 'src/utils/Utils.js')]:
-        { default: '__apex_Utils' },
-    }
-
-    // Vite plugin: intercept imports of src/apexcharts.js (and shared modules)
-    // and redirect them to 'apexcharts/core' (external). Virtual shims re-export
-    // the __apex_* named exports back under their original names/default so the
-    // rest of the chart code needs no changes.
-    // Must run 'pre' (before Vite's own resolver) to intercept relative imports.
-    const VIRTUAL_PREFIX = '\0apex-shared:'
-    function coreExternalPlugin() {
-      return {
-        name: 'apex-core-external',
-        enforce: 'pre',
-        resolveId(source, importer) {
-          // Keep 'apexcharts/core' external whenever it appears (including in
-          // the virtual shims generated by this plugin's load hook)
-          if (source === coreExternalId) {
-            return { id: coreExternalId, external: true }
-          }
-          if (!importer) return null
-          if (!source.startsWith('.')) return null
-          const abs = resolve(dirname(importer), source)
-          const normalized = abs.endsWith('.js') ? abs : abs + '.js'
-          // Intercept src/apexcharts.js → external 'apexcharts/core'
-          if (normalized === coreSourcePath) {
-            return { id: coreExternalId, external: true }
-          }
-          // Intercept shared modules → virtual shim that re-exports from core
-          if (sharedModules[normalized]) {
-            return VIRTUAL_PREFIX + normalized
-          }
-          return null
-        },
-        load(id) {
-          if (!id.startsWith(VIRTUAL_PREFIX)) return null
-          const absPath = id.slice(VIRTUAL_PREFIX.length)
-          const desc = sharedModules[absPath]
-          const lines = [`import * as _core from 'apexcharts/core';`]
-          if (desc.default) {
-            lines.push(`export default _core.${desc.default};`)
-          }
-          if (desc.named) {
-            for (const [local, coreExport] of Object.entries(desc.named)) {
-              lines.push(`export const ${local} = _core.${coreExport};`)
-            }
-          }
-          return lines.join('\n')
-        },
-      }
-    }
 
     return {
       build: {
@@ -422,6 +505,14 @@ export default defineConfig(({ mode }) => {
               entryFileNames: `${subEntryBaseName}.common.js`,
               banner,
               exports: 'named',
+              // dist/core.common.js is an __esModule CJS file, so the chart
+              // class is on `.default`. Rollup's default interop assumes a
+              // bare CJS export and emits `require(...).use(...)`, which
+              // throws "h.use is not a function" the moment anything requires
+              // a sub-entry. That has been broken in every published CJS
+              // sub-entry; `auto` emits the __esModule check and picks
+              // `.default` when it is there.
+              interop: 'auto',
               plugins: isDev
                 ? []
                 : [
@@ -439,6 +530,57 @@ export default defineConfig(({ mode }) => {
       plugins: isCoreEntry
         ? [svgInlineLoader(), cssAsString()]
         : [coreExternalPlugin(), svgInlineLoader(), cssAsString()],
+    }
+  }
+
+  // ── The default bundle, ESM + CJS ────────────────────────────────────────
+  // Built like a sub-entry, externalising apexcharts/core, so that
+  //
+  //   import ApexCharts from 'apexcharts'
+  //   import 'apexcharts/features/trellis'
+  //
+  // lands both on ONE core. Bundle core in here instead and the two files carry
+  // rival copies of the class: the add-on registers into a registry the chart
+  // never reads (the feature registry is not globalThis-backed), and the app
+  // ships ~130 KB gzipped of duplicate core for a 6 KB feature. Since 7.0 that
+  // pairing is the documented upgrade path for nine features, so it has to be
+  // the cheap and correct one.
+  //
+  // The UMD halves stay self-contained: a script tag has no resolver.
+  if (mode === 'full-esm') {
+    return {
+      build: {
+        lib: { entry: resolve(__dirname, 'src/entries/full.js'), name: 'ApexCharts' },
+        outDir: 'dist',
+        emptyOutDir: false,
+        sourcemap: isDev,
+        minify: false,
+        target: 'es2015',
+        cssCodeSplit: false,
+        rollupOptions: {
+          output: [
+            { format: 'es', entryFileNames: 'apexcharts.esm.js', banner },
+            {
+              format: 'cjs',
+              entryFileNames: 'apexcharts.common.js',
+              banner,
+              exports: 'named',
+              interop: 'auto',
+              plugins: isDev
+                ? []
+                : [
+                    terser({
+                      format: { ascii_only: true, comments: false, preamble: banner },
+                      compress: { drop_console: true, drop_debugger: true },
+                    }),
+                  ],
+            },
+          ],
+        },
+      },
+      resolve: { extensions: ['.js', '.json'] },
+      define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+      plugins: [coreExternalPlugin({ target: 'core' }), svgInlineLoader(), cssAsString()],
     }
   }
 

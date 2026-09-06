@@ -161,7 +161,25 @@ export default class UpdateHelpers {
               : []
 
             // After forgetting lastAxes, we need to restore the new config in initialConfig/initialSeries
-            w.globals.initialConfig = Utils.extend({}, w.config)
+            // Two traps here. Utils.extend() copies arrays by reference, so
+            // the snapshot would hand back the LIVE series array; and
+            // w.config.series carries the legend-collapse state
+            // (`series[i].data = []` for every hidden series), so
+            // re-snapshotting it made the "initial" config forget the data of
+            // everything the user had toggled off (#5118). Only a call that
+            // actually redefines the series may move that baseline; a plain
+            // updateOptions() keeps the one it already had.
+            const prevInitialSeries =
+              w.globals.initialConfig && w.globals.initialConfig.series
+            const initialConfig =
+              /** @type {NonNullable<typeof w.globals.initialConfig>} */ (
+                Utils.extend({}, w.config)
+              )
+            initialConfig.series =
+              !options.series && prevInitialSeries
+                ? prevInitialSeries
+                : Utils.copySeriesShallow(w.config.series)
+            w.globals.initialConfig = initialConfig
             // lazy snapshot: deep clone deferred to first read
             w.globals.initialSeries = w.config.series
 
@@ -248,11 +266,14 @@ export default class UpdateHelpers {
       // initialSeries). Clearing on those fed the derived rows back in as
       // input: one legend click on a histogram re-binned its own bin counts,
       // turning 900 observations into 62, and every click after that binned a
-      // level deeper. `Data.parseData` already draws this same line for these
-      // three when it decides what initialSeries means.
+      // level deeper. `Data.parseData` already draws this same line for each of
+      // these when it decides what initialSeries means.
       if (overwriteInitialSeries) {
         w.globals.dataReducerRawSeries = null
         w.globals.histogramRawSeries = null
+        w.globals.waterfallRawSeries = null
+        w.globals.dumbbellRawSeries = null
+        w.globals.streamgraphRawSeries = null
         w.globals.treemapRawSeries = null
       }
 
@@ -266,12 +287,16 @@ export default class UpdateHelpers {
       this.ctx._writeParsedAxisFlags(parsedState.axisFlags)
 
       if (overwriteInitialSeries) {
-        // initialConfig.series has aliased w.config.series since Globals.init
-        // (Utils.extend copies arrays by reference); keep that alias fresh.
+        // Refresh the initialConfig snapshot with the series the caller just
+        // defined. A copy, never the live array: this site used to assign
+        // w.config.series itself, restoring the very alias #5118 came from, so
+        // one updateSeries() would undo the capture Globals.init now makes.
         // initialSeries was already captured by parseData above through the
         // lazy-snapshot setter, so no deep clone happens here either.
         if (w.globals.initialConfig) {
-          w.globals.initialConfig.series = w.config.series
+          w.globals.initialConfig.series = Utils.copySeriesShallow(
+            w.config.series,
+          )
         }
         w.globals.initialSeries = w.config.series
       }

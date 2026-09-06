@@ -28,6 +28,14 @@ export default class Markers {
     // ONE group + ONE delegation setup per series instead of per point.
     /** @type {any} */ this._seriesWrap = null
     /** @type {number} */ this._seriesWrapIndex = -1
+
+    // Batched mode (markers.largeDatasetThreshold): subpaths accumulate here
+    // across the j loop and flushBatch turns each size group into one path
+    // element. Grouped by marker size because a series has at most two:
+    // `markers.size`, and the smaller dot `showNullDataPoints` puts on isolated
+    // points. Both are uniform in style, so both merge.
+    /** @type {{seriesIndex: number, opts: any, sizes: Map<number, string[]>} | null} */
+    this._batch = null
   }
 
   /**
@@ -39,6 +47,97 @@ export default class Markers {
   resetSeriesWrapCache() {
     this._seriesWrap = null
     this._seriesWrapIndex = -1
+    this._batch = null
+  }
+
+  /**
+   * Are this chart's markers non-interactive? True for a plain line/area with
+   * the default sweep tooltip, which is exactly when `no-pointer-events` is
+   * added below: markers are painted but never hit-tested, so nothing needs a
+   * per-point node to receive events.
+   * @param {import('../types/internal').ChartStateW} w
+   */
+  static markersAreInert(w) {
+    const type = w.config.chart.type
+    return (
+      (type === 'line' || type === 'area') &&
+      !w.globals.comboCharts &&
+      !w.config.tooltip.intersect
+    )
+  }
+
+  /**
+   * Decide whether this chart draws each series' markers as ONE path element
+   * (a subpath per point) instead of one element per point.
+   *
+   * This is deliberately all-or-nothing for the chart rather than per series.
+   * The tooltip's hover indicator is chosen once for the whole chart, and a
+   * chart with some batched and some per-point series would enlarge a node
+   * belonging to the wrong series (`getAllMarkers` takes the first
+   * `.apexcharts-marker` under each wrap), so mixed mode is not worth the
+   * surface it would add.
+   *
+   * Every gate here is a feature that genuinely needs its own element per
+   * point. Batching is skipped rather than half-supported for all of them.
+   * @returns {boolean}
+   */
+  _shouldBatch() {
+    const w = this.w
+    const m = w.config.markers
+    const threshold = m.largeDatasetThreshold ?? 0
+    if (threshold <= 0) return false
+
+    // canvas already paints markers into a bitmap, with no nodes at all
+    if (this.ctx?.renderer?.kind === 'canvas') return false
+
+    if (!Markers.markersAreInert(w)) return false
+
+    // per-point shapes/sizes/colours, and click targets, need per-point nodes
+    if (m.discrete && m.discrete.length) return false
+    if (m.onClick || m.onDblClick) return false
+
+    // toggleDataPointSelection resolves a point by `path[j=...]`, and
+    // setSelectionFilter applies the active filter to that one element
+    if (w.config.chart.events?.dataPointSelection) return false
+
+    /** @type {any[]} */
+    const series = w.seriesData.series
+    if (!Array.isArray(series) || !series.length) return false
+
+    let anyOverThreshold = false
+    for (let i = 0; i < series.length; i++) {
+      if (!Array.isArray(series[i])) return false
+
+      // One pass per series for both questions below. w.globals.hasNullValues
+      // is not set yet at this point in the render (Range fills it during
+      // coreCalculations, after this runs), so the nulls are counted here.
+      let hasNull = false
+      let perPointStyle = false
+      const data = /** @type {Record<string, any>} */ (w.config.series[i])?.data
+      for (let j = 0; j < series[i].length; j++) {
+        if (series[i][j] === null) hasNull = true
+        // per-point fillColor/strokeColor make the series' markers non-uniform,
+        // so they could not share one path's style attributes
+        const d = Array.isArray(data) ? data[j] : null
+        if (d && (d.fillColor || d.strokeColor)) {
+          perPointStyle = true
+          break
+        }
+      }
+      if (perPointStyle) return false
+
+      // A series draws markers either because they were asked for, or because
+      // `showNullDataPoints` gives every isolated point one so a single-point
+      // segment is not invisible. The second case is why a markers.size: 0
+      // chart full of nulls is slow, so it has to count here too.
+      const drawsMarkers =
+        w.globals.markers.size[i] > 0 || (hasNull && m.showNullDataPoints)
+      if (!drawsMarkers) continue
+
+      if (series[i].length > threshold) anyOverThreshold = true
+    }
+
+    return anyOverThreshold
   }
 
   setGlobalMarkerSize() {
@@ -61,6 +160,10 @@ export default class Markers {
         () => /** @type {number} */ (w.config.markers.size),
       )
     }
+
+    // Decided once here, after the per-series sizes resolve and before any
+    // geometry, so every consumer sees the same answer for the whole render.
+    w.globals.markers.batched = this._shouldBatch()
   }
 
   /** @param {{ pointsPos?: any, seriesIndex?: any, j?: any, pSize?: any, alwaysDrawMarker?: boolean, isVirtualPoint?: boolean }} opts */
@@ -107,17 +210,37 @@ export default class Markers {
         if (j === 1 && q === 1) dataPointIndex = 1
 
         let markerClasses = 'apexcharts-marker'
-        if (
-          (w.config.chart.type === 'line' || w.config.chart.type === 'area') &&
-          !w.globals.comboCharts &&
-          !w.config.tooltip.intersect
-        ) {
+        if (Markers.markersAreInert(w)) {
           markerClasses += ' no-pointer-events'
         }
 
         const shouldMarkerDraw = Array.isArray(w.config.markers.size)
           ? w.globals.markers.size[seriesIndex] > 0
           : w.config.markers.size > 0
+
+        // Batched mode: collect a subpath instead of building an element.
+        // Discrete markers are excluded (they are per-point by definition, and
+        // _shouldBatch already declined), as is the single virtual point the
+        // null handling parks off-grid, which #3641 depends on being its own
+        // element. `showNullDataPoints` markers DO batch: they arrive here via
+        // alwaysDrawMarker with their own smaller pSize, which is why the batch
+        // groups by size.
+        const batchThisPoint =
+          w.globals.markers.batched &&
+          (shouldMarkerDraw || alwaysDrawMarker) &&
+          !hasDiscreteMarkers &&
+          !isVirtualPoint
+        if (batchThisPoint) {
+          this._batchPoint(seriesIndex, dataPointIndex, p.x[q], p.y[q], {
+            invalid: invalidMarker,
+            graphics,
+            // alwaysDrawMarker carries an explicit size; the standard path
+            // takes the series' own
+            pSize: alwaysDrawMarker ? pSize : undefined,
+            trackPoint: !alwaysDrawMarker,
+          })
+          continue
+        }
 
         if (shouldMarkerDraw || alwaysDrawMarker || hasDiscreteMarkers) {
           // Strata (#2): in canvas mode markers paint to a bitmap and expose no
@@ -230,6 +353,135 @@ export default class Markers {
     }
 
     return elMarkersWrap
+  }
+
+  /**
+   * Batched mode: record one point. Nothing touches the DOM here; each size
+   * group becomes a single path in flushBatch.
+   * @param {number} seriesIndex
+   * @param {number} dataPointIndex
+   * @param {number} x
+   * @param {number} y
+   * @param {{invalid: boolean, graphics: Graphics, pSize?: number,
+   *          trackPoint?: boolean}} o
+   */
+  _batchPoint(
+    seriesIndex,
+    dataPointIndex,
+    x,
+    y,
+    { invalid, graphics, pSize, trackPoint },
+  ) {
+    const w = this.w
+
+    // With no cx/cy nodes to read, the tooltip and crosshair position off this
+    // cache, exactly as they do for canvas mode and for markers.size: 0. Only
+    // the standard pass records it: the null pass revisits an index the
+    // standard pass has already written.
+    if (trackPoint) {
+      if (typeof w.globals.pointsArray[seriesIndex] === 'undefined') {
+        w.globals.pointsArray[seriesIndex] = []
+      }
+      w.globals.pointsArray[seriesIndex][dataPointIndex] = [x, y]
+    }
+
+    if (invalid) return
+
+    if (!this._batch || this._batch.seriesIndex !== seriesIndex) {
+      // Resolved once for the series rather than per point: the gates in
+      // _shouldBatch guarantee every point of the series shares this style.
+      this._batch = {
+        seriesIndex,
+        opts: this.getMarkerConfig({ cssClass: '', seriesIndex }),
+        sizes: new Map(),
+      }
+    }
+
+    const size = pSize === undefined ? this._batch.opts.pSize : pSize
+    if (!(size > 0)) return
+
+    // Off-grid points contribute no subpath. The per-point path clamps pSize to
+    // 0 for these, which draws nothing anyway, so this only skips the work.
+    const slack = w.globals.markers.largestSize
+    if (
+      x < -slack ||
+      x > w.layout.gridWidth + slack ||
+      y < -slack ||
+      y > w.layout.gridHeight + slack
+    ) {
+      return
+    }
+
+    let group = this._batch.sizes.get(size)
+    if (!group) {
+      group = []
+      this._batch.sizes.set(size, group)
+    }
+    group.push(graphics.getMarkerPath(x, y, this._batch.opts.shape, size))
+  }
+
+  /**
+   * Emit the accumulated series as one path element per marker size and append
+   * them to the series' marker wrap. Returns the elements, empty when the
+   * series had nothing to batch.
+   *
+   * They are deliberately NOT classed `apexcharts-marker`. That class is how
+   * the tooltip finds a node to enlarge (`getAllMarkers` takes the first match
+   * under each wrap, `resetPointsSize` rewrites the `d` of every match), so a
+   * batched path wearing it would have its entire subpath list replaced by a
+   * single hover dot on the first mouseover.
+   * @param {any} elPointsMain
+   * @param {number} seriesIndex
+   * @returns {any[]}
+   */
+  flushBatch(elPointsMain, seriesIndex) {
+    const b = this._batch
+    this._batch = null
+    if (!b || b.seriesIndex !== seriesIndex || !b.sizes.size) return []
+
+    const w = this.w
+    const graphics = new Graphics(this.w)
+    const opts = b.opts
+
+    // Match drawMarker's swap for the shapes drawn as strokes rather than
+    // fills, so a batched cross/plus/line looks like a per-point one.
+    const strokeShape =
+      opts.shape === 'line' || opts.shape === 'plus' || opts.shape === 'cross'
+    const stroke = strokeShape ? opts.pointFillColor : opts.pointStrokeColor
+    const strokeOpacity = strokeShape
+      ? opts.pointFillOpacity
+      : opts.pointStrokeOpacity
+
+    /** @type {any[]} */
+    const els = []
+    b.sizes.forEach((subpaths, size) => {
+      if (!subpaths.length) return
+
+      const el = graphics.drawPath({
+        d: subpaths.join(' '),
+        fill: opts.pointFillColor,
+        fillOpacity: opts.pointFillOpacity,
+        stroke,
+        strokeOpacity,
+        strokeWidth: opts.pointStrokeWidth,
+        strokeDashArray: opts.pointStrokeDashArray,
+      })
+
+      el.attr({
+        class: `apexcharts-marker-batch${
+          Markers.markersAreInert(w) ? ' no-pointer-events' : ''
+        }`,
+        'clip-path': `url(#gridRectMarkerMask${w.globals.cuid})`,
+        shape: opts.shape,
+        index: seriesIndex,
+        'default-marker-size': size,
+      })
+
+      elPointsMain.add(el)
+      els.push(el)
+    })
+
+    return els
   }
 
   /** @param {{cssClass: any, seriesIndex: any, dataPointIndex?: any, radius?: any, size?: any, strokeWidth?: any}} opts */

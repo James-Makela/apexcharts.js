@@ -38,7 +38,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 /*!
- * ApexCharts v6.10.0
+ * ApexCharts v7.1.0
  * (c) 2018-2026 ApexCharts
  */
 import * as ApexCharts from "apexcharts/core";
@@ -422,6 +422,10 @@ function premiumFeaturesInUse(w, ctx) {
   const chart = w && w.config && w.config.chart || {};
   const used = [];
   if (chart.type === "unit") used.push("unit");
+  if (chart.requestedType === "raincloud") used.push("raincloud");
+  if (ctx.trellis && typeof ctx.trellis.isActive === "function" && ctx.trellis.isActive()) {
+    used.push("trellis");
+  }
   if (ctx.storyboard && ctx.storyboard._used) used.push("storyboard");
   const link = chart.link;
   if (ctx.linkedViews && link && (link.enabled === true || typeof link.dimension === "function")) {

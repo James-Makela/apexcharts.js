@@ -1,6 +1,17 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createChartWithOptions } from './utils/utils.js'
 import ApexCharts from '../../src/entries/full.js'
+// measure, link, ink, storyboard, context-menu, history and perspectives are Tier 2 and no longer in `entries/full.js`. This suite
+// is about license gating, not bundling, so it imports each feature the way
+// an application would and keeps asserting on a chart that HAS the tool.
+import '../../src/features/measure.js'
+import '../../src/features/link.js'
+import '../../src/features/ink.js'
+import '../../src/features/storyboard.js'
+import '../../src/features/context-menu.js'
+import '../../src/features/history.js'
+import '../../src/features/perspectives.js'
+import '../../src/features/raincloud.js'
 import { LicenseManager } from 'apex-commons'
 import { installTestSigningKey, signedKey, forgedKey } from './utils/license-keys.js'
 import {
@@ -99,6 +110,24 @@ describe('License gating', () => {
       })
       expect(premiumFeaturesInUse(chart.w, chart)).toContain('unit')
       chart.destroy()
+    })
+
+    it('flags "raincloud" by REQUESTED type; a plain violin stays free', () => {
+      const chart = createChartWithOptions({
+        chart: { type: 'raincloud', width: 480, height: 320 },
+        series: [{ name: 'A', data: [{ x: 'G1', points: [1, 2, 3, 4, 5] }] }],
+      })
+      // the alias rewrites chart.type to 'violin'; usage is the request
+      expect(chart.w.config.chart.type).toBe('violin')
+      expect(premiumFeaturesInUse(chart.w, chart)).toContain('raincloud')
+      chart.destroy()
+
+      const violin = createChartWithOptions({
+        chart: { type: 'violin', width: 480, height: 320 },
+        series: [{ name: 'A', data: [{ x: 'G1', points: [1, 2, 3, 4, 5] }] }],
+      })
+      expect(premiumFeaturesInUse(violin.w, violin)).toEqual([])
+      violin.destroy()
     })
 
     it('does NOT flag a bundled-but-not-enabled premium feature', () => {
@@ -336,6 +365,30 @@ describe('License gating', () => {
       })
       expect(hasWatermark(premiumUnit)).toBe(false)
       premiumUnit.destroy()
+    })
+
+    it('the raincloud chart type is plan-gated: no key / pro -> watermark, premium -> none', () => {
+      const raincloud = () =>
+        createChartWithOptions({
+          chart: { type: 'raincloud', width: 480, height: 320 },
+          series: [
+            { name: 'A', data: [{ x: 'G1', points: [1, 2, 3, 4, 5, 6] }] },
+          ],
+        })
+
+      const unlicensed = raincloud()
+      expect(hasWatermark(unlicensed)).toBe(true)
+      unlicensed.destroy()
+
+      ApexCharts.setLicense(proKey)
+      const pro = raincloud()
+      expect(hasWatermark(pro)).toBe(true)
+      pro.destroy()
+
+      ApexCharts.setLicense(premiumKey)
+      const premium = raincloud()
+      expect(hasWatermark(premium)).toBe(false)
+      premium.destroy()
     })
 
     it('a late upgrade from pro to premium clears the watermark', async () => {

@@ -147,6 +147,8 @@ export interface ViolinData {
     Array<{ values: number[]; weights: number[]; maxWeight: number }>
   >
   seriesViolinPoints: number[][][]
+  /** Five-number summary [whiskerLow, q1, median, q3, whiskerHigh] per (series, category); null where the datum carries none */
+  seriesViolinSummary: Array<Array<number[] | null>>
   seriesViolinMin: number[][]
   seriesViolinMax: number[][]
 }
@@ -162,6 +164,95 @@ export interface HistogramData {
   rule: string
   /** True when the bin count hit the safety cap */
   capped: boolean
+}
+
+/**
+ * Waterfall accumulation — lives on `w.waterfallData`, written by the waterfall
+ * series transform (`features/waterfall`) each parse.
+ */
+export interface WaterfallData {
+  /**
+   * values[seriesIndex][j] — the bar's signed height (`end - start`): the delta
+   * for a step bar, the sum for a subtotal / total bar. What a label and a
+   * tooltip print, in place of the "start - end" a range bar would read out.
+   */
+  values: Array<Array<number | null>>
+  /** cumulative[seriesIndex][j] — the running total AFTER bar j. */
+  cumulative: number[][]
+  /** kinds[seriesIndex][j] — 'positive' | 'negative' | 'subtotal' | 'total' */
+  kinds: Array<Array<string | null>>
+  /**
+   * geometry[seriesIndex][j] — the px box the bar was drawn in, recorded by
+   * RangeBar and joined up by the connector layer. A non-null sink here is what
+   * asks RangeBar to record at all, so it is null for every other chart type.
+   */
+  geometry: Array<
+    Array<{
+      /** Bounds along the CATEGORY axis (x when vertical, y when horizontal). */
+      slotStart: number
+      slotEnd: number
+      /** px of the bar's two value bounds. */
+      levelStart: number
+      levelEnd: number
+      horizontal: boolean
+    }>
+  > | null
+}
+
+/**
+ * Dumbbell endpoints, living on `w.dumbbellData`, written by the dumbbell
+ * series transform (`features/dumbbell`) each parse. Null for every chart that
+ * is not a dumbbell.
+ */
+export interface DumbbellData {
+  /**
+   * 'series': N scalar measures were merged and the endpoints are identified.
+   * 'pairs':  a `y: [lo, hi]` series was passed through; there are no endpoint
+   * names, and the legacy `dumbbellColors` pathway draws it.
+   */
+  form: 'series' | 'pairs'
+  /** names[k] is endpoint k's series name. */
+  names: string[]
+  /** values[j][k] is endpoint k's value on row j, or null where it has none. */
+  values: Array<Array<number | null>>
+  /**
+   * order[j] is `[kLow, kHigh]`: which endpoint sits at each end of row j's
+   * connector. Null when the row has no visible endpoint. The rows are emitted
+   * low-to-high, so this is what ties an end back to the measure it belongs to.
+   */
+  order: Array<[number, number] | null>
+  /** The series index the merged rows were written to (the first visible one). */
+  carrier: number
+  /** Endpoint indices collapsed from the legend. */
+  hidden: number[]
+}
+
+/**
+ * Streamgraph bands, living on `w.streamgraphData`, written by the streamgraph
+ * series transform (`features/streamgraph`) each parse. Null for every chart
+ * that is not a streamgraph, and for a streamgraph handed bands that were
+ * already stacked.
+ */
+export interface StreamgraphData {
+  /** names[k] is band k's series name. */
+  names: string[]
+  /** xs[j] is column j's x value, in drawing order. */
+  xs: any[]
+  /** values[k][j] is the number the reader gave for band k at column j. */
+  values: number[][]
+  /**
+   * Per-band stacking offsets, or null for a band the legend has collapsed.
+   * `highs[k][j]` IS `lows[next][j]` — the same accumulator value, not a copy —
+   * which is what makes adjacent bands meet with no hairline gap.
+   */
+  lows: Array<number[] | null>
+  highs: Array<number[] | null>
+  /** Series indices, bottom band first. */
+  order: number[]
+  /** The baseline mode the bands were solved with. */
+  offset: 'wiggle' | 'silhouette' | 'zero' | 'expand'
+  /** Band indices collapsed from the legend. */
+  hidden: number[]
 }
 
 /** Label / category data — lives on `w.labelData` */
@@ -303,7 +394,13 @@ export interface ChartGlobals
   stroke: { colors: string[] }
   dataLabels: { style: { colors: string[] } }
   radarPolygons: { fill: { colors: string[] } }
-  markers: { colors: string[]; size: number[]; largestSize: number }
+  markers: {
+    colors: string[]
+    size: number[]
+    largestSize: number
+    /** one path element per series instead of one per point: no marker nodes */
+    batched: boolean
+  }
 
   // ── Chart-type flags ──────────────────────────────────────────────────────
   axisCharts: boolean
@@ -344,6 +441,30 @@ export interface ChartGlobals
   // appendData when the user pushes new data.
   histogramRawSeries: Array<{ data: any }> | null
 
+  // ── Waterfall (chart.type: 'waterfall') ───────────────────────────────────
+  // The raw deltas, stashed on first parse. parseData writes the accumulated
+  // [start, end] pairs back to config.series, so this is the only surviving
+  // copy of the input and every re-render accumulates from it. Cleared by
+  // _updateSeries and appended to by appendData when the user pushes new data.
+  waterfallRawSeries: Array<{ data: any }> | null
+
+  // ── Dumbbell (chart.type: 'dumbbell') ─────────────────────────────────────
+  // The raw endpoint series, stashed on first parse. parseData writes the
+  // merged rows back to config.series, so this is the only surviving copy of
+  // the input and every re-render merges from it. Cleared by _updateSeries and
+  // appended to by appendData when the user pushes new data.
+  dumbbellRawSeries: Array<{ data: any }> | null
+
+  // ── Streamgraph (chart.type: 'streamgraph') ───────────────────────────────
+  // The raw band series, stashed on first parse. parseData writes the stacked
+  // [lo, hi] bands back to config.series, so this is the only surviving copy of
+  // the input and every re-render stacks from it. Cleared by _updateSeries and
+  // appended to by appendData when the user pushes new data.
+  streamgraphRawSeries: Array<{ data: any }> | null
+  // Set once per chart after negative values have been floored to zero, so a
+  // resize does not re-warn on every render.
+  streamgraphWarnedNegative?: boolean
+
   // ── Nested treemap (a datum carrying `children`) ──────────────────────────
   // The nested input, stashed on first parse. parseData writes the flattened
   // leaves back to config.series, so this is the only surviving copy of the
@@ -365,6 +486,8 @@ export interface ChartGlobals
   collapsedSeriesIndices: number[]
   ancillaryCollapsedSeries: Array<{ index: number; data: any; type: string; name?: string }>
   ancillaryCollapsedSeriesIndices: number[]
+  /** Series collapsing on this render only; cleared once that render is done. */
+  collapsingSeriesIndices: number[]
   risingSeries: number[]
   ignoreYAxisIndexes: number[]
 
@@ -467,6 +590,13 @@ export interface ChartGlobals
     labels: any[]
     isXNumeric: boolean
   } | null
+  /**
+   * True when a streaming scroll is driving the render in progress. Cleared by
+   * captureStreamFrame once per update, set by detectStreamScroll. Lets
+   * post-render polish (the axis tween) stand aside for a scroll that is
+   * already animating continuously.
+   */
+  streamScrolled: boolean
   // Axis-chrome snapshot (tick label texts/positions + gridline positions),
   // captured alongside prevStreamFrame and consumed once by AxisTransition
   // after a variable-length re-render mounts.
@@ -625,6 +755,9 @@ export interface ChartStateW {
   rangeData: RangeData
   violinData: ViolinData
   histogramData: HistogramData
+  waterfallData: WaterfallData
+  dumbbellData: DumbbellData | null
+  streamgraphData: StreamgraphData | null
   labelData: LabelData
   axisFlags: AxisFlags
   seriesData: SeriesData

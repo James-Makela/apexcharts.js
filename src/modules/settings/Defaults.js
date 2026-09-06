@@ -3,6 +3,7 @@ import Utils from '../../utils/Utils'
 import DateTime from '../../utils/DateTime'
 import Formatters from '../Formatters'
 import Options from './Options'
+import { TYPE_ALIASES } from './TypeAliases'
 
 /**
  * ApexCharts Default Class for setting default options for all chart types.
@@ -69,6 +70,15 @@ const TYPE_OWNED_PATHS = [
   'plotOptions.bar.dataLabels.position',
   // A box plot's outlier markers are hit targets; a violin draws none.
   'markers.size',
+  // The violin layers a raincloud rearranges: which side the density is on,
+  // whether the box lane exists and how its whiskers are computed, and where
+  // the jitter sits. All decide what is drawn, so they hand over when the
+  // type changes (violin <-> raincloud) instead of a raincloud's half-body
+  // surviving into a plain violin.
+  'plotOptions.violin.side',
+  'plotOptions.violin.box.show',
+  'plotOptions.violin.box.whiskers',
+  'plotOptions.violin.points.position',
   // Hover and select feedback, off by design on the types that draw their own.
   'states.hover.filter.type',
   'states.active.filter.type',
@@ -116,14 +126,6 @@ const writePath = (obj, path, value) => {
   else cur[/** @type {string} */ (last)] = value
 }
 
-/** The user-facing chart types that render through another type's pathway. */
-const TYPE_ALIASES = {
-  funnel: 'bar',
-  pyramid: 'bar',
-  gauge: 'radialBar',
-  waffle: 'unit',
-  histogram: 'bar',
-}
 
 /**
  * A throwaway config naming one chart type and nothing else, for asking
@@ -372,6 +374,14 @@ export default class Defaults {
       chartDefaults = defaults.gauge()
     } else if (requestedType === 'histogram') {
       chartDefaults = defaults.histogram()
+    } else if (requestedType === 'waterfall') {
+      chartDefaults = defaults.waterfall()
+    } else if (requestedType === 'dumbbell') {
+      chartDefaults = defaults.dumbbell()
+    } else if (requestedType === 'streamgraph') {
+      chartDefaults = defaults.streamgraph()
+    } else if (requestedType === 'raincloud') {
+      chartDefaults = defaults.raincloud()
     } else if (chartTypes.indexOf(opts.chart.type) !== -1) {
       chartDefaults = /** @type {any} */ (defaults)[opts.chart.type]()
     } else {
@@ -733,6 +743,81 @@ export default class Defaults {
     }
   }
 
+  waterfall() {
+    // Waterfall defaults: a cumulative walk drawn as floating range columns
+    // (see Config.normalizeAliasedChartType), so it starts from the range-column
+    // defaults and changes only what the walk needs.
+    const range = this.rangeBar()
+
+    return {
+      ...range,
+      chart: {
+        stacked: false,
+        // A waterfall is a fixed set of named steps, not a window onto a
+        // continuum: there is nothing to zoom into, and a horizontal one would
+        // otherwise inherit the timeline range bar's zoom toolbar.
+        zoom: {
+          enabled: false,
+        },
+        animations: {
+          // The bars ARE a left-to-right sequence, so the staggered reveal
+          // traces the walk instead of implying an order that is not there.
+          // (A timeline range bar turns this off; a waterfall wants it.)
+          animateGradually: {
+            enabled: true,
+          },
+        },
+      },
+      plotOptions: {
+        ...range.plotOptions,
+        bar: {
+          .../** @type {any} */ (range.plotOptions).bar,
+          // Narrower than a plain bar's 70%, because the gaps are load-bearing
+          // here: the connectors are drawn in them. Both orientations, so a
+          // horizontal waterfall's connectors have room too.
+          columnWidth: '60%',
+          barHeight: '60%',
+        },
+      },
+      dataLabels: {
+        .../** @type {any} */ (range).dataLabels,
+        // The step is the whole point of a waterfall, so it is written on the
+        // bar by default. The inherited range formatter already reports
+        // `end - start`, which is the delta for a step bar and the sum for a
+        // subtotal / total bar.
+        enabled: true,
+        // Small steps are normal in a waterfall, and a label wider or taller
+        // than its bar gets placed OUTSIDE it. The range column's white label
+        // is then white text on the chart background, so the two smallest steps
+        // of a P&L bridge simply vanished. A pale chip with dark ink reads
+        // wherever the label lands: over a green, red or blue bar, or off it.
+        background: {
+          enabled: true,
+          backgroundColor: '#fff',
+          foreColor: '#373d3f',
+          borderColor: '#e3e8ee',
+          opacity: 0.92,
+        },
+      },
+      legend: {
+        // A waterfall is one series, so the legend would show a single swatch
+        // named after it, and clicking it empties the chart. The legend a
+        // waterfall actually wants names the KINDS of bar (increase, decrease,
+        // total), which is not something the series legend can express.
+        show: false,
+      },
+      tooltip: {
+        shared: false,
+        intersect: true,
+        followCursor: false,
+        // Deliberately no `custom`: the range-column tooltip reads out
+        // "start - end", which is a span the data never claims. The ordinary
+        // tooltip is correct once the value it prints is the step, which
+        // TooltipLabels.formatYValue takes from `w.waterfallData.values`.
+      },
+    }
+  }
+
   histogram() {
     // Histogram defaults: a distribution of raw observations, binned by
     // features/stats and drawn through the bar pathway.
@@ -964,6 +1049,45 @@ export default class Defaults {
     }
   }
 
+  raincloud() {
+    // Raincloud defaults: the violin baseline, with the three layers arranged
+    // side by side. Vertical: rain left, box middle, cloud right (the classic
+    // published layout); horizontal mirrors it as cloud on top, box + rain
+    // below. Every choice here is a plain default the user can set back.
+    const base = this.violin()
+    const horizontal = this.opts?.plotOptions?.bar?.horizontal === true
+    return {
+      ...base,
+      plotOptions: {
+        violin: {
+          side: horizontal ? 'top' : 'right',
+          box: {
+            show: true,
+            // Tukey fences over minmax: the canonical raincloud box, and safe
+            // here precisely because the rain draws every observation, so
+            // nothing beyond the whiskers is hidden.
+            whiskers: 'tukey',
+          },
+          points: {
+            position: horizontal ? 'bottom' : 'left',
+            // Fill most of the rain lane; the lane is the dots' whole home,
+            // unlike the centered violin scatter that shares it with the body.
+            jitter: 0.85,
+          },
+        },
+      },
+      tooltip: {
+        ...base.tooltip,
+        custom: ownedBy(
+          ['raincloud'],
+          (/** @type {any} */ { seriesIndex, dataPointIndex, w }) => {
+            return this._getRaincloudTooltip(w, seriesIndex, dataPointIndex)
+          },
+        ),
+      },
+    }
+  }
+
   rangeBar() {
     /**
      * @param {any} opts
@@ -1086,10 +1210,155 @@ export default class Defaults {
     }
   }
 
+  dumbbell() {
+    // Dumbbell defaults: two measures per category, drawn as the interval
+    // between them with both ends marked (see Config.normalizeAliasedChartType).
+    // Starts from the range-bar defaults and changes only what the comparison
+    // needs.
+    const range = this.rangeBar()
+
+    /**
+     * One row of the tooltip: an endpoint's name, in its own colour, and its
+     * value.
+     * @param {string} name @param {string} color @param {any} value
+     */
+    const endpointRow = (name, color, value) =>
+      '<div class="apexcharts-tooltip-dumbbell-endpoint">' +
+      '<span class="series-name" style="color: ' +
+      color +
+      '">' +
+      name +
+      '</span> <span class="value">' +
+      value +
+      '</span></div>'
+
+    /**
+     * @param {any} opts
+     */
+    const handleDumbbellTooltip = (opts) => {
+      const { w, dataPointIndex, seriesIndex } = opts
+      const dumbbell = w.dumbbellData
+
+      if (!dumbbell || dumbbell.form !== 'series') {
+        // The `y: [lo, hi]` form names no endpoints, so there is nothing to
+        // read out but the interval itself.
+        const { color, seriesName, ylabel, start, end } = getRangeValues(opts)
+        return buildRangeTooltipHTML({
+          ...opts,
+          color,
+          seriesName,
+          ylabel,
+          start,
+          end,
+        })
+      }
+
+      const values = dumbbell.values[dataPointIndex] || []
+      const formatter =
+        w.globals.tooltip.tooltipLabels.getFormatters(seriesIndex)
+      const ylabel = w.labelData.labels[dataPointIndex] ?? ''
+
+      let rows = ''
+      /** @type {number[]} */
+      const shown = []
+      for (let k = 0; k < values.length; k++) {
+        if (values[k] === null || dumbbell.hidden.indexOf(k) !== -1) continue
+        shown.push(values[k])
+        rows += endpointRow(
+          dumbbell.names[k],
+          w.globals.colors[k],
+          formatter.yLbFormatter(values[k]),
+        )
+      }
+
+      // The gap is the reason the two dots are on one row, so it is read out
+      // rather than left to be eyeballed. Only when there are exactly two
+      // endpoints: with three or more "the difference" names nothing.
+      const gap =
+        shown.length === 2
+          ? '<div class="apexcharts-tooltip-dumbbell-gap">' +
+            '<span class="category">' +
+            w.config.plotOptions.bar.dumbbell.tooltip.differenceLabel +
+            ': </span><span class="value">' +
+            formatter.yLbFormatter(Math.abs(shown[1] - shown[0])) +
+            '</span></div>'
+          : ''
+
+      return (
+        '<div class="apexcharts-tooltip-rangebar apexcharts-tooltip-dumbbell">' +
+        '<div><span class="category">' +
+        ylabel +
+        '</span></div>' +
+        rows +
+        gap +
+        '</div>'
+      )
+    }
+
+    return {
+      ...range,
+      chart: {
+        stacked: false,
+        // A dumbbell is a fixed set of named rows, not a window onto a
+        // continuum: there is nothing to zoom into, and a horizontal one would
+        // otherwise inherit the timeline range bar's zoom toolbar.
+        zoom: {
+          enabled: false,
+        },
+      },
+      plotOptions: {
+        ...range.plotOptions,
+        bar: {
+          .../** @type {any} */ (range.plotOptions).bar,
+          // The connector, not a bar: thin enough that the marked ends are what
+          // the eye lands on, thick enough to read as a join at a glance.
+          barHeight: 6,
+          columnWidth: 6,
+          dumbbell: {
+            dataLabels: {
+              // The two values ARE the comparison, so they are written at the
+              // ends by default. The centred range label a range bar would draw
+              // reads out `end - start` over the connector, which is the one
+              // number a dumbbell can already be seen to say.
+              enabled: true,
+            },
+          },
+        },
+      },
+      dataLabels: {
+        .../** @type {any} */ (range).dataLabels,
+        enabled: false,
+      },
+      legend: {
+        // Two named measures, which is exactly what the series legend is for.
+        // (The `y: [lo, hi]` form has one series and no endpoint names; that is
+        // what `legend.customLegendItems` is for.)
+        show: true,
+        position: 'bottom',
+        horizontalAlign: 'left',
+        markers: {
+          // Echoes the marked ends rather than the connector.
+          shape: 'circle',
+        },
+      },
+      tooltip: {
+        shared: false,
+        intersect: true,
+        followCursor: false,
+        custom: ownedBy(['rangeBar'], handleDumbbellTooltip),
+      },
+    }
+  }
+
   /**
+   * The connector's thickness, for any range bar drawn `isDumbbell`.
+   *
+   * Written into the opts rather than returned as defaults because it applies
+   * to the flag wherever it is set, not only to `chart.type: 'dumbbell'`.
+   *
    * @param {Record<string, any>} opts
    */
-  dumbbell(opts) {
+  dumbbellSizing(opts) {
     if (!opts.plotOptions.bar?.barHeight) {
       opts.plotOptions.bar.barHeight = 2
     }
@@ -1190,6 +1459,236 @@ export default class Defaults {
     }
   }
 
+  streamgraph() {
+    // Streamgraph defaults: a stacked area on a computed baseline, drawn
+    // through the range-area pathway (see Config.normalizeAliasedChartType).
+    // Starts from the range-area defaults and changes only what the form needs.
+    const range = this.rangeArea()
+
+    /**
+     * The hovered column, every band read out at once.
+     *
+     * The band's own `[lo, hi]` are stacking offsets, not measurements — the
+     * numbers the reader gave are on `w.streamgraphData.values` — so the
+     * inherited range tooltip would print two coordinates nobody supplied.
+     * Read out top-down in stacking order so the list matches the picture.
+     *
+     * @param {any} opts
+     */
+    const handleStreamTooltip = (opts) => {
+      const { w, dataPointIndex, seriesIndex } = opts
+      const data = w.streamgraphData
+
+      if (!data || !Array.isArray(data.order)) {
+        // Bands were supplied ready-stacked, so there is nothing but the
+        // interval itself to read out.
+        const { color, seriesName, ylabel, start, end } = getRangeValues(opts)
+        return buildRangeTooltipHTML({
+          ...opts,
+          color,
+          seriesName,
+          ylabel,
+          start,
+          end,
+        })
+      }
+
+      const { ylabel } = getRangeValues(opts)
+
+      // NOT the inherited y formatter. That one takes its decimal count from
+      // `gl.yValueDecimal`, which is measured off the values the chart DREW —
+      // and a streamgraph draws wiggle offsets, whose fractions run to the full
+      // width of a double. It turns a band worth 26 into "26.0000000000000000".
+      // A `tooltip.y` the user configured still wins, because that one is about
+      // the numbers being reported rather than the ones being plotted.
+      // Which band the cursor is actually INSIDE, rather than the one the
+      // generic capture picked.
+      //
+      // `getNearestValues` resolves a hover to the series whose stored y is
+      // nearest, and for a range area the stored y is the band's LOWER EDGE
+      // (`seriesYvalues` takes the isRangeStart pass). On a stacked surface
+      // that is close to arbitrary: hovering deep inside Drama captures News,
+      // because News' lower edge happens to run nearer the cursor than Drama's
+      // does. Containment is what a band chart means by "the one you are
+      // pointing at", and it is also what the hover outline traces, so
+      // resolving it here is what keeps the two from naming different bands.
+      const active = (() => {
+        const d = w.streamgraphData
+        const svg =
+          w.dom.baseEl && w.dom.baseEl.querySelector('.apexcharts-svg')
+        const clientY = w.interact && w.interact.clientY
+        const span = w.globals.maxY - w.globals.minY
+        if (!svg || clientY == null || !span || !isFinite(span)) {
+          return seriesIndex
+        }
+        const rect = svg.getBoundingClientRect()
+        const zoom = w.globals.svgWidth ? rect.width / w.globals.svgWidth : 1
+        const py = (clientY - rect.top) / (zoom || 1) - w.layout.translateY
+        const h = w.layout.gridHeight
+        /** @param {number} v */
+        const yPx = (v) => {
+          const frac = (v - w.globals.minY) / span
+          return w.config.yaxis[0]?.reversed ? frac * h : h - frac * h
+        }
+        let nearest = seriesIndex
+        let gap = Infinity
+        for (let i = 0; i < d.order.length; i++) {
+          const k = d.order[i]
+          const lo = d.lows[k] && d.lows[k][dataPointIndex]
+          const hi = d.highs[k] && d.highs[k][dataPointIndex]
+          if (lo == null || hi == null) continue
+          const a = yPx(hi)
+          const b = yPx(lo)
+          const top = Math.min(a, b)
+          const bottom = Math.max(a, b)
+          if (py >= top && py <= bottom) return k
+          const dist = py < top ? top - py : py - bottom
+          if (dist < gap) {
+            gap = dist
+            nearest = k
+          }
+        }
+        return nearest
+      })()
+
+      const configured = w.formatters.ttVal !== undefined
+      /** @param {number} k @param {number} v */
+      const bandValue = (k, v) => {
+        if (configured) {
+          const f = w.globals.tooltip.tooltipLabels.getFormatters(k)
+          if (typeof f.yLbFormatter === 'function') return f.yLbFormatter(v)
+        }
+        if (Number.isInteger(v)) return String(v)
+        // Six places is past anything a part-to-whole reading needs, and it
+        // drops the float noise that summing the reader's own values leaves.
+        return String(Number(v.toFixed(6)))
+      }
+
+      let rows = ''
+      let total = 0
+      for (let i = data.order.length - 1; i >= 0; i--) {
+        const k = data.order[i]
+        const v = data.values[k]?.[dataPointIndex]
+        if (v == null || !isFinite(v)) continue
+        total += v
+        rows +=
+          '<div class="apexcharts-tooltip-stream-band' +
+          (k === active ? ' apexcharts-active' : '') +
+          '">' +
+          '<span class="apexcharts-tooltip-marker" style="background-color: ' +
+          w.globals.colors[k] +
+          '"></span>' +
+          '<span class="series-name">' +
+          data.names[k] +
+          '</span> <span class="value">' +
+          bandValue(k, v) +
+          '</span></div>'
+      }
+
+      // The total is the one number a streamgraph genuinely cannot be read for
+      // — the drifting baseline is exactly what hides it — so it is stated
+      // rather than left to be estimated from the envelope.
+      const totalRow =
+        data.offset === 'expand'
+          ? ''
+          : '<div class="apexcharts-tooltip-stream-total">' +
+            '<span class="series-name">Total</span> <span class="value">' +
+            bandValue(seriesIndex, total) +
+            '</span></div>'
+
+      return (
+        '<div class="apexcharts-tooltip-stream">' +
+        '<div class="apexcharts-tooltip-title">' +
+        ylabel +
+        '</div>' +
+        rows +
+        totalRow +
+        '</div>'
+      )
+    }
+
+    return {
+      ...range,
+      chart: {
+        stacked: false,
+      },
+      stroke: {
+        // monotoneCubic, not `smooth`. `smooth` sets its control points at a
+        // fixed fraction of the x gap without consulting the slope on either
+        // side, which puts an inflection at EVERY point: a band that simply
+        // declines (18, 9, 0) is drawn as a run of little S-curves, so it
+        // appears to stall and dip repeatedly on the way down. On a stack of
+        // twenty bands that invented wobble is most of what the reader sees.
+        // Fritsch-Carlson is shape preserving — where the data is monotone the
+        // curve is monotone — so a falling band reads as one continuous fall.
+        curve: 'monotoneCubic',
+        // Bands meet edge to edge, so any stroke at all draws a seam down the
+        // middle of every boundary and doubles it at the two outer edges.
+        width: 0,
+      },
+      fill: {
+        type: 'solid',
+        // A streamgraph reads as one continuous surface, so the bands are
+        // opaque: at range-area's 0.6 the grid shows through and the boundaries
+        // between neighbours turn into a third, muddier colour.
+        opacity: 1,
+      },
+      dataLabels: {
+        // One label per point on a stacked surface is unreadable at any real
+        // series count. The names go on the bands instead
+        // (plotOptions.streamgraph.labels).
+        enabled: false,
+      },
+      grid: {
+        // There is nothing to measure against, so gridlines only add noise
+        // behind an opaque surface. The x ruler stays: the whole point of the
+        // form is *when* the mix changed.
+        //
+        // `padding` is deliberately left alone. Zeroing it so the surface
+        // bleeds to the plot edges is tempting and costs almost nothing
+        // visually, but it puts the first and last category label half outside
+        // the SVG, so a category streamgraph starts with an axis reading "19"
+        // where it should read "2019".
+        yaxis: { lines: { show: false } },
+      },
+      markers: {
+        size: 0,
+        // A streamgraph has no data points to hit, only bands. The inherited
+        // `sizeOffset` grows a size-0 marker to 3px on hover, which puts a dot
+        // on a band BOUNDARY — a place that is not a value in either band.
+        hover: {
+          size: 0,
+          sizeOffset: 0,
+        },
+      },
+      tooltip: {
+        intersect: false,
+        shared: false,
+        followCursor: true,
+        custom: ownedBy(
+          ['streamgraph'],
+          /** @param {Record<string, any>} opts */
+          (opts) => handleStreamTooltip(opts),
+        ),
+      },
+      legend: {
+        // On, even though the band labels already name every band in place.
+        // The legend and the labels are not doing the same job: a label says
+        // WHICH band this is, and the legend is the only thing on the chart you
+        // can CLICK. Dropping it to avoid saying six names twice took the one
+        // control a streamgraph really wants with it — pulling a band out and
+        // watching the baseline re-solve under it is most of what there is to
+        // do here, and there was no way to ask for it.
+        //
+        // It also covers the bands too thin to hold a name, which are exactly
+        // the ones a reader most needs named.
+        show: true,
+        position: 'top',
+        horizontalAlign: 'center',
+      },
+    }
+  }
+
   /**
    * @param {Record<string, any>} defaults
    */
@@ -1267,7 +1766,6 @@ export default class Defaults {
         bar: {
           ...barDefaults.plotOptions.bar,
           borderRadiusApplication: 'end',
-          borderRadiusWhenStacked: 'last',
         },
       },
     }
@@ -1909,6 +2407,49 @@ export default class Defaults {
       `<div class="apexcharts-tooltip-violin-name">${name}</div>` +
       `<div>Min: <span class="value">${minV}</span></div>` +
       `<div>Max: <span class="value">${maxV}</span></div>` +
+      `<div>Observations: <span class="value">${pts.length}</span></div>` +
+      '</div>'
+    )
+  }
+
+  /**
+   * Shared tooltip for a raincloud: the five-number summary its box draws,
+   * plus the observation count. Falls back to the violin tooltip when a datum
+   * carries no summary (precomputed density without a sample).
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @param {number} seriesIndex
+   * @param {number} dataPointIndex
+   */
+  _getRaincloudTooltip(w, seriesIndex, dataPointIndex) {
+    const summary =
+      w.violinData.seriesViolinSummary[seriesIndex]?.[dataPointIndex]
+    if (!summary) {
+      return this._getViolinTooltip(w, seriesIndex, dataPointIndex)
+    }
+    const pts =
+      w.violinData.seriesViolinPoints[seriesIndex]?.[dataPointIndex] || []
+    const name =
+      /** @type {Record<string,any>} */ (w.config.series[seriesIndex]).name ||
+      'series-' + (seriesIndex + 1)
+    // Quantiles are derived, so they arrive with float noise; the tooltip is
+    // read by people.
+    /** @param {number} v */
+    const fmt = (v) => {
+      if (!isFinite(v)) return String(v)
+      const r = Math.round(v)
+      return Math.abs(v - r) < 1e-6 ? String(r) : String(Number(v.toFixed(2)))
+    }
+    const [lo, q1, med, q3, hi] = summary
+
+    return (
+      `<div class="apexcharts-tooltip-box apexcharts-tooltip-${w.config.chart.type}">` +
+      `<div class="apexcharts-tooltip-violin-name">${name}</div>` +
+      `<div>Whisker high: <span class="value">${fmt(hi)}</span></div>` +
+      `<div>Q3: <span class="value">${fmt(q3)}</span></div>` +
+      `<div>Median: <span class="value">${fmt(med)}</span></div>` +
+      `<div>Q1: <span class="value">${fmt(q1)}</span></div>` +
+      `<div>Whisker low: <span class="value">${fmt(lo)}</span></div>` +
       `<div>Observations: <span class="value">${pts.length}</span></div>` +
       '</div>'
     )

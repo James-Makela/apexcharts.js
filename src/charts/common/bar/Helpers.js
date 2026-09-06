@@ -85,6 +85,112 @@ export default class Helpers {
   }
 
   /**
+   * The x-span that one bar slot covers, in DATA units, on a numeric or
+   * datetime axis. Returns 0 when it cannot be resolved, which leaves the
+   * caller on its category-style fallback.
+   *
+   * `w.globals.minXDiff` cannot serve here on its own, for two reasons:
+   *
+   *  - It is the smallest gap WITHIN a series, minimised over series, so it
+   *    never sees the gaps BETWEEN two series' x values. Series A on the 1st
+   *    and the 4th plus series B on the 2nd gives minXDiff = 3 days while the
+   *    axis really has a 1 day gap, and every bar is drawn 3 days wide, so
+   *    neighbours overlap (#4885).
+   *  - With one data point there are no gaps to measure at all and it is set
+   *    to a 0.5 sentinel, so the slot fell back to the whole grid width and a
+   *    single bar covered most of the chart. Range._handleSingleDataPoint pads
+   *    the axis by ±2 units around a lone point (2 days for datetime, 2 for
+   *    numeric), so one unit is a quarter of the resulting span.
+   *
+   * Cached: the merge below is O(points × series) and every series in a draw
+   * pass asks the same question.
+   *
+   * @returns {number}
+   */
+  barSlotXSpan() {
+    const w = this.w
+
+    if (this._slotXSpan !== undefined) return this._slotXSpan
+
+    let slot = 0
+    if (w.globals.dataPoints <= 1) {
+      const span = w.globals.maxX - w.globals.minX
+      slot = span > 0 ? span / 4 : 0
+    } else {
+      slot = this._unionMinXGap()
+      if (!(slot > 0) || !isFinite(slot)) {
+        // nothing usable in the x arrays: keep what the axis worked out
+        const min = w.globals.minXDiff
+        slot = min > 0 && isFinite(min) && min !== 0.5 ? min : 0
+      }
+    }
+
+    this._slotXSpan = slot
+    return slot
+  }
+
+  /**
+   * Smallest positive gap between neighbouring x values once every series is
+   * merged onto one axis. A k-way merge over the series arrays, which are
+   * already sorted in every ordinary case; an unsorted one can only make the
+   * answer smaller, i.e. the bars narrower, never overlapping.
+   *
+   * Collapsed series count too, exactly as they did for `minXDiff`. Skipping
+   * them would widen every bar the moment someone hid the tightest-spaced
+   * series from the legend, so bar geometry would depend on legend state.
+   *
+   * @returns {number}
+   */
+  _unionMinXGap() {
+    const w = this.w
+    const seriesX = w.seriesData.seriesX || []
+
+    /** @type {any[][]} */
+    const arrays = []
+    for (let i = 0; i < seriesX.length; i++) {
+      const xs = seriesX[i]
+      if (Array.isArray(xs) && xs.length > 0) arrays.push(xs)
+    }
+    if (!arrays.length) return 0
+
+    const cursor = new Array(arrays.length).fill(0)
+    let prev = NaN
+    let min = Infinity
+
+    for (;;) {
+      let next = Infinity
+      let from = -1
+      for (let k = 0; k < arrays.length; k++) {
+        const xs = arrays[k]
+        // step over anything that is not a usable number
+        while (cursor[k] < xs.length && typeof xs[cursor[k]] !== 'number') {
+          cursor[k]++
+        }
+        if (cursor[k] >= xs.length) continue
+        const v = xs[cursor[k]]
+        if (v !== v) {
+          cursor[k]++
+          k--
+          continue
+        }
+        if (v < next) {
+          next = v
+          from = k
+        }
+      }
+      if (from === -1) break
+      cursor[from]++
+      if (prev === prev) {
+        const d = next - prev
+        if (d > 0 && d < min) min = d
+      }
+      prev = next
+    }
+
+    return isFinite(min) ? min : 0
+  }
+
+  /**
    * @param {number} realIndex
    */
   initialPositions(realIndex) {
@@ -144,15 +250,12 @@ export default class Helpers {
         100
 
       if (w.axisFlags.isXNumeric) {
-        // max barwidth should be equal to minXDiff to avoid overlap
+        // one slot wide at most, so neighbouring bars cannot overlap
         const xRatio = this.barCtx.xRatio
+        const slotXSpan = this.barSlotXSpan()
 
-        if (
-          w.globals.minXDiff &&
-          w.globals.minXDiff !== 0.5 &&
-          w.globals.minXDiff / xRatio > 0
-        ) {
-          xDivision = w.globals.minXDiff / xRatio
+        if (slotXSpan > 0 && slotXSpan / xRatio > 0) {
+          xDivision = slotXSpan / xRatio
         }
 
         barWidth =
@@ -274,16 +377,38 @@ export default class Helpers {
       })
     }
 
+    // A dumbbell's connector is coloured by the two measures it joins, and
+    // which of them is on the left changes row by row (they cross). A per-datum
+    // fill is the seam that already exists for that: it overrides the chart's
+    // fill for this bar alone, so each row gets its own gradient rather than
+    // one chart-wide one pointing whichever way the first row happened to go.
+    const connectorFill = this.getDumbbellConnectorFill(i, j)
+    const datumFill = connectorFill || w.config.series[i].data[j]?.fill
+
+    // A named connector colour is a plain join instead of that gradient. Its
+    // opacity rides with it and is NOT applied otherwise, so a range bar drawn
+    // with the bare `isDumbbell` flag keeps the solid connector it has always
+    // had.
+    const connector = this.barCtx.barOptions.isDumbbell
+      ? w.config.plotOptions.bar.dumbbell.connector
+      : null
+    let connectorOpacity
+    if (connector && connector.color) {
+      fillColor = connector.color
+      connectorOpacity = connector.opacity
+    }
+
     const pathFill = fill.fillPath({
       seriesNumber: this.barCtx.barOptions.distributed
         ? seriesNumber
         : realIndex,
       dataPointIndex: j,
       color: fillColor,
+      opacity: connectorOpacity,
       value: series[i][j],
-      fillConfig: w.config.series[i].data[j]?.fill,
-      fillType: w.config.series[i].data[j]?.fill?.type
-        ? w.config.series[i].data[j]?.fill.type
+      fillConfig: datumFill,
+      fillType: datumFill?.type
+        ? datumFill.type
         : Array.isArray(w.config.fill.type)
         ? w.config.fill.type[realIndex]
         : w.config.fill.type,
@@ -292,6 +417,58 @@ export default class Helpers {
     return {
       color: pathFill,
       useRangeColor,
+    }
+  }
+
+  /**
+   * The connector's fill for one dumbbell row, or null to leave the fill alone.
+   *
+   * Returns a gradient running from the colour of the measure at the low end to
+   * the colour of the measure at the high end, which is the pair of dots the
+   * connector is between. `w.dumbbellData.order` is what makes it per-row: the
+   * merged interval is emitted low-to-high and no longer knows which measure
+   * was which, so a chart-wide gradient would point the wrong way on any row
+   * where the two cross.
+   *
+   * A user-set `connector.color` means a plain connector, and the `[lo, hi]`
+   * form names no measures to take colours from; both leave the fill alone.
+   *
+   * @param {number} i @param {number} j
+   * @returns {Record<string, any>|null}
+   */
+  getDumbbellConnectorFill(i, j) {
+    const w = this.w
+    if (!this.barCtx.barOptions.isDumbbell) return null
+
+    const dumbbell = w.dumbbellData
+    if (!dumbbell || dumbbell.form !== 'series') return null
+
+    const connector = w.config.plotOptions.bar.dumbbell.connector
+    if (connector.color) return null
+
+    const order = dumbbell.order[j]
+    if (!order) return null
+
+    const from = w.globals.colors[order[0]]
+    const to = w.globals.colors[order[1]]
+    if (!from || !to) return null
+
+    return {
+      type: 'gradient',
+      gradient: {
+        // Along the connector: the value axis is x when the rows are
+        // horizontal, y when they are columns.
+        type: this.barCtx.isHorizontal ? 'horizontal' : 'vertical',
+        gradientFrom: from,
+        gradientTo: to,
+        opacityFrom: connector.opacity,
+        opacityTo: connector.opacity,
+        stops: [0, 100],
+        // A column's y runs down the screen, so its low end is at the BOTTOM
+        // and the gradient has to be read the other way round to still start
+        // at the low end's colour.
+        inverseColors: !this.barCtx.isHorizontal,
+      },
     }
   }
 
@@ -324,7 +501,54 @@ export default class Helpers {
   }
 
   /**
+   * Series indices bucketed into the stacks they actually draw in: one bucket
+   * per series group, or a single bucket holding every series when the chart is
+   * not grouped. Order within a bucket follows series order, which is stacking
+   * order.
+   *
+   * @param {number} numSeries
+   * @returns {number[][]}
+   */
+  getStackedSeriesIndices(numSeries) {
+    const groups = this.w.labelData.seriesGroups
+    if (!groups || groups.length < 2) {
+      return [Array.from({ length: numSeries }, (_, i) => i)]
+    }
+
+    /** @type {number[][]} */
+    const buckets = Array.from({ length: groups.length }, () => [])
+    /** @type {number[]} */
+    const ungrouped = []
+    for (let i = 0; i < numSeries; i++) {
+      const g = this.getSeriesGroupIndex(i)
+      if (g > -1) buckets[g].push(i)
+      else ungrouped.push(i)
+    }
+    // A series whose name matches no group still stacks somewhere; keep them
+    // together rather than dropping them out of the assignment entirely.
+    if (ungrouped.length) buckets.push(ungrouped)
+    return buckets.filter((b) => b.length > 0)
+  }
+
+  /**
+   * Which corners each bar rounds, as a [seriesIndex][dataPointIndex] grid of
+   * 'top' | 'bottom' | 'both' | 'none'.
+   *
+   * A rounded corner belongs to the OUTSIDE of a stack, so this resolves, per
+   * data point, the outermost segment on each side of the baseline; everything
+   * sandwiched between them stays square.
+   *
+   * Crucially a "stack" is a series GROUP, not the whole chart. A grouped
+   * stacked chart draws one independent stack per group, side by side, and each
+   * one needs its own outermost segments. Resolving chart-wide instead put the
+   * radius on the bottom of the first group's lowest series and the top of the
+   * last group's highest, leaving every stack in between completely square, 
+   * which is exactly how it looked: the first column rounded at the bottom, the
+   * second at the top, and nothing else touched. Stacked totals already resolve
+   * per group (see drawsStackedTotal, #4173); corners never got the same fix.
+   *
    * @param {any[]} series
+   * @returns {string[][]}
    */
   createBorderRadiusArr(series) {
     const w = this.w
@@ -339,89 +563,59 @@ export default class Helpers {
     )
 
     if (alwaysApplyRadius) return output
-    
-    const chartType = this.w.config.chart.type;
 
-    for (let j = 0; j < numColumns; j++) {
-      const positiveIndices = []
-      const negativeIndices = []
-      let nonZeroCount = 0
+    // A lone horizontal bar in a single-category chart keeps 'top' where a
+    // column would take the full 'both'. Preserved from the original.
+    const isSoloHorizontal =
+      this.w.config.chart.type === 'bar' && numColumns === 1
+    const soloCorner = isSoloHorizontal ? 'top' : 'both'
+    const baseCorner = isSoloHorizontal ? 'top' : 'bottom'
 
-      // Collect positive and negative indices
-      for (let i = 0; i < numSeries; i++) {
-        const value = series[i][j]
-        if (value > 0) {
-          positiveIndices.push(i)
-          nonZeroCount++
-        } else if (value < 0) {
-          negativeIndices.push(i)
-          nonZeroCount++
+    for (const stack of this.getStackedSeriesIndices(numSeries)) {
+      for (let j = 0; j < numColumns; j++) {
+        /** @type {number[]} */
+        const positiveIndices = []
+        /** @type {number[]} */
+        const negativeIndices = []
+
+        for (const i of stack) {
+          const value = series[i][j]
+          if (value > 0) positiveIndices.push(i)
+          else if (value < 0) negativeIndices.push(i)
         }
-      }
 
-      if (positiveIndices.length > 0 && negativeIndices.length === 0) {
-        // Only positive values in this column
-        if (positiveIndices.length === 1) {
-          // Single positive value
-          output[positiveIndices[0]][j] = (chartType === 'bar' && numColumns === 1) ? 'top' : 'both'
-        } else {
-          // Multiple positive values
-          const firstPositiveIndex = positiveIndices[0]
-          const lastPositiveIndex = positiveIndices[positiveIndices.length - 1]
+        if (positiveIndices.length > 0 && negativeIndices.length === 0) {
+          if (positiveIndices.length === 1) {
+            output[positiveIndices[0]][j] = soloCorner
+          } else {
+            const first = positiveIndices[0]
+            const last = positiveIndices[positiveIndices.length - 1]
+            for (const i of positiveIndices) {
+              output[i][j] =
+                i === first ? baseCorner : i === last ? 'top' : 'none'
+            }
+          }
+        } else if (negativeIndices.length > 0 && positiveIndices.length === 0) {
+          if (negativeIndices.length === 1) {
+            output[negativeIndices[0]][j] = 'both'
+          } else {
+            const highest = Math.max(...negativeIndices) // closest to the axis
+            const lowest = Math.min(...negativeIndices) // farthest from it
+            for (const i of negativeIndices) {
+              output[i][j] =
+                i === highest ? 'bottom' : i === lowest ? 'top' : 'none'
+            }
+          }
+        } else if (positiveIndices.length > 0 && negativeIndices.length > 0) {
+          const lastPositive = positiveIndices[positiveIndices.length - 1]
           for (const i of positiveIndices) {
-            if (i === firstPositiveIndex) {
-
-              output[i][j] = (chartType === 'bar' && numColumns === 1) ? 'top' : 'bottom'
-            } else if (i === lastPositiveIndex) {
-              output[i][j] = 'top'
-            } else {
-              output[i][j] = 'none'
-            }
+            output[i][j] = i === lastPositive ? 'top' : 'none'
           }
-        }
-      } else if (negativeIndices.length > 0 && positiveIndices.length === 0) {
-        // Only negative values in this column
-        if (negativeIndices.length === 1) {
-          // Single negative value
-          output[negativeIndices[0]][j] = 'both'
-        } else {
-          // Multiple negative values
-          const highestNegativeIndex = Math.max(...negativeIndices)
-          const lowestNegativeIndex = Math.min(...negativeIndices)
+          const highestNegative = Math.max(...negativeIndices)
           for (const i of negativeIndices) {
-            if (i === highestNegativeIndex) {
-              output[i][j] = 'bottom' // Closest to axis
-            } else if (i === lowestNegativeIndex) {
-              output[i][j] = 'top' // Farthest from axis
-            } else {
-              output[i][j] = 'none'
-            }
+            output[i][j] = i === highestNegative ? 'bottom' : 'none'
           }
         }
-      } else if (positiveIndices.length > 0 && negativeIndices.length > 0) {
-        // Mixed positive and negative values
-        // Assign 'top' to the last positive bar
-        const lastPositiveIndex = positiveIndices[positiveIndices.length - 1]
-        for (const i of positiveIndices) {
-          if (i === lastPositiveIndex) {
-            output[i][j] = 'top'
-          } else {
-            output[i][j] = 'none'
-          }
-        }
-        // Assign 'bottom' to the highest negative index (closest to axis)
-        const highestNegativeIndex = Math.max(...negativeIndices)
-        for (const i of negativeIndices) {
-          if (i === highestNegativeIndex) {
-            output[i][j] = 'bottom'
-          } else {
-            output[i][j] = 'none'
-          }
-        }
-      } else if (nonZeroCount === 1) {
-        // Only one non-zero value (either positive or negative)
-        const index = positiveIndices[0] || negativeIndices[0]
-        output[index][j] = 'both'
       }
     }
 
@@ -508,12 +702,16 @@ export default class Helpers {
         ? ' Z'
         : ' z'
 
-    let pathTo =
+    // The square rect this bar is built from, kept because a bar that is
+    // GAINING a rounded corner has to travel to its new slot square and only
+    // round once it gets there, see Bar.getPreviousPath.
+    const squarePathTo =
       graphics.move(x1, y1) +
       graphics.line(x1, y2) +
       graphics.line(x2, y2) +
       sl +
       closing
+    let pathTo = squarePathTo
     if (this.arrBorderRadius[realIndex][j] !== 'none') {
       pathTo = graphics.roundPathCorners(
         pathTo,
@@ -535,7 +733,7 @@ export default class Helpers {
       // Update: keyed survivor → its old geometry (reflow morph); survivor
       // whose shape changed → pathTo (snap); ENTERING datum → null, which
       // falls through to the baseline rise below.
-      pathFrom = this.barCtx.getPreviousPath(realIndex, j, pathTo)
+      pathFrom = this.barCtx.getPreviousPath(realIndex, j, pathTo, squarePathTo)
     }
     if (pathFrom == null) {
       // Initial mount or entering datum: rise from the baseline of the final
@@ -563,6 +761,12 @@ export default class Helpers {
     return {
       pathTo,
       pathFrom,
+      // The box the path was built from, AFTER the stroke centering and the
+      // anti-exponential nudge above. Anything that has to line up with a drawn
+      // bar (the waterfall connectors) reads this rather than recomputing the
+      // edges, which is how it stays exact when a stroke width is set.
+      // `y1` is the lower value's edge and `y2` the upper one's.
+      drawnBox: { x1, x2, y1, y2 },
     }
   }
 
@@ -828,12 +1032,15 @@ export default class Helpers {
         ? ' Z'
         : ' z'
 
-    let pathTo =
+    // See the column builder: kept so a bar gaining a rounded corner can
+    // travel to its new slot square and only round once it gets there.
+    const squarePathTo =
       graphics.move(x1, y1) +
       graphics.line(x2, y1) +
       graphics.line(x2, y2) +
       sl +
       closing
+    let pathTo = squarePathTo
     if (this.arrBorderRadius[realIndex][j] !== 'none') {
       pathTo = graphics.roundPathCorners(
         pathTo,
@@ -852,7 +1059,7 @@ export default class Helpers {
       // Update: keyed survivor → its old geometry (reflow morph); survivor
       // whose shape changed → pathTo (snap); ENTERING datum → null, which
       // falls through to the baseline rise below.
-      pathFrom = this.barCtx.getPreviousPath(realIndex, j, pathTo)
+      pathFrom = this.barCtx.getPreviousPath(realIndex, j, pathTo, squarePathTo)
     }
     if (pathFrom == null) {
       // Initial mount or entering datum: rise from the baseline of the final
@@ -880,6 +1087,9 @@ export default class Helpers {
     return {
       pathTo,
       pathFrom,
+      // See getColumnPaths. Here `x1` is the start value's edge and `x2` the
+      // end value's, because a horizontal bar's two ends arrive unsorted.
+      drawnBox: { x1, x2, y1, y2 },
     }
   }
 
@@ -956,25 +1166,134 @@ export default class Helpers {
         pushGoal(goal.value, goal)
       })
     }
-    if (this.barCtx.barOptions.isDumbbell && w.rangeData.seriesRange.length) {
-      const colors = this.barCtx.barOptions.dumbbellColors
-        ? this.barCtx.barOptions.dumbbellColors
-        : w.globals.colors
-      const commonAttrs = {
-        strokeHeight: type === 'x' ? 0 : w.globals.markers.size[i],
-        strokeWidth: type === 'x' ? w.globals.markers.size[i] : 0,
-        strokeDashArray: 0,
-        strokeLineCap: 'round',
-        strokeColor: Array.isArray(colors[i]) ? colors[i][0] : colors[i],
-      }
+    if (this.barCtx.barOptions.isDumbbell) {
+      const ends = this.getDumbbellEnds(i, j)
+      if (ends.length) {
+        const commonAttrs = {
+          strokeHeight: type === 'x' ? 0 : w.globals.markers.size[i],
+          strokeWidth: type === 'x' ? w.globals.markers.size[i] : 0,
+          strokeDashArray: 0,
+          strokeLineCap: 'round',
+        }
 
-      pushGoal(w.rangeData.seriesRangeStart[i][j], commonAttrs)
-      pushGoal(w.rangeData.seriesRangeEnd[i][j], {
-        ...commonAttrs,
-        strokeColor: Array.isArray(colors[i]) ? colors[i][1] : colors[i],
-      })
+        // Only the two extremes are labelled. Anything between them (a third
+        // measure) sits ON the connector, where a label has nowhere to go that
+        // is not over the line or over its neighbour.
+        let lo = 0
+        let hi = 0
+        for (let e = 1; e < ends.length; e++) {
+          if (ends[e].value < ends[lo].value) lo = e
+          if (ends[e].value > ends[hi].value) hi = e
+        }
+
+        const labelsCnf = w.config.plotOptions.bar.dumbbell.dataLabels
+        ends.forEach((end, e) => {
+          /** @type {Record<string, any>} */
+          const attrs = { ...commonAttrs, strokeColor: end.color }
+          if (labelsCnf.enabled && (e === lo || e === hi)) {
+            attrs.label = {
+              text: this.getDumbbellLabelText(end.value, i, j, end.index),
+              color: labelsCnf.colorFromMarker
+                ? end.color
+                : Array.isArray(labelsCnf.style.colors)
+                  ? labelsCnf.style.colors[end.index] ||
+                    labelsCnf.style.colors[0]
+                  : labelsCnf.style.colors,
+              // Away from the connector: the low end reads to its left (below,
+              // on a column), the high end to its right. A lone endpoint has no
+              // connector to be clear of, so it takes the outward side.
+              outward: e === lo && lo !== hi ? -1 : 1,
+            }
+          }
+          pushGoal(end.value, attrs)
+        })
+      }
     }
     return goals
+  }
+
+  /**
+   * The marked ends of one dumbbell row: a value and the colour that says which
+   * measure it belongs to.
+   *
+   * `chart.type: 'dumbbell'` merged N measures into one interval and left the
+   * endpoint identities on `w.dumbbellData`, so an end is coloured after the
+   * SERIES it came from. A row where the two measures cross therefore keeps its
+   * colours, which the interval alone could not say: it is emitted low-to-high
+   * and has forgotten which end was which.
+   *
+   * The `y: [lo, hi]` form names no measures, so it keeps the positional
+   * `dumbbellColors` pathway: colour 0 for the start, colour 1 for the end.
+   *
+   * @param {number} i @param {number} j
+   * @returns {Array<{ value: number, color: string, index: number }>}
+   */
+  getDumbbellEnds(i, j) {
+    const w = this.w
+    /** @type {Array<{ value: number, color: string, index: number }>} */
+    const ends = []
+    const dumbbell = w.dumbbellData
+
+    if (dumbbell && dumbbell.form === 'series') {
+      const values = dumbbell.values[j] || []
+      for (let k = 0; k < values.length; k++) {
+        const v = values[k]
+        if (v === null || dumbbell.hidden.indexOf(k) !== -1) continue
+        ends.push({ value: v, color: w.globals.colors[k], index: k })
+      }
+      return ends
+    }
+
+    if (!w.rangeData.seriesRange.length) return ends
+
+    const colors = this.barCtx.barOptions.dumbbellColors
+      ? this.barCtx.barOptions.dumbbellColors
+      : w.globals.colors
+    /** @param {number} n */
+    const pick = (n) => (Array.isArray(colors[i]) ? colors[i][n] : colors[i])
+
+    return [
+      { value: w.rangeData.seriesRangeStart[i][j], color: pick(0), index: 0 },
+      { value: w.rangeData.seriesRangeEnd[i][j], color: pick(1), index: 1 },
+    ]
+  }
+
+  /**
+   * The text for one end label.
+   *
+   * Deliberately NOT `dataLabels.formatter`: on a range bar that one reads out
+   * `end - start`, so an endpoint run through it would print the gap twice and
+   * the values never. The value-axis formatter is the one that already knows
+   * these numbers are percentages, or dollars, or dates.
+   *
+   * @param {number} value @param {number} i @param {number} j @param {number} k
+   * @returns {string}
+   */
+  getDumbbellLabelText(value, i, j, k) {
+    const w = this.w
+    const cnf = w.config.plotOptions.bar.dumbbell.dataLabels
+
+    if (typeof cnf.formatter === 'function') {
+      return cnf.formatter(value, {
+        seriesIndex: i,
+        dataPointIndex: j,
+        endpointIndex: k,
+        w,
+      })
+    }
+
+    // A HORIZONTAL bar's value axis is the x axis: `yaxis.labels.formatter`
+    // there formats the CATEGORY names, so reading the value through it would
+    // put a row's own label through a formatter meant for "Frontend" and
+    // "Backend". Same split the axis renderer itself makes (YAxis.drawYaxisInversed
+    // formats with xLabelFormatter).
+    const axisFormatter = this.barCtx.isHorizontal
+      ? w.formatters.xLabelFormatter
+      : w.formatters.yLabelFormatters[0]
+    if (typeof axisFormatter === 'function') {
+      return axisFormatter(value, j, w)
+    }
+    return String(value)
   }
 
   /** @param {{barXPosition: any, barYPosition: any, goalX: any, goalY: any, barWidth: any, barHeight: any}} opts */
@@ -999,8 +1318,11 @@ export default class Helpers {
     }
 
     const graphics = new Graphics(this.barCtx.w)
+    // `class`, not `className`: Graphics.group writes the attrs through
+    // verbatim, so the camelCase spelling shipped a <g className="..."> that no
+    // stylesheet and no querySelector could reach.
     const lineGroup = graphics.group({
-      className: 'apexcharts-bar-goals-groups',
+      class: 'apexcharts-bar-goals-groups',
     })
 
     lineGroup.node.classList.add('apexcharts-element-hidden')
@@ -1036,6 +1358,17 @@ export default class Helpers {
               goal.attrs.strokeLineCap
             )
             lineGroup.add(line)
+
+            if (goal.attrs.label) {
+              lineGroup.add(
+                this.drawDumbbellLabel(goal.attrs, {
+                  x: goal.x,
+                  y: y - sHeight,
+                  horizontal: true,
+                  markerSize: goal.attrs.strokeWidth || 0,
+                })
+              )
+            }
           }
         })
       }
@@ -1061,12 +1394,59 @@ export default class Helpers {
               goal.attrs.strokeLineCap
             )
             lineGroup.add(line)
+
+            if (goal.attrs.label) {
+              lineGroup.add(
+                this.drawDumbbellLabel(goal.attrs, {
+                  x: x - sWidth,
+                  y: goal.y,
+                  horizontal: false,
+                  markerSize: goal.attrs.strokeHeight || 0,
+                })
+              )
+            }
           }
         })
       }
     }
 
     return lineGroup
+  }
+
+  /**
+   * One dumbbell end label, placed clear of the marker it belongs to.
+   *
+   * Offset from the marker's EDGE rather than its centre, so growing
+   * `markers.size` never walks a label under its own dot. Vertically it is
+   * centred on the marker with `dominant-baseline`, which is exact whatever the
+   * font metrics are, where a dy fudge factor drifts with font size.
+   *
+   * @param {Record<string, any>} attrs the goal's attrs, carrying `label`
+   * @param {{x: number, y: number, horizontal: boolean, markerSize: number}} pos
+   */
+  drawDumbbellLabel(attrs, pos) {
+    const w = this.w
+    const graphics = new Graphics(w)
+    const cnf = w.config.plotOptions.bar.dumbbell.dataLabels
+    const gap = pos.markerSize / 2 + cnf.offset
+    const away = attrs.label.outward
+
+    return graphics.drawText({
+      x: pos.x + (pos.horizontal ? gap * away : 0),
+      y: pos.y - (pos.horizontal ? 0 : gap * away),
+      text: attrs.label.text,
+      textAnchor: pos.horizontal ? (away < 0 ? 'end' : 'start') : 'middle',
+      dominantBaseline: pos.horizontal
+        ? 'central'
+        : away < 0
+          ? 'hanging'
+          : 'auto',
+      foreColor: attrs.label.color,
+      fontSize: cnf.style.fontSize,
+      fontFamily: cnf.style.fontFamily,
+      fontWeight: cnf.style.fontWeight,
+      cssClass: 'apexcharts-dumbbell-label',
+    })
   }
 
   /** @param {{prevPaths: any, currPaths: any, color: any, realIndex: any, j: any}} opts */

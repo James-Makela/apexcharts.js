@@ -279,6 +279,109 @@ export default class Options {
       // (`import 'apexcharts/features/weave'`, included in the full bundle) and
       // the plugin registered via ApexCharts.registerPlugin().
       plugins: [],
+      // Trellis (#22): small multiples / faceting. Requires the trellis
+      // feature (`import 'apexcharts/features/trellis'`, included in the full
+      // bundle). Setting `by` makes this chart a trellis HOST: the series
+      // array is split into one panel per facet-key value, each panel is a
+      // real chart of this chart.type, and the trellis owns everything shared
+      // (scale domains, pixel-aligned plot rects, color-by-series-name, one
+      // legend/title/toolbar, headers, responsive columns).
+      trellis: {
+        // Facet accessor: a series-object key name, or (series, i) => key.
+        // Series WITHOUT the key repeat in every panel (reference series).
+        by: undefined,
+        // 2-D faceting (P4): row and/or column facet accessors, forming a
+        // FIXED grid of every (row, column) combination in row-major order
+        // (no responsive recolumning; panels shrink instead). Mutually
+        // exclusive with `by`. Column labels draw once across the top, row
+        // labels once down the left. Reference semantics per dimension: a
+        // series with only the row key repeats across that row; only the
+        // column key, down that column; neither, everywhere.
+        row: undefined,
+        column: undefined,
+        // Missing (row, column) combinations: 'placeholder' mounts a real
+        // empty panel (same scales, same geometry, a quiet "no data" label);
+        // 'skip' keeps the slot with a tinted blank; 'hide' keeps the slot
+        // with nothing at all.
+        emptyPanels: 'placeholder',
+        // Tidy-row input (alternative to `series`): a row table pivoted by
+        // the `by`/`x`/`y`/`seriesBy` COLUMN NAMES. Rows win over `series`
+        // when both are given. Duplicate (panel, series, x) rows keep the
+        // last and warn; aggregate the rows first for sums/means.
+        data: undefined, // [{ date, region, revenue }, ...]
+        x: undefined, // x-value column name (tidy form only)
+        y: undefined, // y-value column name (tidy form only)
+        seriesBy: undefined, // optional series-name column (tidy form only)
+        // Layout
+        columns: 'auto', // 'auto' (fit minPanelWidth) | number
+        minPanelWidth: 220, // px; drives 'auto' and the responsive collapse
+        gap: 12, // px between cells
+        aspectRatio: 1.6, // panel w:h when no explicit height governs
+        panelHeight: undefined, // px; wins over aspectRatio/chart.height
+        order: 'first-seen', // | 'asc' | 'desc' | string[] | comparator
+        limit: undefined, // render only the first N panels (warns)
+        // Virtualization: 'auto' mounts only the panels intersecting the
+        // viewport (plus one row) once the grid exceeds 64 panels; true
+        // always virtualizes; false always renders eagerly. Unmounted cells
+        // keep their header and a fixed-height skeleton (page height and
+        // scroll position never shift); a panel that scrolls out is
+        // destroyed with its view state stashed, and a remount restores its
+        // zoom window. getPanel(key) returns null for unmounted panels.
+        virtualize: 'auto', // 'auto' | true | false
+        // Scale resolution per channel: 'shared' | 'independent'; y also
+        // takes 'independent-row' | 'independent-column' in a 2-D grid (one
+        // shared domain per row/column: comparable along the group, free
+        // across groups). Non-shared y still renders pixel-aligned panels
+        // (the gutter pass equalizes axis widths); 'independent' and
+        // 'independent-column' force their own y labels on every panel,
+        // 'independent-row' keeps them on the first column (ticks are
+        // identical along a row).
+        scales: {
+          x: 'shared',
+          y: 'shared',
+          color: 'shared',
+          size: 'shared',
+        },
+        // Per-cell facet headers.
+        header: {
+          show: true,
+          formatter: undefined, // (key, { dimension, index, count }) => string
+          style: {
+            fontSize: undefined,
+            fontWeight: undefined,
+            color: undefined,
+          },
+        },
+        // Axis-label policy: 'edges' shows y labels on the first column and x
+        // labels on each column's bottom panel (label SPACE is always
+        // reserved everywhere, so panels stay aligned); 'all' | 'none'.
+        axes: {
+          labels: 'edges',
+        },
+        legend: 'shared', // 'shared' | 'none' (per-panel legends are hidden)
+        toolbar: 'shared', // 'shared' | 'none' (zoom / pan / reset)
+        // 'panel': tooltip card only in the hovered panel, crosshair sweeps
+        // all panels. 'sync': every panel shows its own card at the hovered x.
+        // 'grid': ONE card near the cursor with one row per panel at the
+        // hovered x (composed from the panels' own tooltips, so every
+        // formatter is honored; unmounted virtualized panels have no row).
+        tooltip: 'panel',
+        zoom: 'sync', // 'sync' (drag/wheel zoom moves every panel) | 'none'
+        // Panel promotion: clicking a cell's header expands that panel to
+        // the grid's full width, with an "All panels" breadcrumb back
+        // (also chart.promotePanel(key) / chart.restorePanels()).
+        promote: true,
+        // Pie/donut/polarArea only: scale each panel's radius so its AREA is
+        // proportional to the panel's total (equal-size pies cannot encode
+        // magnitude, which is the honest objection to a pie trellis).
+        radiusByTotal: false,
+        // Tick-interval target for the shared nice y scale. Panels are small:
+        // 3 intervals (up to ~4 labels) keeps the axis from outweighing the data.
+        targetTicks: 3,
+        // Per-panel option override, applied last:
+        // (key, { index, seriesNames }) => partial options
+        panel: undefined,
+      },
       chart: {
         animations: {
           // Master switch — set false to render charts without any animation.
@@ -424,6 +527,19 @@ export default class Options {
         parentHeightOffset: 15,
         redrawOnParentResize: true,
         redrawOnWindowResize: true,
+        // Printing. The sheet is a layout the page itself never sees: nothing
+        // measures it, no resize is reported for it, and matchMedia('print') is
+        // still false while `beforeprint` runs. So a chart sized from a wide
+        // screen prints at its screen width and the right-hand side falls off
+        // the paper (#3352). `width` is the width, in CSS pixels, to lay the
+        // chart out at for printing, and a chart already narrower than that is
+        // left alone. The default suits A4 and Letter portrait with the usual
+        // margins; whatever is left over is shrunk to fit by the print
+        // stylesheet, so the value only has to be close.
+        print: {
+          enabled: true,
+          width: 700,
+        },
         id: undefined,
         group: undefined,
         nonce: undefined,
@@ -716,12 +832,49 @@ export default class Options {
           distributed: false,
           borderRadius: 0,
           borderRadiusApplication: 'around', // [around, end]
-          borderRadiusWhenStacked: 'last', // [all, last]
           rangeBarOverlap: true,
           rangeBarGroupRows: false,
           hideZeroBarsWhenGrouped: false,
           isDumbbell: false,
           dumbbellColors: undefined,
+          // `chart.type: 'dumbbell'`, and any range bar drawn `isDumbbell`.
+          // The connector's thickness is `barHeight` / `columnWidth`, and the
+          // size of the marked ends is `markers.size`: they are the bar and its
+          // markers, so they are configured as such.
+          dumbbell: {
+            connector: {
+              // A solid colour for the join. Left undefined, the connector is a
+              // gradient between the two endpoint colours, resolved per row so
+              // that a row where the measures cross still runs the right way.
+              color: undefined,
+              // The join is context for the two marked ends, not a third mark
+              // competing with them.
+              opacity: 0.55,
+            },
+            // A value written at each end of the connector. The pair of numbers
+            // IS the comparison, and reading them off an axis costs the glance
+            // the chart was meant to save.
+            dataLabels: {
+              enabled: false,
+              // px clear of the marked end, outward from the connector.
+              offset: 6,
+              // Each label takes its own end's colour, so a value is tied to a
+              // measure by more than its position.
+              colorFromMarker: true,
+              formatter: undefined,
+              style: {
+                fontSize: '12px',
+                fontFamily: undefined,
+                fontWeight: 600,
+                // Used when colorFromMarker is false.
+                colors: undefined,
+              },
+            },
+            tooltip: {
+              // Names the gap the two dots are on one row to show.
+              differenceLabel: 'Difference',
+            },
+          },
           isFunnel: false,
           isFunnel3d: true,
           colors: {
@@ -753,6 +906,11 @@ export default class Options {
           zScaling: true,
           minBubbleRadius: undefined,
           maxBubbleRadius: undefined,
+          // Explicit z window for the size scale. EXPANDS the data's own z
+          // extent, never clamps it, so several bubble charts can share one
+          // size scale (a trellis pushes the union extent through these).
+          minZ: undefined,
+          maxZ: undefined,
         },
         scatter: {
           // Spread overlapping points apart ("jitter"). Two uses, one engine:
@@ -839,6 +997,29 @@ export default class Options {
           // own peak). 'group' → all violins share one scale (the densest in the
           // series), so widths stay proportional to density across categories.
           normalize: 'individual',
+          // Which side(s) of the category centerline the density is drawn on.
+          // 'both' is the classic symmetric violin. 'left'/'right' (vertical
+          // charts) and 'top'/'bottom' (horizontal charts) draw a half-violin:
+          // the curve on that side, a straight baseline on the other. The
+          // raincloud preset builds on this; a plain violin can use it too.
+          side: 'both',
+          // A five-number-summary box beside the density. Drawn only when a
+          // datum carries `y.summary` ([whiskerLow, q1, median, q3,
+          // whiskerHigh], supplied directly or derived by a stats transform).
+          // The rain/jitter layer is the outlier display, so the box draws no
+          // outlier dots of its own.
+          box: {
+            show: false,
+            width: '15%', // fraction of the slot reserved for the box lane
+            // 'minmax' → whiskers at the data extremes. 'tukey' → 1.5*IQR
+            // fences clamped to the data. Consumed by the deriving transform;
+            // a hand-supplied summary is drawn as given.
+            whiskers: 'minmax',
+            strokeWidth: 1,
+            // undefined → the series colour.
+            fillColor: undefined,
+            capWidth: 0.5, // whisker cap length, 0..1 of the box lane width
+          },
           // Individual observations ("jitter") overlaid on the violin shape.
           points: {
             show: true,
@@ -846,6 +1027,12 @@ export default class Options {
             size: 2.5, // radius (px)
             jitter: 0.5, // 0..1 fraction of the half-width to scatter within
             constrainToViolin: true, // clamp jitter to the density width at each value
+            // 'center' scatters across the slot centerline (classic violin).
+            // 'left'/'right'/'top'/'bottom' move the dots into their own lane
+            // on that side (the raincloud "rain"); `constrainToViolin` is
+            // ignored there because the dots no longer sit under the curve.
+            position: 'center',
+            laneWidth: '40%', // fraction of the slot for the off-center lane
             maxPoints: 3000, // cap per violin; excess is stride-thinned
             opacity: 0.9,
             // Default: a darker shade of each violin's own colour, with a white
@@ -891,6 +1078,14 @@ export default class Options {
           overlap: true,
         },
         heatmap: {
+          // Cell shape. 'circle' and 'diamond' are inscribed in the cell box;
+          // 'hexagon' is a honeycomb tilemap: alternate rows offset by half a
+          // cell so the hexagons tessellate (categorical layout only; a
+          // numeric/datetime x axis falls back to rect). Non-rect shapes
+          // ignore `radius` and always render as SVG (the canvas renderer's
+          // cell store is rect-only, so it declines them like image fills).
+          shape: 'rect',
+          // Cell corner radius; applies to the rect shape only.
           radius: 2,
           enableShades: true,
           shadeIntensity: 0.5,
@@ -935,6 +1130,93 @@ export default class Options {
                 color: undefined, // falls back to chart.foreColor
               },
               formatter: undefined, // (val) => string, for min/max + hover value
+            },
+          },
+        },
+        waterfall: {
+          // `chart.type: 'waterfall'`. See features/waterfall.
+          colors: {
+            // Up is good, down is bad: the one convention a waterfall is read
+            // by, so it is a default rather than something to configure. A
+            // datum's own `fillColor` still wins.
+            positive: '#00A86F',
+            negative: '#FF4560',
+            // The running-total bars (`isSubtotal` / `isTotal`) take the
+            // series colour from the active palette, so they stay distinct
+            // from the steps AND follow the theme. Name a colour to override.
+            subtotal: undefined,
+            total: undefined,
+          },
+          connectors: {
+            // The segments joining each bar's finish to the next one's start.
+            // Without them the floating columns read as unrelated bars.
+            show: true,
+            // Falls back to grid.borderColor, so it is theme-aware.
+            color: undefined,
+            strokeWidth: 1,
+            strokeDashArray: 3,
+          },
+        },
+        streamgraph: {
+          // `chart.type: 'streamgraph'`. See features/streamgraph.
+          //
+          // Where the baseline goes:
+          //   'wiggle'     — minimize the total weighted slope of the bands, so
+          //                  the thick ones stay level (the classic form)
+          //   'silhouette' — centre the stack on one horizontal line
+          //   'zero'       — an ordinary stacked area, on the zero line
+          //   'expand'     — each column normalized to its own total, so the
+          //                  chart reads as composition rather than volume
+          offset: 'wiggle',
+          // The order the bands stack in, bottom first:
+          //   'inside-out' — the series that peak earliest sit in the middle,
+          //                  later peaks fan outward to whichever side is
+          //                  currently thinner. The middle moves least under a
+          //                  wiggle baseline, so this is what keeps a
+          //                  streamgraph readable
+          //   'inverse'    — the series order, reversed
+          //   'none'       — the series order as given
+          order: 'inside-out',
+          hover: {
+            // Hovering a band fades the others, which is the surface's only
+            // acknowledgement that it can be used.
+            //
+            // It fades the OTHERS rather than marking the hovered one because
+            // the bands touch edge to edge and leave no room to mark anything:
+            // a drop shadow falls onto both neighbours, and an edge stroke is
+            // centred on a boundary the band SHARES. Fading needs no room, and
+            // it leaves the hovered band's colour exactly as it was.
+            show: true,
+            // What the other bands drop to. Below ~0.5 the hovered band stops
+            // reading as picked out.
+            opacity: 0.35,
+          },
+          labels: {
+            // The series name written on the band itself, where that band is
+            // thickest. On by default: a drifting band is much easier to find
+            // by its own label than by matching a colour to a key, and the
+            // legend is then free to be the thing you click rather than the
+            // only place the names appear.
+            show: true,
+            // A band narrower than this many pixels is left unlabelled rather
+            // than given a name truncated past the point of being a name.
+            minWidth: 24,
+            // The bounds `fontSize: 'auto'` scales between, in px.
+            minFontSize: 9,
+            maxFontSize: 30,
+            style: {
+              // 'auto' sizes each name to the band it sits on, which is the
+              // convention of the form and the reason a streamgraph reads at a
+              // glance: a chart's whole claim is that thickness is quantity,
+              // and one fixed size states that claim in the same voice for a
+              // band carrying half the total and one carrying a rounding
+              // error. Give a literal ('12px') to draw every name the same.
+              fontSize: 'auto',
+              fontFamily: undefined,
+              fontWeight: 600,
+              // Per-series override. By default each label takes black or
+              // white, whichever reads on its own band.
+              colors: undefined,
             },
           },
         },
@@ -1154,18 +1436,60 @@ export default class Options {
           // so a SPECIFIC unit migrates across any regroup/relayout keeping its
           // colour and size (needs the object form with unique ids/names).
           transition: 'group',
-          // 'circle' | 'square' | 'image' (isotype pictogram).
+          // What ONE unit looks like. Independent of `layout`, which is where
+          // the units go: `positions:'heart'` with `shape:'pictogram'` arranges
+          // glyphs into a heart, and every other pairing is equally valid.
+          //
+          // 'circle' | 'square' | 'image' (a raster / multi-colour icon,
+          // fetched) | 'pictogram' (a vector glyph, drawn - see `pictogram`).
           shape: 'circle',
           // Icon used when shape:'image'. Each unit renders this icon at the
           // given size. Set `tint:true` to recolour a monochrome icon to the
           // category colour (or a per-unit fillColor) so the pictogram matches
           // the legend; leave it off for multi-colour icons that should keep
           // their own colours.
+          //
+          // Prefer `shape:'pictogram'` for a monochrome glyph. Tinting an
+          // <image> needs an SVG filter per colour, and a filter forces an
+          // offscreen surface PER ELEMENT on every paint: measured on this
+          // repo's cost lab, 2000 tinted icons cost ~10x what 2000 drawn
+          // glyphs cost, and the gather drops frames well before 2000.
           image: {
             src: undefined,
             width: 20,
             height: 20,
             tint: false,
+          },
+          // `shape: 'pictogram'`. A glyph is DRAWN, not fetched: one <path> per
+          // unit, filled in that unit's own colour, so it needs no request, no
+          // decode and no recolour filter.
+          //
+          // `mark` is the glyph: the name of one registered with
+          // `ApexCharts.registerUnitMark`, a `{path, viewBox?, fillRule?}`
+          // object, raw path data, or an ARRAY (one per series). A single datum
+          // overrides all of it with its own `mark`, exactly as `fillColor`
+          // overrides the category colour - so one crowd can mix glyphs.
+          //
+          // There is deliberately no size here. A glyph is fitted to the box
+          // the dot itself would have occupied, so `size` and `spacing` size a
+          // pictogram exactly as they size a dot and swapping circle ->
+          // pictogram never re-flows the chart. `fit` picks which side of the
+          // glyph binds to that box, `scale` nudges glyphs that read light, and
+          // `padding` (0..0.9 of the pitch) opens the lattice up.
+          //
+          // One caveat worth knowing: a filled glyph is hit-tested over its
+          // INK, not its box, so the tooltip tracks the glyph exactly - it
+          // closes in the gap between a person's legs and reopens on the next
+          // glyph. Chunky glyphs therefore both read and BEHAVE better than
+          // fine ones; a hairline glyph reads as flickery while sweeping a
+          // crowd. There is no portable fix (`pointer-events: bounding-box` is
+          // Chrome only).
+          pictogram: {
+            mark: undefined,
+            fit: 'contain', // 'contain' (longest side) | 'width' | 'height'
+            scale: 1,
+            padding: 0,
+            fallback: 'circle', // drawn when a mark cannot be resolved
           },
           // dot radius in px, or 'auto' to size dots so the largest cluster
           // fits its allotted box.
@@ -1827,11 +2151,14 @@ export default class Options {
           opacity: 0.8,
         },
         // Ride data labels to their new position on a data-change update
-        // (e.g. a bar chart race), instead of snapping. Off by default so
-        // existing charts are unchanged. Speed/easing follow
-        // chart.animations.dynamicAnimation. Bar/column only.
+        // instead of snapping. ON by default: the bars, the markers and the
+        // axis ticks all already reflow on one clock, so a label that jumps to
+        // its final slot on the first frame is the odd one out, it arrives
+        // several hundred ms before the bar it belongs to. Speed/easing follow
+        // chart.animations.dynamicAnimation, and a label that has not moved is
+        // a per-label no-op. Bar/column only.
         animate: {
-          enabled: false,
+          enabled: true,
         },
         // Count the numeric value up/down from its previous value on update,
         // like countUp.js. Off by default. The dataLabels.formatter runs each
@@ -2032,6 +2359,38 @@ export default class Options {
           size: undefined,
           sizeOffset: 3,
         },
+        // OPT-IN (0 = off). Above this many points in a series, that series'
+        // markers are drawn as ONE path element per marker size, carrying a
+        // subpath per point, instead of one element per point. Each per-point
+        // element costs a node, ~16 attribute writes and an appendChild, which
+        // is why markers dominate a large render: 2000 of them take 15ms of an
+        // 18ms render, and batched they take 1ms.
+        //
+        // This covers the markers `showNullDataPoints` adds implicitly, not
+        // just the ones asked for: every point beside a null is isolated and
+        // gets its own dot, so a 2000-point series with half its values null
+        // built ~1000 elements even at markers.size 0. Batched that render goes
+        // from 15ms to 3.7ms, and 5000 points from 37ms to 5.9ms. Those dots
+        // are a different size from the configured ones, hence one path per
+        // size rather than one per series.
+        //
+        // Off by default because it is NOT pixel-identical where markers
+        // overlap, and above ~1000 points in a normal-width chart they always
+        // do. One path is rasterized as a single region, so overlapping markers
+        // lose their individual outlines: all the fills paint, then all the
+        // strokes, and the seams between neighbours disappear. Dense clusters
+        // read flatter (measured 1-9% of pixels, scaling with density). Sparse
+        // markers that do not touch are unaffected.
+        //
+        // Only applies where markers are already non-interactive and uniform (a
+        // plain line/area with the default sweep tooltip, no discrete markers,
+        // no per-point colours, no marker click handlers, no dataPointSelection
+        // handler). A batched series has no `.apexcharts-marker` nodes, so the
+        // hover dot is served by the tooltip's own marker (the same one
+        // markers.size: 0 charts use), the keyboard focus ring lands on that
+        // marker, and the per-marker reveal / stream ride is replaced by the
+        // series-level fade.
+        largeDatasetThreshold: 0,
       },
       noData: {
         text: undefined,
@@ -2122,6 +2481,12 @@ export default class Options {
         intersect: false, // when enabled, tooltip will only show when user directly hovers over point
         inverseOrder: false,
         arrow: true,
+        // One tight line instead of a card: the x label sits inline before
+        // the value, the marker goes, the padding and font shrink. For panels
+        // a normal card would cover (small multiples, sparklines, tiles). A
+        // single-series chart drops the series-name label too; with several
+        // series the names stay, because they are what tells the rows apart.
+        compact: false,
         custom: undefined,
         fillSeriesColor: false,
         theme: 'light',

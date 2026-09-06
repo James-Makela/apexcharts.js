@@ -107,6 +107,10 @@ export default class Base {
       violinData: {
         seriesViolinDensity: [],
         seriesViolinPoints: [],
+        // Five-number summaries per (series, category), null where the datum
+        // carries none. Feeds the box lane (raincloud / violin box.show).
+        // New slice: read via w.violinData only, no w.globals shim.
+        seriesViolinSummary: [],
         seriesViolinMin: [],
         seriesViolinMax: [],
       },
@@ -122,6 +126,47 @@ export default class Base {
         rule: '',
         capped: false,
       },
+      // Waterfall accumulation — written by the waterfall series transform
+      // (features/waterfall) each parse; empty for every other chart type.
+      //   values[i][j]     = the bar's signed height (end - start), which is
+      //                      the delta for a step bar and the sum for a
+      //                      subtotal / total bar. This is what a label and a
+      //                      tooltip show, in place of the "start - end" a
+      //                      range bar would otherwise read out.
+      //   cumulative[i][j] = the running total AFTER bar j, i.e. the level the
+      //                      connector to bar j+1 is drawn at.
+      //   kinds[i][j]      = 'positive' | 'negative' | 'subtotal' | 'total'
+      //   geometry[i][j]   = the px box the bar was actually drawn in, recorded
+      //                      by RangeBar. Present (as []) only on a waterfall,
+      //                      which is what tells RangeBar to record at all.
+      waterfallData: {
+        values: [],
+        cumulative: [],
+        kinds: [],
+        geometry: null,
+      },
+      // Dumbbell endpoints, written by the dumbbell series transform
+      // (features/dumbbell) each parse; null for every other chart type.
+      //   form        = 'series' (N measures merged, endpoints identified) or
+      //                 'pairs' (a y: [lo, hi] series, nothing to identify)
+      //   names[k]    = endpoint k's series name
+      //   values[j][k]= endpoint k's value on row j, or null
+      //   order[j]    = [kLow, kHigh], which endpoint each end of row j's
+      //                 connector belongs to (null when the row is empty)
+      //   carrier     = the series index the merged rows were written to
+      //   hidden[]    = endpoint indices collapsed from the legend
+      dumbbellData: null,
+      // Streamgraph bands, written by the streamgraph series transform
+      // (features/streamgraph) each parse; null for every other chart type.
+      //   names[k]     = band k's series name
+      //   xs[j]        = column j's x value, in drawing order
+      //   values[k][j] = the number the reader gave for band k at column j
+      //   lows/highs   = per-band stacking offsets, or null when collapsed;
+      //                  highs[k][j] IS lows[next][j], not a copy of it
+      //   order[]      = series indices, bottom band first
+      //   offset       = the baseline mode the bands were solved with
+      //   hidden[]     = band indices collapsed from the legend
+      streamgraphData: null,
       // Label / category data — written by Data.parseData() and TimeScale each render.
       labelData: {
         labels: [],
