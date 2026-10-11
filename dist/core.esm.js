@@ -15114,11 +15114,13 @@ class Grid {
    * @returns {Record<'grid' | 'bar' | 'marker', { x: number, y: number, width: number, height: number }>}
    */
   static maskRects(w) {
+    var _a, _b;
     const gl = w.globals;
     const strokeSize = Array.isArray(w.config.stroke.width) ? Math.max(...w.config.stroke.width) : w.config.stroke.width;
     const hasBar = ["bar", "rangeBar", "candlestick", "boxPlot", "violin"].includes(
       w.config.chart.type
     ) || gl.comboBarCount > 0;
+    const ignoreBarPad = !!((_b = (_a = w.config.grid) == null ? void 0 : _a.padding) == null ? void 0 : _b.ignoreBarPad);
     let barWidthLeft = 0;
     let barWidthRight = 0;
     if (hasBar && w.axisFlags.isXNumeric && !gl.isBarHorizontal) {
@@ -15128,9 +15130,9 @@ class Grid {
     const markerSize = gl.markers.largestSize;
     return {
       grid: {
-        x: -strokeSize / 2 - 2,
+        x: ignoreBarPad ? 0 : -strokeSize / 2 - 2,
         y: -strokeSize / 2 - 2,
-        width: w.layout.gridWidth + strokeSize + 4,
+        width: w.layout.gridWidth + (ignoreBarPad ? 0 : strokeSize + 4),
         height: w.layout.gridHeight + strokeSize + 4
       },
       bar: {
@@ -15151,7 +15153,6 @@ class Grid {
     };
   }
   createGridMask() {
-    var _a, _b;
     const w = this.w;
     const gl = w.globals;
     const graphics = new Graphics(this.w);

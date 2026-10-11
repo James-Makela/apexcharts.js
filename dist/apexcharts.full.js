@@ -15183,11 +15183,13 @@ var __async = (__this, __arguments, generator) => {
      * @returns {Record<'grid' | 'bar' | 'marker', { x: number, y: number, width: number, height: number }>}
      */
     static maskRects(w) {
+      var _a, _b;
       const gl = w.globals;
       const strokeSize = Array.isArray(w.config.stroke.width) ? Math.max(...w.config.stroke.width) : w.config.stroke.width;
       const hasBar = ["bar", "rangeBar", "candlestick", "boxPlot", "violin"].includes(
         w.config.chart.type
       ) || gl.comboBarCount > 0;
+      const ignoreBarPad = !!((_b = (_a = w.config.grid) == null ? void 0 : _a.padding) == null ? void 0 : _b.ignoreBarPad);
       let barWidthLeft = 0;
       let barWidthRight = 0;
       if (hasBar && w.axisFlags.isXNumeric && !gl.isBarHorizontal) {
@@ -15197,9 +15199,9 @@ var __async = (__this, __arguments, generator) => {
       const markerSize = gl.markers.largestSize;
       return {
         grid: {
-          x: -strokeSize / 2 - 2,
+          x: ignoreBarPad ? 0 : -strokeSize / 2 - 2,
           y: -strokeSize / 2 - 2,
-          width: w.layout.gridWidth + strokeSize + 4,
+          width: w.layout.gridWidth + (ignoreBarPad ? 0 : strokeSize + 4),
           height: w.layout.gridHeight + strokeSize + 4
         },
         bar: {
@@ -22054,7 +22056,7 @@ var __async = (__this, __arguments, generator) => {
     gridPadForColumnsInNumericAxis(gridWidth) {
       const { w } = this;
       const { config: cnf, globals: gl } = w;
-      if (gl.noData || gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length === cnf.series.length) {
+      if (gl.noData || gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length === cnf.series.length || cnf.grid.padding.ignoreBarPad) {
         return 0;
       }
       const hasBar = (type2) => ["bar", "rangeBar", "candlestick", "boxPlot", "violin"].includes(type2);
@@ -49556,7 +49558,7 @@ var __async = (__this, __arguments, generator) => {
       const barSeriesIndices = ser.getBarSeriesIndices();
       const coreUtils = new CoreUtils(this.w);
       this.stackedSeriesTotals = coreUtils.getStackedSeriesTotals(
-        this.w.config.series.map((s2, i2) => {
+        this.w.config.series.map((_s, i2) => {
           return barSeriesIndices.indexOf(i2) === -1 ? i2 : -1;
         }).filter((s2) => {
           return s2 !== -1;
@@ -49835,7 +49837,7 @@ var __async = (__this, __arguments, generator) => {
       classes,
       fadeReveal = false
     }) {
-      var _a, _b, _c, _d, _e, _f, _g;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i;
       const w = this.w;
       const graphics = new Graphics(this.w, this.ctx);
       const emit = seriesEmitter(this.ctx, graphics);
@@ -49973,7 +49975,8 @@ var __async = (__this, __arguments, generator) => {
             fadeReveal
           })
         );
-        renderedPath.attr("clip-path", `url(#gridRectBarMask${w.globals.cuid})`);
+        const maskId = ((_i = (_h = w.config.grid) == null ? void 0 : _h.padding) == null ? void 0 : _i.ignoreBarPad) ? `gridRectMask${w.globals.cuid}` : `gridRectBarMask${w.globals.cuid}`;
+        renderedPath.attr("clip-path", `url(#${maskId})`);
         if (leaving) renderedPath.node.classList.add("apexcharts-leaving");
         const sh = this._shadow;
         if (sh) {

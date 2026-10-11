@@ -13813,7 +13813,7 @@ class Bar {
     const barSeriesIndices = ser.getBarSeriesIndices();
     const coreUtils = new CoreUtils(this.w);
     this.stackedSeriesTotals = coreUtils.getStackedSeriesTotals(
-      this.w.config.series.map((s, i) => {
+      this.w.config.series.map((_s, i) => {
         return barSeriesIndices.indexOf(i) === -1 ? i : -1;
       }).filter((s) => {
         return s !== -1;
@@ -14092,7 +14092,7 @@ class Bar {
     classes,
     fadeReveal = false
   }) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     const w = this.w;
     const graphics = new Graphics(this.w, this.ctx);
     const emit = seriesEmitter(this.ctx, graphics);
@@ -14230,7 +14230,8 @@ class Bar {
           fadeReveal
         })
       );
-      renderedPath.attr("clip-path", `url(#gridRectBarMask${w.globals.cuid})`);
+      const maskId = ((_i = (_h = w.config.grid) == null ? void 0 : _h.padding) == null ? void 0 : _i.ignoreBarPad) ? `gridRectMask${w.globals.cuid}` : `gridRectBarMask${w.globals.cuid}`;
+      renderedPath.attr("clip-path", `url(#${maskId})`);
       if (leaving) renderedPath.node.classList.add("apexcharts-leaving");
       const sh = this._shadow;
       if (sh) {
