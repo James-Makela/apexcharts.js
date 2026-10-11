@@ -213,8 +213,10 @@ class CoreUtils {
     const seriesYAxisReverseMap = []
     /** @type {any[]} */
     const unassignedSeriesIndices = []
+    // cnf.series, not seriesData.series: the first call (parseDataAxisCharts)
+    // runs before seriesData.series is filled, and its map sets default groups.
     const seriesNameArrayStyle =
-      this.w.seriesData.series.length > cnf.yaxis.length ||
+      cnf.series.length > cnf.yaxis.length ||
       /**
        * @param {ApexYAxis} a
        */
@@ -371,16 +373,22 @@ class CoreUtils {
    */
   isSeriesNull(index = null) {
     let r = []
-    const series = /** @type {any[]} */ (this.w.config.series)
     if (index === null) {
       // non-plot chart types - pie / donut / circle
+      const series = /** @type {any[]} */ (this.w.config.series)
       r = series.filter((/** @type {any} */ d) => d !== null)
-    } else if (series[index] && Array.isArray(series[index].data)) {
-      // axis charts - supporting multiple series
-      r = series[index].data.filter((/** @type {any} */ d) => d !== null)
     } else {
-      // pie/donut/polarArea/radialBar called per-index from legend loop
-      r = series[index] !== null && series[index] !== undefined ? [series[index]] : []
+      const seriesAtIndex = this.w.seriesData.series[index]
+      if (Array.isArray(seriesAtIndex)) {
+        // axis charts - supporting multiple series
+        r = seriesAtIndex.filter((/** @type {any} */ d) => d !== null)
+      } else {
+        // pie/donut/polarArea/radialBar called per-index from legend loop
+        r =
+          seriesAtIndex !== null && seriesAtIndex !== undefined
+            ? [seriesAtIndex]
+            : []
+      }
     }
 
     return r.length === 0
@@ -540,6 +548,30 @@ class CoreUtils {
   getPercentSeries() {
     const w = this.w
 
+    // In a combo the 100% total is the BAR series only (#2429). A line drawn
+    // over a 100% stack is not one of its slices, yet it was summed into the
+    // total, so the bars stacked to well under 100 and each label read a
+    // share of a number nothing on the chart shows. Bar.js already sums its
+    // stacked totals over the bar series alone; the percentages now agree.
+    // Classified from config so this is safe however early it is read.
+    const chartType = w.config.chart.type
+    /** @param {{ type?: string }} s */
+    const isBarSeries = (s) =>
+      s.type
+        ? s.type === 'bar' || s.type === 'column'
+        : chartType === 'bar' || chartType === 'column'
+    const hasBars = w.config.series.some(isBarSeries)
+    const excluded = hasBars
+      ? w.config.series
+          .map((/** @type {any} */ s, /** @type {number} */ i) =>
+            isBarSeries(s) ? -1 : i,
+          )
+          .filter((/** @type {number} */ i) => i !== -1)
+      : []
+    const stackedTotals = excluded.length
+      ? this.getStackedSeriesTotals(excluded)
+      : w.seriesData.stackedSeriesTotals
+
     /**
      * @param {any[]} ser
      */
@@ -547,7 +579,7 @@ class CoreUtils {
       const seriesPercent = []
       if (Array.isArray(ser)) {
         for (let j = 0; j < ser.length; j++) {
-          const total = w.seriesData.stackedSeriesTotals[j]
+          const total = stackedTotals[j]
           let percent = 0
           if (total) {
             percent = (100 * ser[j]) / total

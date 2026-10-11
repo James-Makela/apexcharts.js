@@ -31,7 +31,9 @@ import {
 import { flattenPath, boundsOf, signedArea } from '../../src/unit-shapes/engine/path.js'
 import { getUnitMark, unregisterUnitMark } from '../../src/modules/UnitMarkRegistry.js'
 import { createChartWithOptions } from './utils/utils'
-import ApexCharts from '../../src/entries/full.js'
+// Not in the default bundle since 8.0, so imported the way an app would.
+import '../../src/entries/unit.js'
+import ApexCharts from '../../src/entries/standard.js'
 
 const MARKS_DIR = join(process.cwd(), 'src/pictograms/marks')
 const CATEGORIES = ['people', 'nature', 'objects', 'transport', 'symbols']

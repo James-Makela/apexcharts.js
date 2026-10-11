@@ -222,6 +222,20 @@ class Range {
           }
         }
       }
+      // Highlight filter: a part can reach past its whole (an average does) or
+      // sit on the other side of zero, so it stretches the axis too, over the
+      // same window the values are scanned in and on a null whole as well.
+      const hp = this.w.highlightData?.ext?.[i]
+      if (hp) {
+        for (let j = firstXIndex; j <= lastXIndex && j < hp.length; j++) {
+          const v = hp[j]
+          if (v != null) {
+            if (v > maxY) maxY = v
+            if (v < lowestY) lowestY = v
+            if (v < 0 && v < minY) minY = v
+          }
+        }
+      }
       // Fast lane for plain numeric series (line/area/scatter/column with
       // scalar y values): the general loop below pays several function calls
       // and a string conversion PER VALUE (isNumber/noExponents/isFloat/
@@ -534,10 +548,11 @@ class Range {
     // if the numbers are too big, reduce the range
     // for eg, if number is between 100000-110000, putting 0 as the lowest
     // value is not so good idea. So change the gl.minY for
-    // line/area/scatter/candlesticks/boxPlot/vertical rangebar
+    // line/area/rangeArea/scatter/candlesticks/boxPlot/vertical rangebar
     if (
       cnf.chart.type === 'line' ||
       cnf.chart.type === 'area' ||
+      cnf.chart.type === 'rangeArea' ||
       cnf.chart.type === 'scatter' ||
       cnf.chart.type === 'candlestick' ||
       cnf.chart.type === 'boxPlot' ||
@@ -562,36 +577,56 @@ class Range {
      * @param {ApexYAxis} yaxe
      * @param {number} index
      */
-    cnf.yaxis.forEach((yaxe, index) => {
-      // override all min/max values by user defined values (y axis)
-      if (yaxe.max !== undefined) {
-        if (typeof yaxe.max === 'number') {
-          gl.maxYArr[index] = yaxe.max
-        } else if (typeof yaxe.max === 'function') {
-          // fixes apexcharts.js/issues/2098
-          gl.maxYArr[index] = yaxe.max(
-            gl.isMultipleYAxis ? gl.maxYArr[index] : gl.maxY,
-          )
-        }
+    /**
+     * One configured bound as a number, or undefined when there is nothing
+     * usable to override the computed extent with.
+     *
+     * A bound may be a number or a function of the computed extent (#2098).
+     * Anything else was already dropped by Config.normalizeAxisBounds, and a
+     * function is free to return nothing at all.
+     *
+     * @param {any} bound the configured `min` or `max`
+     * @param {number} computed what the data alone says this extent is
+     * @returns {number|undefined}
+     */
+    const resolveBound = (bound, computed) => {
+      if (typeof bound === 'number') return bound
+      if (typeof bound !== 'function') return undefined
+      const resolved = bound(computed)
+      return Utils.isNumber(resolved) ? resolved : undefined
+    }
 
-        // gl.maxY is for single y-axis chart, it will be ignored in multi-yaxis
-        gl.maxY = gl.maxYArr[index]
+    cnf.yaxis.forEach((yaxe, index) => {
+      // Override the computed extent with the user's bound, but ONLY when
+      // resolveBound found one.
+      //
+      // Publishing to `gl.maxY`/`gl.minY` used to sit outside the type test,
+      // so a bound that was neither a number nor a function (a numeric string,
+      // say) reached it having set nothing: on a single-axis chart
+      // `gl.minYArr[0]` is still undefined at this point, and copying that
+      // into `gl.minY` collapsed the axis to the `0 … tickAmount` scale a
+      // chart with no data gets, drawing the series off the plot (#5328).
+      const max = resolveBound(
+        yaxe.max,
+        gl.isMultipleYAxis ? gl.maxYArr[index] : gl.maxY,
+      )
+      if (max !== undefined) {
+        gl.maxYArr[index] = max
+        // gl.maxY is for single y-axis charts; ignored in multi-yaxis
+        gl.maxY = max
       }
-      if (yaxe.min !== undefined) {
-        if (typeof yaxe.min === 'number') {
-          gl.minYArr[index] = yaxe.min
-        } else if (typeof yaxe.min === 'function') {
-          // fixes apexcharts.js/issues/2098
-          gl.minYArr[index] = yaxe.min(
-            gl.isMultipleYAxis
-              ? gl.minYArr[index] === Number.MIN_VALUE
-                ? 0
-                : gl.minYArr[index]
-              : gl.minY,
-          )
-        }
-        // gl.minY is for single y-axis chart, it will be ignored in multi-yaxis
-        gl.minY = gl.minYArr[index]
+
+      const min = resolveBound(
+        yaxe.min,
+        gl.isMultipleYAxis
+          ? gl.minYArr[index] === Number.MIN_VALUE
+            ? 0
+            : gl.minYArr[index]
+          : gl.minY,
+      )
+      if (min !== undefined) {
+        gl.minYArr[index] = min
+        gl.minY = min
       }
     })
 
@@ -740,7 +775,34 @@ class Range {
         ticks = Math.round(gl.svgWidth / 150)
 
         // no labels provided and total number of dataPoints is less than 30
-        if (cnf.xaxis.type === 'numeric' && gl.dataPoints < 30) {
+        const inferredNumericX =
+          this.w.axisFlags.isXNumeric &&
+          this.w.axisFlags.dataFormatXNumeric &&
+          cnf.xaxis.type !== 'datetime' &&
+          !cnf.xaxis.convertedCatToNumeric &&
+          !gl.isBarHorizontal
+        const fontSize = parseFloat(cnf.xaxis.labels.style.fontSize) || 12
+        const widestLabelLength = this.w.labelData.labels.reduce(
+          (widest, seriesLabels) =>
+            Array.isArray(seriesLabels)
+              ? seriesLabels.reduce(
+                  (seriesWidest, label) =>
+                    Math.max(seriesWidest, String(label).length),
+                  widest,
+                )
+              : widest,
+          0,
+        )
+        // Range runs before axis text is laid out, so use the conventional
+        // 0.6em average glyph width to reject one-tick-per-point when the
+        // labels cannot plausibly fit in the chart's available width.
+        const allPointLabelsFit =
+          gl.dataPoints * widestLabelLength * fontSize * 0.6 <= gl.svgWidth
+        if (
+          (cnf.xaxis.type === 'numeric' ||
+            (inferredNumericX && allPointLabelsFit)) &&
+          gl.dataPoints < 30
+        ) {
           ticks = gl.dataPoints - 1
         }
 

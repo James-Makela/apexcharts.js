@@ -204,13 +204,22 @@ export default class Drilldown {
     }
     if (!this.rootSnapshot) this.rootSnapshot = this._snapshot()
     const from = this.path[this.path.length - 1]
-    this.stack.push({ id: child.id, name: child.name, restore: this._snapshot() })
+    const level = { id: child.id, name: child.name, restore: this._snapshot() }
+    this.stack.push(level)
     return this._apply(this._viewFromChild(child), 'down', {
       from,
       to: child.id,
       point: triggerPoint,
       seriesIndex: meta && meta.seriesIndex,
       dataPointIndex: meta && meta.dataPointIndex,
+    }).catch((error) => {
+      // The update refused the level (a child of a chart type the page never
+      // loaded is rejected before anything moves), so the chart is still on
+      // the level it was. Take the level back off the stack, or the
+      // breadcrumb names a level nobody sees and drillUp walks through it.
+      if (this.stack[this.stack.length - 1] === level) this.stack.pop()
+      this._fire('drillDownError', { id: child.id, error })
+      throw error
     })
   }
 
@@ -558,6 +567,9 @@ export default class Drilldown {
     //
     // overwriteInitial* stay false: resetSeries() must still return to the user's
     // original top-level data, not whichever level we drilled to.
+    //
+    // The highlight-filter pick belongs to the page, not to a drill level.
+    this.ctx.highlightFilter?.drillView(view)
     const runUpdate = (anim) =>
       this.ctx.updateOptions(view, false, anim, false, false)
 

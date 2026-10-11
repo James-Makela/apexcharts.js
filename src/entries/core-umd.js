@@ -15,9 +15,10 @@
  * default bundle was what it downloaded, with no way to decline. Plan 08 called
  * that the missing CDN channel; this is the baseline half of it.
  *
- * `apexcharts.js` is unchanged and still batteries-included. This is additive:
- * nobody has to migrate to it, and a page that wants everything should keep
- * loading the full bundle rather than assembling it from parts.
+ * `apexcharts.js` stays the default baseline, and since 8.0 `apexcharts.full.js`
+ * is the one with everything. This is additive: nobody has to migrate to it,
+ * and a page that wants everything should load the full bundle rather than
+ * assemble it from parts.
  *
  * Note this file is NOT smaller than `apexcharts/core` is for a bundler. A
  * bundler drops the `__apex_*` modules an app never imports; a script tag
@@ -29,10 +30,11 @@
  */
 import ApexCharts from '../apexcharts'
 import * as coreInternals from './core.js'
+import drainPendingAddons from '../utils/PendingAddons.js'
 
 /**
  * The shared-module surface add-ons resolve against. Identical in contract to
- * the one the full bundle attaches (see `entries/full.js`), so a given
+ * the one the default bundle attaches (see `entries/standard.js`), so a given
  * `dist/features/*.js` layers onto either baseline unchanged.
  *
  * PRIVATE and unversioned: not in the type definitions, not semver-stable.
@@ -43,5 +45,8 @@ Object.defineProperty(ApexCharts, '__internals', {
   writable: false,
   configurable: false,
 })
+
+// Add-ons whose script tags ran before this one waited for the surface above.
+drainPendingAddons(ApexCharts)
 
 export default ApexCharts

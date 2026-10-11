@@ -96,6 +96,16 @@ function externalUrls(externals) {
 }
 
 /**
+ * Chart types a demo loads as their own script because they are outside the
+ * default bundle. Listed explicitly rather than
+ * inferred: most `dist/*.js` files are types the default bundle has, and
+ * printing an import for one of those would suggest an opt-in that does not
+ * exist. The import is correct either way, since an entry registers onto the
+ * same global registry the default bundle uses.
+ */
+const OPT_IN_TYPE_BUNDLES = new Set(['icicle', 'unit', 'sunburst', 'violin'])
+
+/**
  * Inside displayed js/jsx/vue code, an external dep becomes either the import a
  * bundler user actually needs, or a plain-url comment when there is no such
  * import. Never embed the raw tag here: a literal closing script tag inside an
@@ -116,9 +126,16 @@ function externalsAsComments(externals) {
   return externalUrls(externals)
     .map((url) => {
       const feature = url.match(/(?:^|\/)dist\/(features\/[\w-]+)\.js$/)
-      return feature
-        ? `import 'apexcharts/${feature[1]}'`
-        : `// This demo also loads: ${url}`
+      if (feature) return `import 'apexcharts/${feature[1]}'`
+      // An opt-in chart TYPE is the same story one level up: the script tag is
+      // the only way into a page without a bundler, and the entry registers
+      // itself on import into a registry that is global, so a bare side-effect
+      // import is all a bundler user needs for the wrapper to find the type.
+      const type = url.match(/(?:^|\/)dist\/([\w-]+)\.js$/)
+      if (type && OPT_IN_TYPE_BUNDLES.has(type[1])) {
+        return `import 'apexcharts/${type[1]}'`
+      }
+      return `// This demo also loads: ${url}`
     })
     .join('\n')
 }
@@ -152,8 +169,12 @@ async function buildVanillaFiles(info, renderedHtml, label) {
     '<head>',
     `<title>${info.title}</title>`,
     '<link href="styles.css" rel="stylesheet" />',
-    ...externals,
+    // The library first. A script-tag add-on (dist/features/*.js, dist/<type>.js)
+    // reads the global ApexCharts the moment it loads and throws without it, so
+    // copied code that listed the add-on first broke on the first line. Data
+    // files and third-party libraries do not care about the order.
     `<script src="${APEXCHARTS_CDN}"></script>`,
+    ...externals,
     '</head>',
     '<body>',
     renderedHtml,

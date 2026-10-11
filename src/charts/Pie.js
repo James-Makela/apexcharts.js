@@ -258,6 +258,18 @@ class Pie {
 
     if (w.globals.noData) return elPie
 
+    this.ctx.highlightFilter?.pie(this)
+
+    // Where the circle lands on screen, for CircleTransition: the series and
+    // labels are drawn around (centerX, centerY) inside a customScale'd group.
+    const scaleSize = w.config.plotOptions.pie.customScale
+    w.globals.circleGeometry = {
+      node: elPie.node,
+      cx: this.translateX + scaleSize * this.centerX,
+      cy: this.translateY + scaleSize * this.centerY,
+      r: scaleSize * w.globals.radialSize,
+    }
+
     let total = 0
     for (let k = 0; k < series.length; k++) {
       // CALCULATE THE TOTAL
@@ -352,19 +364,33 @@ class Pie {
         }
 
         // The radius is the value channel, so it must animate from where it
-        // was, like a pie slice's angle does. Reconstruct the previous sizes
-        // from the previous values on the same scale rule the draw uses.
-        let prevMaxY = 0
-        for (let k = 0; k < prevValues.length; k++) {
-          prevMaxY = Math.max(prevMaxY, Utils.negToZero(prevValues[k]))
+        // was, like a pie slice's angle does. Use the radii the previous draw
+        // actually used. Rebuilding them from the previous values divided by
+        // the raw max, but with the default grid.position 'back' the grid is
+        // drawn first and rounds maxY up to a nice max (44 -> 50), so every
+        // slice started ~14% too big and jumped on the first frame of any
+        // update, a legend toggle included. The rebuild stays as the fallback
+        // for when the stash cannot line up. The stash holds fractions of the
+        // radius: when the chrome resized the circle, the start radii have to
+        // be in THIS render's pixels, as CircleTransition scales the whole
+        // circle back to its old size on the first frame (old pixels would
+        // count that scale twice).
+        const sizeStash = w.globals.prevPolarSizes
+        if (Array.isArray(sizeStash) && sizeStash.length === prevValues.length) {
+          this.prevSliceSizes = sizeStash.map((f) => f * w.globals.radialSize)
+        } else {
+          let prevMaxY = 0
+          for (let k = 0; k < prevValues.length; k++) {
+            prevMaxY = Math.max(prevMaxY, Utils.negToZero(prevValues[k]))
+          }
+          if (w.config.yaxis[0].max) {
+            prevMaxY = w.config.yaxis[0].max
+          }
+          this.prevSliceSizes = prevValues.map(
+            (/** @type {number} */ v) =>
+              (w.globals.radialSize * Utils.negToZero(v)) / (prevMaxY || 1),
+          )
         }
-        if (w.config.yaxis[0].max) {
-          prevMaxY = w.config.yaxis[0].max
-        }
-        this.prevSliceSizes = prevValues.map(
-          (/** @type {number} */ v) =>
-            (w.globals.radialSize * Utils.negToZero(v)) / (prevMaxY || 1),
-        )
       } else {
         let prevTotal = 0
         for (let k = 0; k < w.globals.previousPaths.length; k++) {
@@ -387,6 +413,10 @@ class Pie {
     if (this.chartType === 'polarArea') {
       // The stash the NEXT data-change animation will start from.
       w.globals.prevPolarAngles = sectorAngleArr.slice()
+      const radius = w.globals.radialSize || 1
+      w.globals.prevPolarSizes = this.sliceSizes.map(
+        (/** @type {number} */ s) => s / radius,
+      )
     }
 
     // on small chart size after few count of resizes browser window donutSize can be negative
@@ -655,6 +685,11 @@ class Pie {
         }
       }
 
+      // A legend-hidden slice closes to nothing and is then cleared (see
+      // animateArc): at zero angle its outline still strokes a line along
+      // the seam, in its own colour when `stroke.colors` is per slice.
+      const collapsed = (w.globals.collapsedSeriesIndices || []).includes(i)
+
       // Animation code starts
       let dur = 0
       if (this.initialAnim && !w.globals.resized && !w.globals.dataChanged) {
@@ -710,6 +745,7 @@ class Pie {
           animBeginArr: this.animBeginArr,
           shouldSetPrevPaths: true,
           dur: w.config.chart.animations.dynamicAnimation.speed,
+          collapsed,
         })
       } else {
         this.animatePaths(elPath, {
@@ -720,6 +756,7 @@ class Pie {
           totalItems: sectorAngleArr.length - 1,
           animBeginArr: this.animBeginArr,
           dur,
+          collapsed,
         })
       }
       // animation code ends
@@ -770,6 +807,13 @@ class Pie {
           if (formatter !== undefined) {
             text = formatter(w.globals.seriesPercent[i][0], {
               seriesIndex: i,
+              // A pie slice IS the data point, so its index is the series
+              // index. Every other type passes dataPointIndex and the
+              // documented opts says it is always there, so leaving it out
+              // here made the documented formatter throw on a pie alone
+              // (#5324).
+              dataPointIndex: i,
+              series: w.seriesData.series,
               w,
             })
           }
@@ -777,6 +821,9 @@ class Pie {
 
           const elPieLabelWrap = graphics.group({
             class: `apexcharts-datalabels`,
+            // Which slice it labels, so a later render pairs it with its own
+            // slice's label (CircleTransition), whatever slices draw none.
+            'data:slice': i,
           })
           const elPieLabel = graphics.drawText({
             x: xPos,
@@ -891,6 +938,7 @@ class Pie {
         // Ride along when the slice slides out: the connector is anchored on
         // the rim, so moving both by the same vector keeps it attached.
         this.externalLabelGroups[lbl.i] = group.node
+        group.node.setAttribute('data:slice', String(lbl.i))
 
         g.add(group)
       })
@@ -1048,8 +1096,9 @@ class Pie {
     const hasPrevSize = typeof opts.prevSize === 'number'
 
     if (w.globals.dataChanged && opts.shouldSetPrevPaths) {
-      // to avoid flicker when updating, set prev path first and then animate from there
-      if (opts.prevEndAngle) {
+      // to avoid flicker when updating, set prev path first and then animate
+      // from there (an arc that ended at angle 0 too)
+      if (Number.isFinite(opts.prevEndAngle)) {
         path = me.getPiePath({
           me,
           startAngle: opts.prevStartAngle,
@@ -1078,6 +1127,8 @@ class Pie {
                 'stroke-width': me.strokeWidth,
               })
             }
+
+            if (opts.collapsed) el.attr({ d: '' })
 
             if (opts.i === w.config.series.length - 1) {
               animations.animationCompleted(el)
@@ -1126,7 +1177,7 @@ class Pie {
       el.node.setAttribute('data:pathOrig', path)
 
       el.attr({
-        d: path,
+        d: opts.collapsed ? '' : path,
         'stroke-width': me.strokeWidth,
       })
     }
@@ -1246,6 +1297,14 @@ class Pie {
       animate && w.config.chart.animations.enabled ? SLICE_OFFSET_TRANSITION : ''
 
     this.getSliceMovers(i).forEach((node) => {
+      // One class across the whole moving set, not just the arc: the slice's
+      // labels, any external label group and the hover band all slide with it.
+      // Styling the slide from a page used to mean knowing that list and
+      // writing a selector per member, and missing one (the labels are the easy
+      // one to miss) left it behind mid-slide. `.apexcharts-slice-mover` is the
+      // single hook for "moves when this slice moves".
+      node.classList.add('apexcharts-slice-mover')
+
       // The `transform` presentation attribute maps onto the CSS transform
       // property, so a CSS transition on it animates the slide wherever SVG
       // CSS transforms are supported, and degrades to an instant move (the old
@@ -1320,6 +1379,13 @@ class Pie {
       i,
       this.isSliceOut(i) ? this.getExpandOffset() : 0,
     )
+    //
+    // Dropping the class matters as much as clearing the inline transition:
+    // this is ONE node re-plotted per slice, so `apexcharts-slice-mover` left
+    // over from the last slice it slid with would let a page rule on that hook
+    // transition the jump, and clearing an inline property cannot cancel a
+    // stylesheet. offsetSlice re-adds it whenever the band is a mover again.
+    this.elHoverOutlinePath.node.classList.remove('apexcharts-slice-mover')
     this.elHoverOutlinePath.node.style.transition = ''
     this.elHoverOutlinePath.node.setAttribute('transform', `translate(${dx} ${dy})`)
     this.hoverOutlineIndex = i

@@ -5,7 +5,7 @@ import CoreUtils from '../modules/CoreUtils'
 import Utils from '../utils/Utils'
 import Filters from '../modules/Filters'
 import Graphics from '../modules/Graphics'
-import { computeStagger } from '../modules/Animations'
+import Animations, { computeStagger } from '../modules/Animations'
 import {
   datumKey,
   lengthTransitionEnabled,
@@ -154,6 +154,10 @@ class Bar {
       class: 'apexcharts-bar-series apexcharts-plot-series',
     })
 
+    // Highlight filter (opt-in feature): the part of each value drawn solid
+    // over its faded whole. Null without the feature.
+    const hf = this.ctx.highlightFilter
+
     if (w.config.dataLabels.enabled) {
       // @ts-ignore — totalItems is set dynamically by bar/Helpers.js initializePoints()
       if (this.totalItems > this.barOptions.dataLabels.maxItems) {
@@ -232,18 +236,32 @@ class Bar {
         'data:realIndex': realIndex,
       })
 
-      w.globals.delayedElements.push({
-        el: elDataLabelsWrap.node,
-        // On a layout-changing update the labels must stay hidden through the
-        // reflow morph (the updateOptions flow otherwise reveals them at
-        // frame 0, where they float over sliding bars). When dataLabels.animate
-        // is on the labels instead RIDE the morph (see DataLabelTransition), so
-        // keep them visible: holding would hide the very motion we want to show.
-        holdUntilComplete:
-          !w.config.dataLabels.animate?.enabled &&
-          this.isLengthTransition(realIndex),
-      })
-      elDataLabelsWrap.node.classList.add('apexcharts-element-hidden')
+      // On a data-change update with label motion on, the labels RIDE the bar
+      // morph (see DataLabelTransition), so they are drawn visible from the
+      // first frame. Only the updateOptions flow used to get that, by way of
+      // its early reveal; updateSeries() waited for animationCompleted and
+      // hid the labels for the whole morph, which flashed them on a chart
+      // updated every second (#5332).
+      //
+      // The exception is a layout-changing update with nothing riding: the
+      // labels then stay hidden through the reflow morph, or they float over
+      // sliding bars. A count-up alone does not move them, so it does not
+      // lift that hold.
+      const dlCfg = w.config.dataLabels
+      const holdUntilComplete =
+        !dlCfg.animate?.enabled && this.isLengthTransition(realIndex)
+      const labelsRide =
+        w.globals.dataChanged &&
+        !holdUntilComplete &&
+        !!(dlCfg.animate?.enabled || dlCfg.countUp?.enabled)
+
+      if (!labelsRide) {
+        w.globals.delayedElements.push({
+          el: elDataLabelsWrap.node,
+          holdUntilComplete,
+        })
+        elDataLabelsWrap.node.classList.add('apexcharts-element-hidden')
+      }
 
       const elGoalsMarkers = graphics.group({
         class: 'apexcharts-bar-goals-markers',
@@ -253,10 +271,25 @@ class Bar {
         class: 'apexcharts-bar-shadows',
       })
 
-      w.globals.delayedElements.push({
-        el: elBarShadows.node,
-      })
-      elBarShadows.node.classList.add('apexcharts-element-hidden')
+      // A 3D funnel's connector shadows join stages that morph on an update,
+      // so they morph with them, each from the shadow on screen (see
+      // renderSeries). With none to start from (a mount, a stage added or
+      // gone) they wait, hidden, until the stages land.
+      const ctx = /** @type {any} */ (this.ctx)
+      const shadowsWas = ctx._barShadows
+      const shadows = (ctx._barShadows = /** @type {any[]} */ ([]))
+      const morphShadows =
+        w.globals.dataChanged &&
+        w.globals.shouldAnimate &&
+        w.config.chart.animations.dynamicAnimation.enabled &&
+        shadowsWas?.length === series[i].length - 1
+
+      if (!morphShadows) {
+        w.globals.delayedElements.push({
+          el: elBarShadows.node,
+        })
+        elBarShadows.node.classList.add('apexcharts-element-hidden')
+      }
 
       for (let j = 0; j < series[i].length; j++) {
         const strokeWidth = this.barHelpers.getStrokeWidth(i, j, realIndex)
@@ -321,6 +354,11 @@ class Bar {
           })
 
           elBarShadows.add(barShadow)
+          shadows.push(barShadow)
+          this._shadow = morphShadows && [
+            barShadow,
+            shadowsWas[j - 1].attr('d'),
+          ]
 
           if (w.config.chart.dropShadow.enabled) {
             const filters = new Filters(this.w)
@@ -353,6 +391,15 @@ class Bar {
         yArrj.push(y)
 
         this.renderSeries({
+          hl: hf?.bar(this, {
+            i,
+            j,
+            realIndex,
+            translationsIndex,
+            paths,
+            zeroH,
+            zeroW,
+          }),
           realIndex,
           pathFill: pathFill.color,
           ...(pathFill.useRangeColor ? { lineFill: pathFill.color } : {}),
@@ -403,8 +450,9 @@ class Bar {
     return ret
   }
 
-  /** @param {{ realIndex?: any, pathFill?: any, lineFill?: any, j?: any, i?: any, columnGroupIndex?: any, pathFrom?: any, pathTo?: any, strokeWidth?: any, elSeries?: any, x?: any, y?: any, y1?: any, y2?: any, series?: any, barHeight?: any, barWidth?: any, barXPosition?: any, barYPosition?: any, elDataLabelsWrap?: any, elGoalsMarkers?: any, elBarShadows?: any, visibleSeries?: any, type?: any, classes?: any }} opts */
+  /** @param {{ hl?: any, realIndex?: any, pathFill?: any, lineFill?: any, j?: any, i?: any, columnGroupIndex?: any, pathFrom?: any, pathTo?: any, strokeWidth?: any, elSeries?: any, x?: any, y?: any, y1?: any, y2?: any, series?: any, barHeight?: any, barWidth?: any, barXPosition?: any, barYPosition?: any, elDataLabelsWrap?: any, elGoalsMarkers?: any, elBarShadows?: any, visibleSeries?: any, type?: any, classes?: any, fadeReveal?: boolean }} opts */
   renderSeries({
+    hl,
     realIndex,
     pathFill,
     lineFill,
@@ -430,6 +478,7 @@ class Bar {
     visibleSeries,
     type,
     classes,
+    fadeReveal = false,
   }) {
     const w = this.w
     const graphics = new Graphics(this.w, this.ctx)
@@ -558,6 +607,7 @@ class Bar {
         barXPosition,
         barYPosition,
         visibleSeries,
+        hl: hl?.label,
       })
     )
 
@@ -577,6 +627,9 @@ class Bar {
       }
     }
 
+    // Drawn only to slide out of view (see _wasOnScreen): removed once the
+    // update has landed, so nothing is left lying off-screen.
+    let leaving = false
     if (!w.globals.isBarHorizontal) {
       if (
         dataLabelsObj.dataLabelsPos.dataLabelsX +
@@ -586,7 +639,8 @@ class Bar {
           Math.max(barWidth, w.globals.barPadForNumericAxis) >
           w.layout.gridWidth
       ) {
-        skipDrawing = true
+        if (this._wasOnScreen(realIndex, j)) leaving = true
+        else skipDrawing = true
       }
     }
 
@@ -597,6 +651,8 @@ class Bar {
       lineFill = /** @type {Record<string,any>} */ (w.config.series[i]).data[j]
         .strokeColor
     }
+
+    const fill = pathFill
 
     // A collapsing series reads as null (its values were zeroed by the legend
     // click), but its marks are mid-exit and still hold the slot they had
@@ -656,6 +712,7 @@ class Bar {
           className: `apexcharts-${type}-area${classes ? ` ${classes}` : ''}`,
           chartType: type,
           bindEventsOnPaths: false,
+          fadeReveal,
         })
       )
 
@@ -664,6 +721,23 @@ class Bar {
         : `gridRectBarMask${w.globals.cuid}`
 
       renderedPath.attr('clip-path', `url(#${maskId})`)
+
+      // renderedPath.attr('clip-path', `url(#gridRectBarMask${w.globals.cuid})`)
+      // if (leaving) renderedPath.node.classList.add('apexcharts-leaving')
+
+      // This stage's funnel shadow, on the stage's clock (see draw).
+      const sh = this._shadow
+      if (sh) {
+        this._shadow = null
+        new Animations(w, this.ctx).animatePathsGradually({
+          el: sh[0],
+          fill: 'none',
+          pathFrom: sh[1],
+          pathTo: sh[0].attr('d'),
+          speed: dataChangeSpeed,
+          delay,
+        })
+      }
 
       // Cross-type morph, objects -> mark: the piece layer flies the outgoing
       // dots here and tiles this mark with them, so the mark holds hidden
@@ -706,19 +780,58 @@ class Bar {
         'data:pathKey': datumKey(w, realIndex, j),
       })
 
+      // Highlight filter: fade this whole and draw its part above it (below
+      // the labels, which are appended next).
+      hl?.paint(renderedPath, {
+        delay,
+        delayMs,
+        speed: dataChangeSpeed,
+        fill,
+        elSeries,
+        elBarShadows,
+        labels: dataLabelsObj.dataLabels,
+        pathFrom,
+        pathTo,
+      })
+
       // Strata (#2): canvas paints the bar/candle to a bitmap, so there is no
       // path node for the tooltip positioner to read cx/cy/barWidth off. Cache
-      // the same values here (keyed by realIndex + j); moveStickyTooltipOverBars
-      // falls back to this when the DOM node is absent.
+      // the same values here (keyed by realIndex + j); the tooltip and the
+      // keyboard read this when the DOM node is absent. `type` is what the
+      // node's class would say (`apexcharts-${type}-area`), the range ends
+      // what its data-range attributes would, and `bounds` the extent painted
+      // for the datum, in plot px: a box plot paints two paths per datum and
+      // a violin adds its box lane to its body, so it grows over each one.
       if (emit.kind === 'canvas') {
         if (!w.globals.barCanvasCoords) w.globals.barCanvasCoords = {}
         if (!w.globals.barCanvasCoords[realIndex]) {
           w.globals.barCanvasCoords[realIndex] = {}
         }
+        const prev = w.globals.barCanvasCoords[realIndex][j]
+        let bounds = prev?.bounds || null
+        const box = renderedPath.bbox()
+        if (box.width > 0 || box.height > 0) {
+          bounds = {
+            left: Math.min(bounds ? bounds.left : Infinity, box.x),
+            top: Math.min(bounds ? bounds.top : Infinity, box.y),
+            right: Math.max(
+              bounds ? bounds.right : -Infinity,
+              box.x + box.width,
+            ),
+            bottom: Math.max(
+              bounds ? bounds.bottom : -Infinity,
+              box.y + box.height,
+            ),
+          }
+        }
         w.globals.barCanvasCoords[realIndex][j] = {
           cx: dataLabelsObj.dataLabelsPos.bcx,
           cy: dataLabelsObj.dataLabelsPos.bcy,
           barWidth,
+          type,
+          ...(typeof y1 !== 'undefined' &&
+            typeof y2 !== 'undefined' && { rangeY1: y1, rangeY2: y2 }),
+          bounds,
         }
       }
 
@@ -1031,6 +1144,26 @@ class Bar {
   }
 
   /**
+   * Whether datum j of this series was drawn in the previous render and this
+   * render morphs from it (an animated, keyed data change).
+   *
+   * Off-screen marks are not drawn, for speed. But a mark that WAS on screen
+   * before an animated update has to be drawn this once, so it can morph to
+   * its new off-screen place and slide out under the clip: on a zoom-in the
+   * bars or candles leaving the view used to vanish on frame 0 while the rest
+   * were still moving. The extra marks are bounded by what was visible
+   * before, and large datasets skip the morph for the bulk fade anyway.
+   * @param {number} realIndex
+   * @param {number} j
+   * @returns {boolean}
+   */
+  _wasOnScreen(realIndex, j) {
+    if (!lengthTransitionEnabled(this.w)) return false
+    const keyed = this._prevKeyedPaths(realIndex)
+    return !!keyed && keyed.has(datumKey(this.w, realIndex, j))
+  }
+
+  /**
    * The captured previous-render record for a series (last match wins, same
    * as the historical scan order).
    *
@@ -1193,105 +1326,121 @@ class Bar {
       isNewDatum = true
     }
 
-    if (oldD) {
-      const fromCount = Bar.pathCommandCount(oldD)
-      const toCount = Bar.pathCommandCount(pathTo)
-      if (fromCount === toCount) {
-        return oldD
-      }
-
-      // A corner state flipped without the datum changing. On a stacked chart
-      // that happens constantly: collapse a series and whichever layer inherits
-      // the top (or bottom) of the stack gains rounded corners, while the layer
-      // that left loses them on its way to zero. A rounded rect and a plain one
-      // do not have the same command count, and the morph engine can only
-      // reconcile that by parking phantom commands on the cursor, which is
-      // what drew the mangled, self-intersecting shapes: the leaving bar's
-      // control points crossed over each other and it shrank sideways instead
-      // of down.
-      //
-      // The fix is to stop asking the morph engine to bridge the mismatch and
-      // hand it two paths of the same shape instead. `roundPathCorners` decides
-      // which corners to round from the path's STRUCTURE, not from the radius,
-      // so rounding by ZERO returns a path that is geometrically identical to
-      // its input but carries the extra commands. That gives a padded twin of
-      // whichever side is short, sitting exactly where its original sits.
-      //
-      // It also animates the corner itself for free. Padding the square side by
-      // zero and morphing it against the genuinely rounded side means the
-      // radius grows in (or straightens out) across the tween, instead of
-      // popping on the first or last frame.
-      const graphics = new Graphics(w)
-
-      // A rounded corner is only ever correct on the OUTER edge of a stack.
-      // While a corner is being handed between two layers, the edge it sits on
-      // is an INTERIOR seam, and a corner there cuts two notches that show the
-      // neighbour through them, a rounded corner in the middle of a stack.
-      // That is the odd look; it is not a morphing artifact.
-      //
-      // So the rule is about which layer owns the outer edge for the WHOLE
-      // tween. A layer arriving from (or leaving to) zero extent owns it
-      // throughout and keeps its corner, which simply grows or tucks in with
-      // its own height. A layer that keeps real extent on both sides of the
-      // update is handing the edge over, and must show no corner while it does.
-      // Which side of the update carries the "still has real extent" test
-      // differs by direction, because it is always the OTHER end of the tween
-      // that says whether this layer is the one arriving at / vacating the
-      // edge (it owns it throughout, keeps its corner) or the one handing it
-      // over (its edge goes interior, so the corner must not be drawn).
-      //   gaining  → was it already there before?  (old extent)
-      //   losing   → is it still there after?      (new extent)
-      // Below a pixel there is no corner to see anyway.
-      const extentOf = (/** @type {string} */ d) => {
-        const box = Bar.pathBox(d)
-        return box
-          ? Math.min(box.maxX - box.minX, box.maxY - box.minY)
-          : 0
-      }
-      const handingOver =
-        fromCount < toCount ? extentOf(oldD) > 1 : extentOf(pathTo) > 1
-
-      if (fromCount < toCount) {
-        // Gaining a corner. Pad the old rect so the counts match either way.
-        const padded = graphics.roundPathCorners(oldD, 0)
-        if (Bar.pathCommandCount(padded) === toCount) {
-          if (handingOver && squarePathTo) {
-            // Inheriting the edge from a departing neighbour: travel square and
-            // round only on arrival, once that neighbour is gone. The landing
-            // is the final _plotSnap, so the corner appears with the bar
-            // already in place.
-            const squareTarget = graphics.roundPathCorners(squarePathTo, 0)
-            if (Bar.pathCommandCount(squareTarget) === toCount) {
-              this._pathToInterp = squareTarget
-            }
-          }
-          return padded
-        }
-      } else {
-        // Losing a corner. The target cannot be padded in place, so aim the
-        // tween at a padded twin of it and land on the clean path at the end;
-        // the twin is the same geometry, so that final swap is invisible.
-        const padded = graphics.roundPathCorners(pathTo, 0)
-        if (Bar.pathCommandCount(padded) === fromCount) {
-          this._pathToInterp = padded
-          if (handingOver) {
-            // Handing the edge to a neighbour that is arriving underneath: its
-            // edge is interior from frame 0, so the corner has to go now rather
-            // than shrink across the tween. Start from its own box, square.
-            const square = Bar.squareLike(oldD)
-            const squareStart = square
-              ? graphics.roundPathCorners(square, 0)
-              : null
-            if (squareStart && Bar.pathCommandCount(squareStart) === fromCount) {
-              return squareStart
-            }
-          }
-          return oldD
-        }
-      }
-    }
+    if (oldD) return this.cornerMorph(oldD, pathTo, squarePathTo)
     if (isNewDatum && lengthTransitionEnabled(w)) {
       return null
+    }
+    return pathTo
+  }
+
+  /**
+   * Where a bar morphing from `oldD` to `pathTo` starts, when the two may
+   * differ in corner state (see the note inside). When the tween has to aim
+   * at a padded twin of the target, the twin is left in _pathToInterp, which
+   * the caller has cleared; a pair that cannot be reconciled snaps to
+   * `pathTo`. The highlight filter's stacked parts hand their corners over by
+   * the same rule.
+   *
+   * @param {string} oldD
+   * @param {string} pathTo
+   * @param {string} [squarePathTo]
+   * @returns {string}
+   */
+  cornerMorph(oldD, pathTo, squarePathTo) {
+    const fromCount = Bar.pathCommandCount(oldD)
+    const toCount = Bar.pathCommandCount(pathTo)
+    if (fromCount === toCount) {
+      return oldD
+    }
+
+    // A corner state flipped without the datum changing. On a stacked chart
+    // that happens constantly: collapse a series and whichever layer inherits
+    // the top (or bottom) of the stack gains rounded corners, while the layer
+    // that left loses them on its way to zero. A rounded rect and a plain one
+    // do not have the same command count, and the morph engine can only
+    // reconcile that by parking phantom commands on the cursor, which is
+    // what drew the mangled, self-intersecting shapes: the leaving bar's
+    // control points crossed over each other and it shrank sideways instead
+    // of down.
+    //
+    // The fix is to stop asking the morph engine to bridge the mismatch and
+    // hand it two paths of the same shape instead. `roundPathCorners` decides
+    // which corners to round from the path's STRUCTURE, not from the radius,
+    // so rounding by ZERO returns a path that is geometrically identical to
+    // its input but carries the extra commands. That gives a padded twin of
+    // whichever side is short, sitting exactly where its original sits.
+    //
+    // It also animates the corner itself for free. Padding the square side by
+    // zero and morphing it against the genuinely rounded side means the
+    // radius grows in (or straightens out) across the tween, instead of
+    // popping on the first or last frame.
+    const graphics = new Graphics(this.w)
+
+    // A rounded corner is only ever correct on the OUTER edge of a stack.
+    // While a corner is being handed between two layers, the edge it sits on
+    // is an INTERIOR seam, and a corner there cuts two notches that show the
+    // neighbour through them, a rounded corner in the middle of a stack.
+    // That is the odd look; it is not a morphing artifact.
+    //
+    // So the rule is about which layer owns the outer edge for the WHOLE
+    // tween. A layer arriving from (or leaving to) zero extent owns it
+    // throughout and keeps its corner, which simply grows or tucks in with
+    // its own height. A layer that keeps real extent on both sides of the
+    // update is handing the edge over, and must show no corner while it does.
+    // Which side of the update carries the "still has real extent" test
+    // differs by direction, because it is always the OTHER end of the tween
+    // that says whether this layer is the one arriving at / vacating the
+    // edge (it owns it throughout, keeps its corner) or the one handing it
+    // over (its edge goes interior, so the corner must not be drawn).
+    //   gaining  → was it already there before?  (old extent)
+    //   losing   → is it still there after?      (new extent)
+    // Below a pixel there is no corner to see anyway.
+    const extentOf = (/** @type {string} */ d) => {
+      const box = Bar.pathBox(d)
+      return box
+        ? Math.min(box.maxX - box.minX, box.maxY - box.minY)
+        : 0
+    }
+    const handingOver =
+      fromCount < toCount ? extentOf(oldD) > 1 : extentOf(pathTo) > 1
+
+    if (fromCount < toCount) {
+      // Gaining a corner. Pad the old rect so the counts match either way.
+      const padded = graphics.roundPathCorners(oldD, 0)
+      if (Bar.pathCommandCount(padded) === toCount) {
+        if (handingOver && squarePathTo) {
+          // Inheriting the edge from a departing neighbour: travel square and
+          // round only on arrival, once that neighbour is gone. The landing
+          // is the final _plotSnap, so the corner appears with the bar
+          // already in place.
+          const squareTarget = graphics.roundPathCorners(squarePathTo, 0)
+          if (Bar.pathCommandCount(squareTarget) === toCount) {
+            this._pathToInterp = squareTarget
+          }
+        }
+        return padded
+      }
+    } else {
+      // Losing a corner. The target cannot be padded in place, so aim the
+      // tween at a padded twin of it and land on the clean path at the end;
+      // the twin is the same geometry, so that final swap is invisible.
+      const padded = graphics.roundPathCorners(pathTo, 0)
+      if (Bar.pathCommandCount(padded) === fromCount) {
+        this._pathToInterp = padded
+        if (handingOver) {
+          // Handing the edge to a neighbour that is arriving underneath: its
+          // edge is interior from frame 0, so the corner has to go now rather
+          // than shrink across the tween. Start from its own box, square.
+          const square = Bar.squareLike(oldD)
+          const squareStart = square
+            ? graphics.roundPathCorners(square, 0)
+            : null
+          if (squareStart && Bar.pathCommandCount(squareStart) === fromCount) {
+            return squareStart
+          }
+        }
+        return oldD
+      }
     }
     return pathTo
   }
@@ -1396,14 +1545,19 @@ class Bar {
 
   /**
    * Count SVG path commands (M, L, C, Q, Z, etc.). Used to detect whether
-   * two paths can be morphed safely — SVG.js requires matching command counts.
+   * two paths can be morphed safely: the morph needs matching command counts.
    *
    * @param {string} d
    * @returns {number}
    */
   static pathCommandCount(d) {
     if (!d) return 0
-    const matches = d.match(/[A-Za-z]/g)
+    // The command letters only. Any letter would also count the exponent of
+    // a number in scientific notation: a coordinate that should be 0 can come
+    // out of float arithmetic as -1.7763568394002505e-15 (the middle candle
+    // of a group whose datum sits on the plot's left edge), and that one path
+    // read as a corner flip and snapped instead of morphing.
+    const matches = d.match(/[MmLlHhVvCcSsQqTtAaZz]/g)
     return matches ? matches.length : 0
   }
 }

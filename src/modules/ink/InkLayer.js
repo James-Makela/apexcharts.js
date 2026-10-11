@@ -1,6 +1,7 @@
 // @ts-check
 import Utils from '../../utils/Utils'
 import Options from '../settings/Options'
+import TooltipUtils from '../tooltip/Utils'
 
 /**
  * Ink Layer (#7): direct-manipulation annotation authoring.
@@ -38,6 +39,24 @@ import Options from '../settings/Options'
  */
 
 const DRAG_CLASS = 'apexcharts-ink-draggable'
+
+/**
+ * What `api.drawn()` reports as the owner of a note this layer authored.
+ *
+ * The inventory defaults an annotation to `core`, which means the caller put it
+ * in their config. A note a VIEWER drew has a different provenance, and a
+ * readout that credited it to the caller would answer "which of this is mine"
+ * with a wrong answer, which is worse than declining to answer.
+ *
+ * **Authored by, not draggable by**, and that distinction is the trap here.
+ * `_attach()` walks the CALLER's annotations to make them draggable, assigning
+ * an `apexcharts-ink-*` id to any that lack one, so the id is not evidence of
+ * authorship: attributing by prefix match would take authorship away from the
+ * person who wrote it. Only the two places this layer CREATES an annotation
+ * set this.
+ */
+const OWNER = 'ink'
+
 const TYPES = ['point', 'xaxis', 'yaxis']
 const EDGE_PX = 8
 // A press that travels no further than this is a click (select), not a drag.
@@ -558,6 +577,7 @@ export default class InkLayer {
       x,
       y,
       id,
+      owner: OWNER,
       draggable: true,
       label: { text: opts.text || 'Note' },
     })
@@ -596,6 +616,7 @@ export default class InkLayer {
     /** @type {any} */
     const over = {
       id,
+      owner: OWNER,
       draggable: true,
       strokeDashArray: opts.strokeDashArray != null ? opts.strokeDashArray : 4,
       label: { text: opts.text || '' },
@@ -627,9 +648,20 @@ export default class InkLayer {
    */
   _pixelToData(clientX, clientY) {
     const w = this.w
-    const gridEl = w.dom.baseEl && w.dom.baseEl.querySelector('.apexcharts-grid')
-    if (!gridEl) return null
-    const g = gridEl.getBoundingClientRect()
+    // A chart with no x/y axes (a pie, a donut, a radial bar) has no data
+    // point under a click to drop a note on.
+    if (
+      !w.globals.axisCharts ||
+      !w.dom.baseEl ||
+      !w.dom.baseEl.querySelector('.apexcharts-svg')
+    ) {
+      return null
+    }
+    // The plot's own rect, not the `.apexcharts-grid` box: that starts a pixel
+    // below the plot, and on a numeric-x bar chart its gridlines run
+    // barPadForNumericAxis past both sides, so a note dropped there landed
+    // that far from the click.
+    const g = TooltipUtils.plotRect(w)
     if (!g.width || !g.height) return null
     const fx = (clientX - g.left) / g.width
     const fy = (clientY - g.top) / g.height

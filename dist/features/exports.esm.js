@@ -1,5 +1,5 @@
 /*!
- * ApexCharts v7.1.0
+ * ApexCharts v8.0.0
  * (c) 2018-2026 ApexCharts
  */
 import * as _core from "apexcharts/core";
@@ -457,6 +457,7 @@ class Exports {
    */
   getSvgString(_scale) {
     return new Promise((resolve) => {
+      var _a, _b, _c;
       const w = this.w;
       let scale = _scale || w.config.chart.toolbar.export.scale || w.config.chart.toolbar.export.width / w.globals.svgWidth;
       if (!scale) {
@@ -464,6 +465,9 @@ class Exports {
       }
       const width = w.globals.svgWidth * scale;
       const height = w.globals.svgHeight * scale;
+      (_a = w.globals.layoutTween) == null ? void 0 : _a.finish();
+      (_b = w.globals.circleTween) == null ? void 0 : _b.finish();
+      (_c = w.globals.highlightTween) == null ? void 0 : _c.finish();
       const clonedNode = (
         /** @type {HTMLElement} */
         w.dom.elWrap.cloneNode(true)
@@ -771,8 +775,7 @@ class Exports {
       }
     };
     const handleUnequalXValues = () => {
-      const categories = /* @__PURE__ */ new Set();
-      const data = {};
+      const byCategory = /* @__PURE__ */ new Map();
       series.forEach((s, sI) => {
         s == null ? void 0 : s.data.forEach((dataItem) => {
           let cat, value;
@@ -785,24 +788,25 @@ class Exports {
           } else {
             return;
           }
-          if (!/** @type {Record<string,any>} */
-          data[cat]) {
-            data[cat] = Array(
-              series.length
-            ).fill("");
+          const key = String(cat);
+          let row = byCategory.get(key);
+          if (!row) {
+            row = { cat, values: Array(series.length).fill("") };
+            byCategory.set(key, row);
           }
-          data[cat][sI] = getFormattedValue(value);
-          categories.add(cat);
+          row.values[sI] = getFormattedValue(value);
         });
       });
       if (columns.length) {
         rows.push(columns.join(columnDelimiter));
       }
-      Array.from(categories).sort().forEach((cat) => {
-        const values = (
-          /** @type {Record<string,any>} */
-          data[cat]
-        );
+      Array.from(byCategory.values()).sort((a, b) => {
+        const aText = typeof a.cat === "string";
+        const bText = typeof b.cat === "string";
+        if (aText !== bText) return aText ? 1 : -1;
+        if (!aText) return a.cat - b.cat;
+        return a.cat < b.cat ? -1 : 1;
+      }).forEach(({ cat, values }) => {
         rows.push([getFormattedCategory(cat), ...values].join(columnDelimiter));
       });
     };

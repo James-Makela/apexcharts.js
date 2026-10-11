@@ -2,6 +2,7 @@
 import Animations from './Animations'
 import Filters from './Filters'
 import Utils from '../utils/Utils'
+import { resolveClaimed } from './weave/Claims'
 
 /**
  * ApexCharts Graphics Class for all drawing operations.
@@ -504,6 +505,7 @@ class Graphics {
     drawShadow = true,
     drawMask = null,
     scrollMorph = false,
+    fadeReveal = false,
   }) {
     const w = this.w
     const filters = new Filters(this.w)
@@ -532,8 +534,14 @@ class Graphics {
     // churn). The result was that a type change INTO either of them could not
     // animate at all, however well the engine had paired the marks up.
     const crossTypeMorph = this.ctx?.morphTypeChange?.isActive() === true
+    // The first arm is the mount animation, so it needs a first render: no
+    // re-render yet AND no data change. Without the second half, an update on
+    // a chart that had never been re-rendered took it too: it started from the
+    // previous shape and, with dynamicAnimation off, never left it (the new
+    // data was never drawn), or with animate=false dropped every bar to the
+    // baseline and popped them back on the mount stagger.
     const shouldAnimate = !!(
-      (initialAnim && !w.globals.resized) ||
+      (initialAnim && !w.globals.resized && !w.globals.dataChanged) ||
       (dynamicAnim && w.globals.dataChanged && w.globals.shouldAnimate) ||
       (crossTypeMorph && initialAnim && w.globals.shouldAnimate)
     )
@@ -541,12 +549,20 @@ class Graphics {
     // Draw-mode (initial mount only): line/area/rangeArea/radar render at
     // final path and reveal via stroke-dashoffset or a mask-rect width
     // animation. Default-on whenever `chart.animations.enabled` is true.
+    // Whole class names: a prefix let any `apexcharts-line-*` class in (the
+    // candles of a 'line' combo were once `apexcharts-line-area`), and those
+    // marks were drawn in place of growing like every other bar-like.
     const isDrawableSeries =
       typeof className === 'string' &&
-      (className.indexOf('apexcharts-line') > -1 ||
-        className.indexOf('apexcharts-area') > -1 ||
-        className.indexOf('apexcharts-rangeArea') > -1 ||
-        className.indexOf('apexcharts-radar') > -1)
+      className
+        .split(' ')
+        .some(
+          (c) =>
+            c === 'apexcharts-line' ||
+            c === 'apexcharts-area' ||
+            c === 'apexcharts-rangeArea' ||
+            c === 'apexcharts-radar',
+        )
     const useDrawMode = !!(
       initialAnim &&
       !w.globals.resized &&
@@ -569,29 +585,30 @@ class Graphics {
       w.globals.dataPoints > largeThreshold
     )
 
-    // Candlestick / OHLC / boxPlot data-change reveal. The per-path morph is
-    // index-based (candle j → candle j), so on a data change — especially zoom /
-    // pan, where the index→x mapping shifts — every candle slides to a new x and
-    // reshapes, which reads as chaotic churn. For these types we instead render
-    // in the final position and fade the series in (same opacity reveal as the
-    // large-dataset bulk path). Initial mount keeps its grow-from-baseline morph
-    // (dataChanged is false there). Honors dynamicAnimation.enabled via
-    // shouldAnimate — when off, the branch below snaps with no fade.
-    const isCandleOrBox =
-      chartType === 'candlestick' || chartType === 'boxPlot'
-    const fadeOnDataChange = !!(
-      isCandleOrBox &&
+    // Candlestick / OHLC / boxPlot data changes used to fade here instead of
+    // morphing, because their morph was index-based (candle j -> candle j): on
+    // a zoom or pan, where the index -> x mapping shifts, every candle slid to
+    // another candle's place. They now morph like bars do, each candle from its
+    // OWN previous shape, matched by datum key (Bar.getPreviousPath), with exit
+    // ghosts for the candles that leave. The fade made every candle blink out
+    // and back in on every update, the ones that did not change included.
+    // Large datasets still take the bulk fade above.
+
+    // ...unless the caller found that the update keeps too little identity to
+    // morph (`fadeReveal`: most candles on screen are not the same candles
+    // afterwards, e.g. a data reducer re-aggregating on zoom), where a morph
+    // would be a shuffle of hundreds of shrinking and growing marks.
+    const fadeOnUpdate = !!(
+      fadeReveal &&
       shouldAnimate &&
       !useDrawMode &&
       w.globals.dataChanged &&
-      // ...but a cross-type morph is a deliberate one-off with marks already
-      // paired, so it keeps its tween instead of fading.
       !crossTypeMorph
     )
 
-    // Either path renders at the final position and reveals via one CSS opacity
-    // fade rather than a per-path morph.
-    const revealViaFade = bulkRender || fadeOnDataChange
+    // Renders at the final position and reveals via one CSS opacity fade
+    // rather than a per-path morph.
+    const revealViaFade = bulkRender || fadeOnUpdate
 
     if (shouldAnimate && !useDrawMode && !revealViaFade) {
       d = pathFrom
@@ -609,6 +626,15 @@ class Graphics {
     } else {
       strokeDashArray = w.config.stroke.dashArray
     }
+    // A plugin may have claimed this series' dash. Resolved here rather than
+    // written into the config above, so the caller's own dashing is untouched
+    // and there is nothing to restore when the claim goes. See weave/Claims.
+    strokeDashArray = resolveClaimed(
+      w,
+      'stroke.dashArray',
+      realIndex,
+      strokeDashArray,
+    )
 
     const el = this.drawPath({
       d,
@@ -700,7 +726,12 @@ class Graphics {
     } else {
       // Skip the immediate reveal when we're fading in via revealBulk — it owns
       // the reveal (a single scheduled rAF), so revealing here would pre-empt it.
-      if ((w.globals.resized || !w.globals.dataChanged) && !revealViaFade) {
+      // An update that does not animate has no completion to reveal them at,
+      // so it reveals them now.
+      if (
+        (w.globals.resized || !w.globals.dataChanged || !shouldAnimate) &&
+        !revealViaFade
+      ) {
         anim.showDelayedElements()
       }
     }

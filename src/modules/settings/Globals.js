@@ -105,6 +105,10 @@ export default class Globals {
     gl.rotateXLabels = false // true when x-axis labels are angled
     gl.overlappingXLabels = false // true when x labels overlap and must be hidden
     gl.radialSize = 0 // computed radius for radial/polar charts
+    // Where a circle chart (pie, donut, polarArea, radialBar, radar) drew its
+    // circle this render: set by the renderer, read by CircleTransition.
+    // Reset here so a render that draws no circle leaves none behind.
+    gl.circleGeometry = null
     // Note: formatter properties (xLabelFormatter, yLabelFormatters, etc.) live on
     // w.formatters — not on gl. See Base.js for backward-compat shims.
 
@@ -122,6 +126,12 @@ export default class Globals {
     // Guards the single rAF that reveals a large-dataset bulk render (see
     // Animations.revealBulk). Re-armed each render so updates fade in too.
     gl.bulkRevealScheduled = false
+    // This render's faded paths, and the morphs it started: a fade sharing
+    // the render with morphs reveals only its own paths and completes the
+    // animation when the last morph lands (see Animations.revealBulk). The
+    // per-series counts let a hidden series vanish when its own exit lands.
+    gl.fadeRevealEls = []
+    gl.morphBatch = { pending: 0, onDone: null, series: new Map() }
 
     // ── Caches (ephemeral — cleared so stale DOM refs/measurements don't persist) ──
     gl.resizeTimer = null
@@ -129,7 +139,6 @@ export default class Globals {
     gl.delayedElements = []
     gl.pointsArray = []
     gl.barCanvasCoords = null // Strata (#2): per-render bar/candle center cache (canvas tooltip position)
-    gl.activeRenderer = null // Strata (#2): active renderer handle for w-only modules (Series restyle); set by RendererController.resolve()
     gl.dataLabelsRects = []
     gl.lastDrawnDataLabelsIndexes = [] // tracks which data labels were drawn per series to prevent collisions
     gl.textRectsCache = new Map()
@@ -474,16 +483,39 @@ export default class Globals {
 
       // ── Animation control ─────────────────────────────────────────────────────
       shouldAnimate: true,
+      // Set by Animations.applyAnimationPolicy while prefers-reduced-motion is
+      // forcing animations off, holding the config values it overwrote so the
+      // same function can put them back if the OS preference is lifted. Null
+      // whenever the policy is not engaged.
+      reducedMotionLatch: null,
       previousPaths: [], // paths from previous render — source for enter animation
       // polarArea's last-drawn sector angles. Its angles are count-based, not
       // value-based, so a data-change animation cannot reconstruct them from
       // previousPaths (the previous VALUES) the way pie does; Pie.draw stashes
       // the real ones here each render.
       prevPolarAngles: null,
+      // ...and its last-drawn slice radii, as fractions of radialSize. The
+      // radius scale depends on whether the polar grid was drawn before the
+      // slices (it rounds maxY to a nice max) or after, so rebuilding them from
+      // previous values got it wrong.
+      prevPolarSizes: null,
       // Streaming scroll: previous frame's parsed rows + pixel positions,
       // captured by Series.getPreviousPaths(). Consulted (like previousPaths)
       // only while a data-change morph renders. See StreamScroll.
       prevStreamFrame: null,
+      // A hidden series' labels to carry out, and a shown one's to bring in
+      // (DataLabelTransition.captureExitLabels / playExitLabels).
+      exitLabels: null,
+      riseLabels: null,
+      prevTreemapParents: null,
+      // The last capture of what is on screen (Series.getPreviousPaths), kept
+      // until the next frame is painted so a second update in the same tick
+      // starts from it too.
+      pendingCapture: null,
+      // A treemap click-to-zoom on its way to the next render (the branch
+      // focused before and after), and the outgoing picture it carries off.
+      treemapZoom: null,
+      prevTreemapView: null,
       // Set for the duration of one render when a streaming scroll is driving
       // it; see captureStreamFrame / detectStreamScroll.
       streamScrolled: false,
@@ -491,6 +523,19 @@ export default class Globals {
       // captured alongside prevStreamFrame; consumed once by AxisTransition
       // after a variable-length re-render mounts.
       prevChromeFrame: null,
+      // The plot-layout tween in flight (LayoutTransition), if any: its
+      // in-flight rect is where the next update's layout change starts from.
+      layoutTween: null,
+      // The chrome tweens AxisTransition has running (each entry lands its
+      // tween), so the next update can land them before reading the chrome.
+      chromeTweens: null,
+      // A circle chart's circle (and, without axes, its plot rect) captured
+      // before an update's teardown; consumed once by CircleTransition after
+      // the new render mounts.
+      prevCircleFrame: null,
+      // The circle tween in flight (CircleTransition), if any: its in-flight
+      // circle is where the next update's move starts from.
+      circleTween: null,
 
       // ── SVG viewport (set by Dimensions, but persistent as layout anchor) ─────
       svgWidth: 0,
@@ -515,6 +560,14 @@ export default class Globals {
       // ── Instances (created once, replaced only on full re-init) ──────────────
       tooltip: null,
       resizeObserver: null,
+      // Strata (#2): the series renderer on screen, mirrored from
+      // RendererController (its only writer) so w-only modules (tooltip hit
+      // tests, Series restyle) can reach it without threading ctx. It lives
+      // as long as the controller does, not one render: the data-only fast
+      // update reparses (which runs initGlobalVars) but keeps the renderer
+      // and never resolves again, so a per-render copy read null after the
+      // first updateSeries() and every canvas hover path went with it.
+      activeRenderer: null,
 
       // ── Locale (loaded once; changes only via setLocale()) ───────────────────
       locale: {},
@@ -554,16 +607,11 @@ export default class Globals {
    * which cannot reach the captured copies because each series object was
    * copied at capture time.
    *
-   * The one in-place mutator is appendData(), whose push loop grows the shared
-   * data array. Re-capturing after it does not undo that: the pushed points
-   * are already in the array both snapshots point at, so a snapshot taken
-   * before the append reads back as appended. That is the documented
-   * behaviour of appendData(overwriteInitialSeries = true), and the `false`
-   * case is not honoured for a separate, older reason: Data.parseData()
-   * re-captures initialSeries unconditionally on the re-render appendData
-   * triggers. Detaching would mean copying the data arrays, which is exactly
-   * the per-point cost this snapshot exists to avoid. The same exception
-   * applies to `initialConfig.series`, which is captured with the same shape.
+   * appendData() used to be the exception, growing the shared data array in
+   * place. It now replaces the array instead (`data = data.concat(newData)`):
+   * one array copy per call, against the per-point cost this snapshot exists
+   * to avoid. With that, no internal edit can reach a captured copy. The same
+   * holds for `initialConfig.series`, which is captured with the same shape.
    *
    * @param {Record<string, any>} globals
    */

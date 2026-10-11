@@ -3,6 +3,7 @@ import Graphics from './Graphics'
 import Utils from './../utils/Utils'
 import Toolbar from './Toolbar'
 import AxisMapping from './AxisMapping'
+import TooltipUtils from './tooltip/Utils'
 import { Box } from '../svg/index'
 
 // Wheel-zoom feel: scrolling this many deltaY pixels doubles (or halves) the
@@ -20,6 +21,11 @@ const FRAME_MS_60FPS = 16.6667 // one frame at 60fps; normalizes friction to the
 
 // A pan nudge shifts the x-window by this fraction of the grid width.
 const PAN_NUDGE_DIVISOR = 15
+
+// Left edge of the x-domain in the plot-origin pixel space the selection rect
+// lives in. Under AxisMapping, minX maps to this pixel and maxX maps to
+// gridWidth, so the pair is the data boundary expressed in rect coordinates.
+const PLOT_ORIGIN_PX = 0
 
 /**
  * ApexCharts Zoom Class for handling zooming and panning on axes based charts.
@@ -133,6 +139,16 @@ export default class ZoomPanSelection extends Toolbar {
       })
     }
 
+    // Escape: the way back for the viewer who never goes looking for a button.
+    // Bound on the node the gestures are on, which the chart focuses on any
+    // pointer down inside it, so the drag that zoomed also left Escape live.
+    // Bound unconditionally and resolved per event, because the gate reads
+    // config a page can change under a live chart.
+    this.hoverArea.addEventListener('keydown', me.escapeResetEvent.bind(me), {
+      capture: false,
+      passive: true,
+    })
+
     // Momentum: passive:false touch listeners (following the wheel-listener
     // template above) so two-finger pinch and horizontal pan can preventDefault
     // the browser's native page zoom/scroll. Every _updateOptions destroys and
@@ -242,11 +258,10 @@ export default class ZoomPanSelection extends Toolbar {
           : e.clientY
 
     if ((e.type === 'mousedown' && e.which === 1) || e.type === 'touchstart') {
-      const gridRectDim = this._gridRect()
-      if (!gridRectDim) return
+      if (!this._hasPlot()) return
 
       this.startX = this._screenXToPlotPx(this.clientX)
-      this.startY = this.clientY - gridRectDim.top
+      this.startY = this._screenYToPlotPx(this.clientY)
 
       this.dragged = false
       this.w.interact.mousedown = true
@@ -291,13 +306,11 @@ export default class ZoomPanSelection extends Toolbar {
   /** @param {{ zoomtype?: any, isResized?: any }} opts */
   handleMouseUp({ zoomtype, isResized }) {
     const w = this.w
-    // we will be calling getBoundingClientRect on each mousedown/mousemove/mouseup
-    const gridRectDim = this._gridRect()
 
-    if (gridRectDim && (this.w.interact.mousedown || isResized)) {
+    if (this._hasPlot() && (this.w.interact.mousedown || isResized)) {
       // user released the drag, now do all the calculations
       this.endX = this._screenXToPlotPx(this.clientX)
-      this.endY = this.clientY - gridRectDim.top
+      this.endY = this._screenYToPlotPx(this.clientY)
       this.dragX = Math.abs(this.endX - this.startX)
       this.dragY = Math.abs(this.endY - this.startY)
 
@@ -343,12 +356,16 @@ export default class ZoomPanSelection extends Toolbar {
   /**
    * A wheel or pinch zoom is an incidental gesture: the viewer can land in a
    * zoomed window without meaning to (a page scroll over the chart, a two-finger
-   * swipe), so it is only offered when there is a way back out of it. The only
-   * built-in way back is the toolbar's reset button, hence 'auto' (the default
-   * for both allowMouseWheelZoom and pinch) resolves against that button being
-   * present. A page that builds its own reset control sets the option to true
-   * and gets the gesture with no toolbar. Drag-to-zoom is deliberate, so it is
-   * not gated this way.
+   * swipe), so it is only offered when there is a way back out of it. 'auto'
+   * (the default for both allowMouseWheelZoom and pinch) resolves against a
+   * reset button that is already on screen. A page that builds its own reset
+   * control sets the option to true and gets the gesture with no toolbar.
+   * Drag-to-zoom is deliberate, so it is not gated this way.
+   *
+   * `chart.zoom.resetControl` supplies a reset of its own once a chart IS
+   * zoomed, and deliberately does NOT open this gate. It arrives after the
+   * fact, and what an incidental wheel zoom takes from the viewer first is the
+   * page scroll it swallowed, which no button hands back.
    *
    * @param {boolean|'auto'} setting
    */
@@ -362,6 +379,61 @@ export default class ZoomPanSelection extends Toolbar {
   _wheelZoomEnabled() {
     const { zoom } = this.w.config.chart
     return this._incidentalZoomEnabled(zoom && zoom.allowMouseWheelZoom)
+  }
+
+  /**
+   * Put keyboard focus on the chart, where the chart is focusable at all.
+   *
+   * A drag is swallowed by the zoom handlers before the browser can move focus,
+   * so a viewer who has just zoomed by hand leaves nothing focused, and every
+   * key the chart offers is out of reach: Escape to reset (see
+   * {@link ZoomPanSelection#escapeResetEvent}) and the +, - and 0 the keyboard
+   * module already binds. Focusing what they just acted on puts those in reach.
+   *
+   * Pointer-driven focus, which keyboard navigation expects and does not read
+   * as a request to start navigating, and which the stylesheet draws no ring
+   * around (`svg:focus:not(:focus-visible)`).
+   *
+   * Only where the accessibility module has made the SVG focusable, which is
+   * the default: a page that turned keyboard support off is not handed a tab
+   * stop it never asked for, and still has the reset control as its way back.
+   */
+  _focusForKeyboard() {
+    const node = this.w.dom.Paper && this.w.dom.Paper.node
+    if (!node || typeof node.focus !== 'function') return
+    if (node.getAttribute('tabindex') === null) return
+    // Said before the focus lands, or the accessibility module reads it as a
+    // request to start navigating and flashes a tooltip after every zoom.
+    this.ctx.keyboardNavigation?.notePointerFocus?.()
+    try {
+      node.focus({ preventScroll: true })
+    } catch {
+      node.focus()
+    }
+  }
+
+  /**
+   * Escape, on a zoomed chart, puts the range back.
+   *
+   * The quiet half of the same answer the on-demand reset control gives, and
+   * gated on it, so a page that says it supplies its own way back gets neither.
+   *
+   * It defers to keyboard navigation, whose Escape dismisses the tooltip and
+   * which offers `0` for this, so the key means one thing at a time. It does
+   * not stop the event either, so a page listening for Escape still hears it.
+   *
+   * Reachable because a completed drag-zoom puts focus on the chart; see
+   * {@link ZoomPanSelection#_focusForKeyboard}.
+   *
+   * @param {any} e
+   */
+  escapeResetEvent(e) {
+    if (e.key !== 'Escape' && e.key !== 'Esc') return
+    if (!this.w.interact.zoomed) return
+    const nav = this.ctx.keyboardNavigation
+    if (nav && nav.active) return
+    if (!this.resetControlAllowed()) return
+    this.handleZoomReset()
   }
 
   /** Lazily-created, re-render-surviving wheel-gesture state. */
@@ -416,13 +488,13 @@ export default class ZoomPanSelection extends Toolbar {
     st.factor = 1
     if (scale === 1 || w.globals.isDestroyed) return
 
-    const gridRectDim = this._gridRect()
-    if (!gridRectDim || !gridRectDim.width) return
+    const gridWidth = w.layout.gridWidth
+    if (!this._hasPlot() || !gridWidth) return
 
     const { min, max } = this._currentXWindow()
     const range = max - min
     const mouseX = Math.min(
-      Math.max((st.clientX - gridRectDim.left) / gridRectDim.width, 0),
+      Math.max(this._screenXToPlotPx(st.clientX) / gridWidth, 0),
       1,
     )
 
@@ -523,6 +595,11 @@ export default class ZoomPanSelection extends Toolbar {
         })
         .resize()
         .on('resize', () => {
+          // SVGSelectable moves a handle freely (its only guard is a negative
+          // width), so pull the rect back inside the x-domain before anything
+          // reads it. Without this a handle dragged past the first or last point
+          // keeps widening the rect into empty space (#5123).
+          this._clampSelectionRectToPlot()
           if (w.interact.selectionEnabled) {
             // A handle resize re-reports the selection through the SAME shared
             // mapping (and debounce) as the rect-body drag. The old path
@@ -660,6 +737,41 @@ export default class ZoomPanSelection extends Toolbar {
   }
 
   /**
+   * Clamp the persistent selection rect to the pixel span the x-domain occupies,
+   * i.e. PLOT_ORIGIN_PX..gridWidth, which under AxisMapping is exactly
+   * minX..maxX. A body drag has always obeyed this box through `this.constraints`;
+   * this puts a handle resize on the same footing.
+   *
+   * The rect itself is rewritten rather than only the numbers reported to
+   * listeners, so the range every consumer receives keeps matching the rect the
+   * user sees (the one-mapping invariant selection-geometry.spec.js guards), and
+   * the handles are repositioned onto the clamped edge so a handle held past the
+   * boundary stays visually pinned there.
+   */
+  _clampSelectionRectToPlot() {
+    const rect = this.selectionRect
+    if (!rect || !rect.node) return
+
+    const maxPx = this.w.layout.gridWidth
+    // A domain with no pixel width (pre-layout, or a destroyed chart) has no
+    // meaningful boundary to clamp against.
+    if (!(maxPx > PLOT_ORIGIN_PX)) return
+
+    const x = parseFloat(rect.node.getAttribute('x')) || 0
+    const width = parseFloat(rect.node.getAttribute('width')) || 0
+
+    const clamp = (/** @type {number} */ px) =>
+      Math.min(Math.max(px, PLOT_ORIGIN_PX), maxPx)
+    const left = clamp(x)
+    const right = clamp(x + width)
+
+    if (left === x && right === x + width) return
+
+    rect.attr({ x: left, width: right - left })
+    if (rect._updateSelectPositions) rect._updateSelectPositions()
+  }
+
+  /**
    * @param {any} rect
    */
   hideSelectionRect(rect) {
@@ -677,16 +789,18 @@ export default class ZoomPanSelection extends Toolbar {
     const w = this.w
     const me = context
 
-    const gridRectDim = this._gridRect()
-    if (!gridRectDim) return
+    if (!this._hasPlot()) return
 
-    const startX = me.startX - 1
+    // The rect's corner is the pixel the drag started on, in both axes. (x
+    // used to start a pixel left of it: an offset that once came paired with
+    // a matching one on the width, and outlived it.)
+    const startX = me.startX
     const startY = me.startY
     let inversedX = false
     let inversedY = false
 
     const left = this._screenXToPlotPx(me.clientX)
-    const top = me.clientY - gridRectDim.top
+    const top = this._screenYToPlotPx(me.clientY)
 
     let selectionWidth = left - startX
     let selectionHeight = top - startY
@@ -849,8 +963,7 @@ export default class ZoomPanSelection extends Toolbar {
       return
     }
 
-    const gridRectDim = this._gridRect()
-    if (!gridRectDim) return
+    if (!this._hasPlot()) return
     const selectionRect = this.selectionRect.node.getBoundingClientRect()
     const xyRatios = this.xyRatios
 
@@ -870,10 +983,11 @@ export default class ZoomPanSelection extends Toolbar {
 
       minY =
         w.globals.yAxisScale[0].niceMin +
-        (gridRectDim.bottom - selectionRect.bottom) * xyRatios.yRatio[0]
+        (w.layout.gridHeight - this._screenYToPlotPx(selectionRect.bottom)) *
+          xyRatios.yRatio[0]
       maxY =
         w.globals.yAxisScale[0].niceMax -
-        (selectionRect.top - gridRectDim.top) * xyRatios.yRatio[0]
+        this._screenYToPlotPx(selectionRect.top) * xyRatios.yRatio[0]
     } else {
       // rangeBars use y for datetime
       minX =
@@ -916,15 +1030,14 @@ export default class ZoomPanSelection extends Toolbar {
     const selRect = w.interact.zoomEnabled
       ? me.zoomRect.node.getBoundingClientRect()
       : me.selectionRect.node.getBoundingClientRect()
-    const gridRectDim = me._gridRect()
-    if (!gridRectDim) return
+    if (!me._hasPlot()) return
 
-    // Local coords: x in the plot-origin space (shared with bar placement via
-    // AxisMapping), y still relative to the grid box top (no vertical padding).
+    // Local coords in the plot-origin space, x shared with bar placement via
+    // AxisMapping.
     const localStartX = this._screenXToPlotPx(selRect.left)
     const localEndX = this._screenXToPlotPx(selRect.right)
-    const localStartY = selRect.top - gridRectDim.top
-    const localEndY = selRect.bottom - gridRectDim.top
+    const localStartY = this._screenYToPlotPx(selRect.top)
+    const localEndY = this._screenYToPlotPx(selRect.bottom)
 
     // Convert those local coords to actual data values
     let xLowestValue, xHighestValue
@@ -1026,11 +1139,20 @@ export default class ZoomPanSelection extends Toolbar {
           // fix issue #650
           options.yaxis = yaxis
         }
-        me.ctx.updateHelpers._updateOptions(
+        const applied = me.ctx.updateHelpers._updateOptions(
           options,
           false,
           me.w.config.chart.animations.dynamicAnimation.enabled,
         )
+
+        // After the render, not before it: the update replaces the SVG, and
+        // focus set on the node that is about to be thrown away goes back to
+        // the document body with it. Measured, not theorised.
+        if (applied && typeof applied.then === 'function') {
+          applied.then(() => me._focusForKeyboard())
+        } else {
+          me._focusForKeyboard()
+        }
 
         if (typeof w.config.chart.events.zoomed === 'function') {
           toolbar.zoomCallback(xaxis, yaxis)
@@ -1263,15 +1385,26 @@ export default class ZoomPanSelection extends Toolbar {
       : { min: w.globals.minX, max: w.globals.maxX }
   }
 
-  /** Live grid rect from the current DOM. Never cache the grid node on the
-   * instance: a full render replaces this whole instance, but the fast update
-   * path (fastUpdate/_fastAxisChromeRefresh) keeps the instance while swapping
-   * the grid node, and a cached node would go stale (detached nodes report an
-   * all-zero bounding rect, silently corrupting selection geometry). */
-  _gridRect() {
+  /** Is there a chart on screen to measure the pointer against? */
+  _hasPlot() {
     const baseEl = this.w.dom.baseEl
-    const grid = baseEl && baseEl.querySelector('.apexcharts-grid')
-    return grid ? grid.getBoundingClientRect() : null
+    return !!(baseEl && baseEl.querySelector('.apexcharts-svg'))
+  }
+
+  /**
+   * Convert an absolute (client) y pixel to the plot-origin coordinate space,
+   * the y twin of {@link _screenXToPlotPx}. Measured per event from the svg
+   * (TooltipUtils.plotRect), never from the `.apexcharts-grid` box: unless
+   * gridlines reach the plot's top edge that box starts a pixel below it, so
+   * a drag rect stood a pixel above the pointer and the zoomed y range came
+   * back two pixels high. Dividing by the CSS zoom keeps a chart inside a
+   * zoomed container from reading screen pixels as plot pixels.
+   * @param {number} screenY
+   * @returns {number}
+   */
+  _screenYToPlotPx(screenY) {
+    const plot = TooltipUtils.plotRect(this.w)
+    return (screenY - plot.top) / plot.zoom
   }
 
   /**
@@ -1407,14 +1540,13 @@ export default class ZoomPanSelection extends Toolbar {
 
     if (type === 'touchstart') {
       this._cancelInertia()
-      const gridRectDim = this._gridRect()
-      if (!gridRectDim) return
+      if (!this._hasPlot()) return
 
       if (e.touches.length >= 2 && this._pinchEnabled()) {
         e.preventDefault()
         m.busy = true
         m.panState = null
-        this._beginPinch(e, gridRectDim)
+        this._beginPinch(e)
       } else if (
         e.touches.length === 1 &&
         this._panInertiaEnabled() &&
@@ -1425,13 +1557,19 @@ export default class ZoomPanSelection extends Toolbar {
         const t = e.touches[0]
         const win = this._currentXWindow()
         const gw = w.layout.gridWidth || 1
+        // The finger moves in screen px, the plot is gridWidth chart px wide:
+        // inside a CSS-zoomed container they differ by the zoom, and read as
+        // one the content ran that factor ahead of (or behind) the finger.
+        const zoom = TooltipUtils.plotRect(w).zoom
         m.panState = {
           startX: t.clientX,
           startY: t.clientY,
           axis: null, // decided on first move (rails)
           minX0: win.min,
           maxX0: win.max,
-          ratio0: (win.max - win.min) / gw,
+          zoom,
+          // data per screen px
+          ratio0: (win.max - win.min) / gw / zoom,
         }
         m.samples = [{ x: t.clientX, t: e.timeStamp }]
       }
@@ -1465,17 +1603,23 @@ export default class ZoomPanSelection extends Toolbar {
     }
   }
 
-  /** @param {any} e @param {DOMRect} gridRectDim */
-  _beginPinch(e, gridRectDim) {
+  /**
+   * The centroid is taken in plot px through the shared AxisMapping, the
+   * space `gridWidth` and the x window are in. It used to be the grid box's
+   * left edge less barPadForNumericAxis, which only lands on the plot's left
+   * edge while the gridlines happen to reach exactly barPad past it (with
+   * `grid.show: false` they do not, and the anchor slid a bar's width), and
+   * stayed in screen px, so a chart in a CSS-zoomed container drifted under
+   * the fingers.
+   * @param {any} e
+   */
+  _beginPinch(e) {
     const w = this.w
     const t0 = e.touches[0]
     const t1 = e.touches[1]
     const dist =
       Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1
-    const cx =
-      (t0.clientX + t1.clientX) / 2 -
-      gridRectDim.left -
-      w.globals.barPadForNumericAxis
+    const cx = this._screenXToPlotPx((t0.clientX + t1.clientX) / 2)
     const { min, max } = this._currentXWindow()
     this._m().pinch = {
       d0: dist,
@@ -1490,18 +1634,13 @@ export default class ZoomPanSelection extends Toolbar {
   _movePinch(e) {
     const w = this.w
     const p = this._m().pinch
-    if (!p) return
-    const gridRectDim = this._gridRect()
-    if (!gridRectDim) return
+    if (!p || !this._hasPlot()) return
 
     const t0 = e.touches[0]
     const t1 = e.touches[1]
     const dist =
       Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1
-    const cx =
-      (t0.clientX + t1.clientX) / 2 -
-      gridRectDim.left -
-      w.globals.barPadForNumericAxis
+    const cx = this._screenXToPlotPx((t0.clientX + t1.clientX) / 2)
 
     const range0 = p.maxX0 - p.minX0
     // fingers spread => dist > d0 => scale < 1 => window shrinks (zoom in)
@@ -1602,7 +1741,8 @@ export default class ZoomPanSelection extends Toolbar {
       this._panInertiaEnabled() &&
       Math.abs(vel) > INERTIA_MIN_RELEASE_VELOCITY
     ) {
-      this._startInertia(vel)
+      // the glide runs in plot px, the finger's release speed is screen px
+      this._startInertia(vel / s.zoom)
     } else {
       m.busy = false
       this._fireScrolled()
@@ -1614,7 +1754,7 @@ export default class ZoomPanSelection extends Toolbar {
    * `friction` each frame and shift the window, stopping at the data edge
    * (clamp, not elastic overshoot). The loop is w-driven, so it keeps running
    * across the re-renders each frame triggers and stops only on a real destroy.
-   * @param {number} vel0 px/ms, sign is the finger direction
+   * @param {number} vel0 plot px/ms, sign is the finger direction
    */
   _startInertia(vel0) {
     const w = this.w

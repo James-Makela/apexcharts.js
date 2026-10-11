@@ -24,9 +24,9 @@
 
 ## Why ApexCharts
 
-- **18+ chart types** out of the box: line, area, bar, column, pie, donut, radar, heatmap, treemap, candlestick, boxplot, violin, funnel, pyramid, gauge, unit (dot / pictogram / waffle / beeswarm) and more
+- **18+ chart types**: line, area, bar, column, pie, donut, radar, heatmap, treemap, candlestick, boxplot, funnel, pyramid, gauge and more in the default bundle, with unit (dot / pictogram / waffle / beeswarm), violin, sunburst, icicle, waterfall, dumbbell, streamgraph and raincloud one import away
 - **SSR support** for Next.js, Nuxt, SvelteKit, Astro, and other meta-frameworks: render real SVG on the server, hydrate on the client
-- **Tree-shakable**: import only the chart types and features you need; typical bundles are 30-60% smaller than the full build
+- **Tree-shakable**: import only the chart types and features you need; typical bundles are 30-60% smaller than the default bundle
 - **TypeScript-first**: full type definitions ship with the package, no `@types/*` install needed
 - **Zero runtime dependencies**: no React/Vue/D3 required; works in any framework or vanilla JS
 - **Accessibility**: keyboard navigation and ARIA support built in
@@ -83,7 +83,7 @@ Browse [100+ ready-to-use samples](https://apexcharts.com/javascript-chart-demos
 ## Chart types
 
 - [Line](https://apexcharts.com/javascript-chart-demos/line-charts/) · [Area](https://apexcharts.com/javascript-chart-demos/area-charts/) · [Range Area](https://apexcharts.com/javascript-chart-demos/range-area-charts/)
-- [Bar](https://apexcharts.com/javascript-chart-demos/bar-charts/) · [Column](https://apexcharts.com/javascript-chart-demos/column-charts/) · [Range Bar / Timeline](https://apexcharts.com/javascript-chart-demos/range-bar-charts/) 
+- [Bar](https://apexcharts.com/javascript-chart-demos/bar-charts/) · [Column](https://apexcharts.com/javascript-chart-demos/column-charts/) · [Range Bar / Timeline](https://apexcharts.com/javascript-chart-demos/timeline-charts/) 
 - [Scatter](https://apexcharts.com/javascript-chart-demos/scatter-charts/) · [Bubble](https://apexcharts.com/javascript-chart-demos/bubble-charts/)
 - [Candlestick](https://apexcharts.com/javascript-chart-demos/candlestick-charts/) · [BoxPlot](https://apexcharts.com/javascript-chart-demos/boxplot-charts/) · [Violin](samples/vanilla-js/violin/)
 - [Pie](https://apexcharts.com/javascript-chart-demos/pie-charts/) · [Donut](https://apexcharts.com/javascript-chart-demos/pie-charts/) · [Polar Area](https://apexcharts.com/javascript-chart-demos/polar-area-charts/) · [Radial Bar / Gauge](https://apexcharts.com/javascript-chart-demos/radialbar-charts/)
@@ -140,16 +140,36 @@ No more `dynamic(() => import(...), { ssr: false })` workarounds: the chart rend
 
 ## Tree-shaking: ship only what you use
 
-`import ApexCharts from 'apexcharts'` gives you every chart type and the
-everyday features. Nine optional features ship outside it and are imported
-explicitly (marked **opt-in** below); each warns in the console if its config is
-set but the feature is absent. Adding one to the default bundle is a single
-line, and the two share one copy of the core:
+`import ApexCharts from 'apexcharts'` gives you the standard chart types and the
+everyday features. The rest ship outside it and are imported explicitly (marked
+**opt-in** below); a chart that asks for one that is absent logs a console line
+naming the import. Adding one to the default bundle is a single line, and the
+two share one copy of the core:
 
 ```js
 import ApexCharts from 'apexcharts'
+import 'apexcharts/sunburst'
 import 'apexcharts/features/trellis'
 ```
+
+Or take everything at once, every chart type and feature:
+
+```js
+import ApexCharts from 'apexcharts/full'
+```
+
+| Outside the default bundle | Bundler | Script tag (after the ApexCharts script) |
+|---|---|---|
+| unit (and waffle, beeswarm) | `apexcharts/unit` | `dist/unit.js` |
+| sunburst | `apexcharts/sunburst` | `dist/sunburst.js` |
+| violin | `apexcharts/violin` | `dist/violin.js` |
+| icicle | `apexcharts/icicle` | `dist/icicle.js` |
+| raincloud | `apexcharts/raincloud` | `dist/violin.js`, then `dist/features/raincloud.js` |
+| waterfall, dumbbell, streamgraph | `apexcharts/features/waterfall` (and so on) | `dist/features/waterfall.js` (and so on) |
+| drilldown | `apexcharts/features/drilldown` | `dist/features/drilldown.js` |
+| trellis, measure, link, ink, storyboard, perspectives, history, context-menu, highlight-filter, renderer-canvas | `apexcharts/features/<name>` | `dist/features/<name>.js` |
+
+Server rendering takes the same imports next to `apexcharts/ssr`.
 
 For a smaller bundle still, start from `apexcharts/core` and add only what you
 need:
@@ -162,7 +182,10 @@ import 'apexcharts/line'
 import 'apexcharts/bar'
 // import 'apexcharts/area'
 // import 'apexcharts/scatter'
-// import 'apexcharts/unit'         // dot / pictogram / waffle / beeswarm (premium; 'waffle' aliases this)
+// import 'apexcharts/unit'         // dot / pictogram / waffle / beeswarm (premium, opt-in; 'waffle' aliases this)
+// import 'apexcharts/sunburst'     // hierarchical rings (opt-in)
+// import 'apexcharts/violin'       // distributions, drawn on 'apexcharts/bar' (opt-in); raw observations also need 'apexcharts/features/stats'
+// import 'apexcharts/icicle'       // hierarchical bands (opt-in)
 
 // Optional features
 import 'apexcharts/features/legend'
@@ -170,7 +193,7 @@ import 'apexcharts/features/toolbar'      // zoom/pan toolbar
 // import 'apexcharts/features/exports'      // SVG/PNG/CSV download
 // import 'apexcharts/features/annotations'
 // import 'apexcharts/features/keyboard'     // keyboard navigation
-// import 'apexcharts/features/drilldown'    // hierarchical drill-down
+// import 'apexcharts/features/drilldown'    // hierarchical drill-down (opt-in)
 // import 'apexcharts/features/morph'        // animated chart-type morphs
 // import 'apexcharts/features/history'      // undo/redo (premium, opt-in)
 // import 'apexcharts/features/perspectives' // shareable view state (premium, opt-in)
@@ -184,12 +207,24 @@ import 'apexcharts/features/toolbar'      // zoom/pan toolbar
 // import 'apexcharts/features/context-menu' // right-click context menu (premium, opt-in)
 // import 'apexcharts/features/renderer-canvas' // canvas series renderer (opt-in)
 // import 'apexcharts/features/trellis'     // small multiples (premium, opt-in)
-// import 'apexcharts/features/raincloud'   // raincloud chart type statistics (premium, opt-in)
+// import 'apexcharts/features/highlight-filter' // whole faded, part solid in front (premium, opt-in)
+// import 'apexcharts/features/waterfall'   // also 'dumbbell': on 'apexcharts/bar' (opt-in)
+// import 'apexcharts/features/streamgraph' // on 'apexcharts/line' (opt-in)
+// import 'apexcharts/raincloud'            // raincloud: violin renderer + its statistics, on 'apexcharts/bar' (premium, opt-in)
 ```
 
-A page without a bundler gets the same choice. `apexcharts.js` stays
-batteries-included, and `apexcharts.core.min.js` is the lean baseline you build
-up from:
+A page without a bundler gets the same choice, from three baselines:
+
+| File | What it has |
+|---|---|
+| `apexcharts.min.js` | The default bundle: the standard chart types and everyday features. Add an opt-in type or feature as its own file after it. |
+| `apexcharts.full.min.js` | Everything: every chart type and feature, and the unit-shape and pictogram catalogs. No add-on needed. |
+| `apexcharts.core.min.js` | The chart class alone: add each chart type and feature you use as its own file. |
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/apexcharts/dist/apexcharts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts/dist/sunburst.js"></script>
+```
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/apexcharts/dist/apexcharts.core.min.js"></script>
@@ -197,8 +232,9 @@ up from:
 <script src="https://cdn.jsdelivr.net/npm/apexcharts/dist/features/legend.js"></script>
 ```
 
-Opt-in features work the same way there: load `dist/features/<name>.js` after
-whichever bundle the page already has.
+Opt-in types and features work the same way on any of them: load their file
+after whichever bundle the page already has. One whose tag runs first (8.0 and
+later) waits for the ApexCharts script and registers when it loads.
 
 See the [tree-shaking guide](https://apexcharts.com/docs/tree-shaking/) for the complete list of entry points.
 
@@ -218,7 +254,7 @@ new ApexCharts(el, {
 }).render()
 ```
 
-Shapes are composable (`outlined(heart)` traces it instead of filling it, `heart.with({ order: 'cols' })` changes where each series band lands), and `preview(heart, { series })` renders one to an SVG string with no chart and no DOM, for docs and build-time images. From a script tag, `dist/unit-shapes.js` exposes the same kit as `ApexUnitShapes` and registers every shape by name.
+Shapes are composable (`outlined(heart)` traces it instead of filling it, `heart.with({ order: 'cols' })` changes where each series band lands), and `preview(heart, { series })` renders one to an SVG string with no chart and no DOM, for docs and build-time images. From a script tag, `dist/unit-shapes.js` (after `dist/unit.js`) exposes the same kit as `ApexUnitShapes` and registers every shape by name; `apexcharts.full.min.js` registers them all too.
 
 **The shape you want is probably not one of the 39, and it does not have to be.** `positions` takes any function of the marks and the plot rectangle, so there are three ways in, none of which needs a release from us:
 
@@ -238,8 +274,8 @@ Most of ApexCharts is free and open source. A small set of advanced features are
 
 | Feature | Enabled by |
 |---|---|
-| Unit chart type (dot / pictogram / waffle / beeswarm) | `chart.type: 'unit'` / `chart.type: 'waffle'` |
-| Raincloud chart type (half-density + box + raw points) | `chart.type: 'raincloud'` (needs `apexcharts/features/raincloud`, not in the default bundle) |
+| Unit chart type (dot / pictogram / waffle / beeswarm) | `chart.type: 'unit'` / `chart.type: 'waffle'` (needs `apexcharts/unit`, not in the default bundle) |
+| Raincloud chart type (half-density + box + raw points) | `chart.type: 'raincloud'` (needs `apexcharts/raincloud`, not in the default bundle) |
 | Storyboard (scrollytelling) | `chart.storyboard.bind(...)` |
 | Linked views / crossfilter | `chart.link.enabled` / `chart.link.dimension` / `ApexCharts.crossfilter()` |
 | Ink layer (on-chart annotation editing) | `chart.ink.enabled` |
@@ -292,10 +328,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, coding conventions, and PR gui
 
 ## License
 
-ApexCharts uses a **revenue-based license**:
+ApexCharts uses a **$2M threshold license**:
 
-- **Free** for individuals, and organizations with **under $2M USD in annual gross revenue**, including commercial and internal use. No registration required.
-- **Commercial license required** for organizations at or above $2M USD annual gross revenue.
+- **Free** for individuals, and organizations with **under $2M USD in annual revenue, operating budget, funding, or equivalent financial resources**, including commercial and internal use. No registration required.
+- **Commercial license required** once you, your parent company, affiliates, or any entity under common control reach $2M USD or more on any of those measures.
 
 Full terms: [apexcharts.com/license](https://apexcharts.com/license)
 
@@ -307,7 +343,7 @@ We've partnered with [Infragistics](https://www.infragistics.com/), creators of 
 
 Available for:
 
-[Angular](https://www.infragistics.com/products/ignite-ui-angular/angular/components/grid/grid) · [React](https://www.infragistics.com/products/ignite-ui-react/react/components/grids) · [Blazor](https://www.infragistics.com/products/ignite-ui-blazor/blazor/components/data-grid) · [Web Components](https://www.infragistics.com/products/ignite-ui-web-components/web-components/components/data-grid) · [jQuery](https://www.igniteui.com/grid/overview)
+[Angular](https://www.infragistics.com/products/ignite-ui-angular/angular/components/grid/grid) · [React](https://www.infragistics.com/products/ignite-ui-react/react/components/grids/data-grid) · [Blazor](https://www.infragistics.com/products/ignite-ui-blazor/blazor/components/data-grid) · [Web Components](https://www.infragistics.com/products/ignite-ui-web-components/web-components/components/data-grid) · [jQuery](https://www.igniteui.com/grid/overview)
 
 ## Contact
 

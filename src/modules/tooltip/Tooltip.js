@@ -10,6 +10,23 @@ import Series from '../Series'
 import XAxis from './../axes/XAxis'
 import Utils from './Utils'
 import { isCustom } from '../ChartFactory'
+import { POINTER_CLEARANCE_BELOW } from './constants'
+
+const INTERACTIVE_TOOLTIP_HIDE_DELAY = 150
+
+/**
+ * On a short plot an interactive box can sit tens of px from the point, past
+ * the plot's edge. The close waits for that trip at this speed (px per ms, a
+ * slow deliberate move), up to the cap below, on top of the base delay above.
+ */
+const SLOW_POINTER_SPEED = 0.2
+const INTERACTIVE_TRAVEL_ALLOWANCE_MAX = 600
+
+/**
+ * Sideways slack, in px, for a pointer leaving the plot toward an interactive
+ * box outside it: a diagonal path to one of the box's corners still counts.
+ */
+const INTERACTIVE_REACH_SLACK = 24
 
 /**
  * ApexCharts Core Tooltip Class to handle the tooltip generation.
@@ -26,8 +43,6 @@ export default class Tooltip {
     this.w = w
     this.ctx = ctx // needed: getGroupedCharts, getSyncedCharts, fireEvent, XAxis instantiation
 
-    this.tConfig = w.config.tooltip
-
     this.tooltipUtil = new Utils(this)
     this.tooltipLabels = new Labels(this)
     this.tooltipPosition = new Position(this)
@@ -37,6 +52,12 @@ export default class Tooltip {
     this.showOnIntersect = this.tConfig.intersect
     this.showTooltipTitle = this.tConfig.x.show
     this.fixedTooltip = this.tConfig.fixed.enabled
+    /**
+     * Set by handleMouseOut, read by axisChartsTooltips: did something in this
+     * pass decide there is nothing to show? See the comment at its use.
+     * @type {boolean}
+     */
+    this.tooltipHidden = false
     /** @type {HTMLElement | null} */
     this.xaxisTooltip = null
     /** @type {HTMLElement | null} */
@@ -82,14 +103,35 @@ export default class Tooltip {
     this.dataPointsDividedWidth = 0
     /** @type {HTMLElement | null} */
     this.tooltipTitle = null
+    // Resolved lazily and revalidated with baseEl.contains(); see _resolveEl.
+    /** @type {any} */
+    this._elTooltipCache = null
+    /** @type {any} */
+    this._elXCrosshairsCache = null
+    /** @type {any} */
+    this._elGridCache = null
     /** @type {NodeListOf<Element> | null} */
     this.legendLabels = null
     /** @type {any} */
     this.ttItems = null
-    /** @type {DOMRect | null} */
-    this.seriesBound = null
+    /**
+     * The hover listeners addSVGEvents put on the svg itself (`hoverArea`),
+     * kept so the next call can take them off: see detachHoverAreaListeners.
+     * @type {Array<{ el: Element, ev: string, handler: (e: any) => void }>}
+     */
+    this.hoverAreaListeners = []
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     this.seriesHoverTimeout = undefined
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    this.interactiveHideTimeout = undefined
+    /**
+     * The close of an interactive box that the pointer left by roaming the
+     * plot off every mark (a canvas violin chart: Intersect.handleBarTooltip).
+     * Unlike `interactiveHideTimeout`, which every move clears, the moves
+     * after the first leave it running.
+     * @type {ReturnType<typeof setTimeout> | undefined}
+     */
+    this.offMarkHideTimeout = undefined
     /** @type {number} */
     this.clientX = 0
     /** @type {number} */
@@ -100,14 +142,37 @@ export default class Tooltip {
     this.tooltipRect = { x: 0, y: 0, ttWidth: 0, ttHeight: 0 }
   }
 
+  /**
+   * The live tooltip config.
+   *
+   * Deliberately not captured at construction. This module is built once per
+   * chart and outlives every update, while `updateOptions` REPLACES
+   * `w.config.tooltip` with a merged object, so a held reference freezes the
+   * tooltip on the options the chart was born with. That is how a runtime
+   * theme toggle left a dark chart carrying a white tooltip (the axes read
+   * the live config, the tooltip did not), and how a later `shared`,
+   * `intersect` or `x.show` was accepted and silently dropped.
+   *
+   * The sub-modules read it back through `ttCtx.tConfig`, so they follow.
+   */
+  get tConfig() {
+    return this.w.config.tooltip
+  }
+
   setupDimensionCache() {
     const w = this.w
     const tooltipEl = this.getElTooltip()
 
     if (!tooltipEl) return
 
-    // Initial dimension cache
-    this.updateDimensionCache()
+    // No initial measurement on purpose. Reading the rect here forced a
+    // synchronous layout of the chart that was just (re)built, on every render
+    // AND every update, to measure a tooltip that is still empty and hidden --
+    // a size superseded the moment any content is written into it. It is not
+    // needed either: `getCachedDimensions()` measures live when the cache is
+    // missing or older than a second, and every consumer of it runs at
+    // interaction time, by which point the ResizeObserver below has normally
+    // filled the cache anyway.
 
     // Setup ResizeObserver for automatic dimension updates
     if (typeof ResizeObserver !== 'undefined' && !w.globals.resizeObserver) {
@@ -173,9 +238,43 @@ export default class Tooltip {
    * @param {{ w: import('../../types/internal').ChartStateW }} [ctx]
    * @returns {HTMLElement | null}
    */
+  /**
+   * Resolve a chart-level element, keeping the node between calls.
+   *
+   * Hover paths ask for these several times per frame and every lookup is a
+   * `querySelector` across the entire chart DOM, which a CPU profile of a
+   * 700-series chart showed dominating hover time. Validity is checked with
+   * `baseEl.contains()` — a short walk up the ancestors, not a tree scan.
+   *
+   * That check is what respects `fastUpdate`: `drawTooltip` DETACHES the
+   * existing tooltip before building a replacement (see its comment on the
+   * fastUpdate path), so a rebuilt element leaves the cached node outside
+   * `baseEl`, the check fails, and the selector runs again. A full re-render
+   * replaces `baseEl`'s subtree with the same consequence.
+   *
+   * @param {any} ctx      owner of the cache slot (a Tooltip, or another chart)
+   * @param {string} key   cache property on that owner
+   * @param {string} selector
+   * @returns {any}
+   */
+  _resolveEl(ctx, key, selector) {
+    const baseEl = ctx.w?.dom?.baseEl
+    if (!baseEl) return null
+
+    const cached = ctx[key]
+    if (cached && baseEl.contains(cached)) return cached
+
+    const el = baseEl.querySelector(selector)
+    ctx[key] = el
+    return el
+  }
+
+  /**
+   * @param {any} [ctx] another chart's context, for grouped tooltips
+   * @returns {HTMLElement | null}
+   */
   getElTooltip(ctx) {
     if (!ctx) ctx = this
-    if (!ctx.w.dom.baseEl) return null
 
     // :not() is required: the point-annotation hover tooltip shares the
     // .apexcharts-tooltip class for styling and, once created, can precede
@@ -183,18 +282,24 @@ export default class Tooltip {
     // tooltip on fastUpdate). Without the guard this would return the
     // annotation tooltip and hijack the series-tooltip machinery.
     return /** @type {HTMLElement | null} */ (
-      ctx.w.dom.baseEl.querySelector(
+      this._resolveEl(
+        ctx,
+        '_elTooltipCache',
         '.apexcharts-tooltip:not(.apexcharts-annotation-tooltip)',
       )
     )
   }
 
   getElXCrosshairs() {
-    return this.w.dom.baseEl.querySelector('.apexcharts-xcrosshairs')
+    return this._resolveEl(
+      this,
+      '_elXCrosshairsCache',
+      '.apexcharts-xcrosshairs',
+    )
   }
 
   getElGrid() {
-    return this.w.dom.baseEl.querySelector('.apexcharts-grid')
+    return this._resolveEl(this, '_elGridCache', '.apexcharts-grid')
   }
 
   /**
@@ -203,6 +308,14 @@ export default class Tooltip {
   drawTooltip(xyRatios) {
     const w = this.w
     this.xyRatios = xyRatios
+    // Re-derive what the constructor seeded. These are read off the config
+    // once and then carried, and every update hands us a new config, so a
+    // render is the moment to take them again. `showOnIntersect` in
+    // particular is forced true further down for some chart shapes, which
+    // only makes sense starting from what the user currently asks for.
+    this.showOnIntersect = this.tConfig.intersect
+    this.showTooltipTitle = this.tConfig.x.show
+    this.fixedTooltip = this.tConfig.fixed.enabled
     this.isXAxisTooltipEnabled =
       w.config.xaxis.tooltip.enabled && w.globals.axisCharts
     /**
@@ -231,6 +344,31 @@ export default class Tooltip {
       'div',
     )
     tooltipEl.classList.add('apexcharts-tooltip')
+    if (this.tConfig.interactive) {
+      tooltipEl.classList.add('apexcharts-tooltip-interactive')
+      tooltipEl.addEventListener(
+        'mouseenter',
+        () => {
+          clearTimeout(this.interactiveHideTimeout)
+          this.cancelOffMarkHide()
+        },
+        { passive: true },
+      )
+      tooltipEl.addEventListener(
+        'mouseleave',
+        () => {
+          clearTimeout(this.interactiveHideTimeout)
+          this.handleMouseOut({ tooltipEl })
+          if (w.config.chart.group) {
+            this.ctx.getGroupedCharts().forEach((ch) => {
+              const el = this.getElTooltip(ch)
+              if (el) ch.w.globals.tooltip.handleMouseOut({ tooltipEl: el })
+            })
+          }
+        },
+        { passive: true },
+      )
+    }
     if (w.config.tooltip.cssClass) {
       tooltipEl.classList.add(w.config.tooltip.cssClass)
     }
@@ -292,7 +430,7 @@ export default class Tooltip {
       w.config.chart.type !== 'heatmap'
     const shouldDrawArrow =
       this.tConfig.arrow &&
-      !this.tConfig.followCursor &&
+      !Utils.isFollowCursor(this.w) &&
       !this.tConfig.fixed.enabled &&
       !isSharedMulti &&
       !this.tConfig.fillSeriesColor &&
@@ -369,13 +507,22 @@ export default class Tooltip {
       tooltipEl.appendChild(this.tooltipTitle)
     }
 
-    let ttItemsCnt = w.seriesData.series.length // whether shared or not, default is shared
-    if ((w.globals.xyCharts || w.globals.comboCharts) && this.tConfig.shared) {
-      if (!this.showOnIntersect) {
-        ttItemsCnt = w.seriesData.series.length
-      } else {
-        ttItemsCnt = 1
-      }
+    // A row per series is only ever DISPLAYED by a shared tooltip: every
+    // non-shared path activates exactly one group (see
+    // Labels.toggleActiveInactiveSeries) and writes the hovered series' values
+    // into it. Allocating per-series rows for those built ~9.8k DOM nodes on a
+    // 700-series chart for a tooltip that shows one line, and left
+    // printLabels() rewriting all of them on every hover.
+    //
+    // Non-cartesian types still index their row by series index, so they keep
+    // the old allocation; Labels reads the count back rather than re-deriving
+    // the condition.
+    let ttItemsCnt = w.seriesData.series.length
+    if (w.globals.xyCharts || w.globals.comboCharts) {
+      ttItemsCnt =
+        this.tConfig.shared && !this.showOnIntersect
+          ? w.seriesData.series.length
+          : 1
     }
 
     this.legendLabels = w.dom.baseEl.querySelectorAll('.apexcharts-legend-text')
@@ -444,6 +591,13 @@ export default class Tooltip {
       gYZ.style.fontFamily =
         this.tConfig.style.fontFamily || w.config.chart.fontFamily
       gYZ.style.fontSize = this.tConfig.style.fontSize
+
+      // Keep the nodes a hover has to write into. Labels.DOMHandling used to
+      // re-`querySelector` all of them on every mousemove, which on a shared
+      // tooltip is 4-6 scoped lookups per series per frame: a CPU profile of a
+      // 700-series chart spent 38% of hover time inside querySelector alone.
+      /** @type {Record<string, any>} */
+      const refs = { marker: point, text: gYZ }
       ;['y', 'goals', 'z'].forEach((g) => {
         const gValText = BrowserAPIs.createElementNS(
           'http://www.w3.org/1999/xhtml',
@@ -465,10 +619,14 @@ export default class Tooltip {
         txtValue.classList.add(`apexcharts-tooltip-text-${g}-value`)
         gValText.appendChild(txtValue)
 
+        refs[`${g}Label`] = txtLabel
+        refs[`${g}Value`] = txtValue
+
         gYZ.appendChild(gValText)
       })
 
       gTxt.appendChild(gYZ)
+      ;/** @type {any} */ (gTxt).ttRefs = refs
 
       tooltipEl.appendChild(gTxt)
 
@@ -481,6 +639,7 @@ export default class Tooltip {
   addSVGEvents() {
     const w = this.w
     const type = w.config.chart.type
+    this.detachHoverAreaListeners()
     const tooltipEl = this.getElTooltip()
     if (!tooltipEl) return
 
@@ -515,9 +674,13 @@ export default class Tooltip {
     const hoverArea = w.dom.Paper.node
 
     const elGrid = this.getElGrid()
-    if (elGrid) {
-      this.seriesBound = elGrid.getBoundingClientRect()
-    }
+
+    // No plot rect is measured here on purpose. Every consumer takes its own
+    // `Utils.plotRect(w)` at the point of use, because the value is
+    // viewport-relative and goes stale on scroll, so a rect cached at render
+    // time could not be trusted anyway. Measuring it here only forced a
+    // synchronous layout of the chart that was just rebuilt: a profile of 30
+    // updateSeries calls put 20% of all update time in this one dead read.
 
     /** @type {any[]} */
     const tooltipY = []
@@ -565,6 +728,22 @@ export default class Tooltip {
 
     if (validSharedChartTypes) {
       this.addPathsEventListeners([hoverArea], seriesHoverParams)
+    } else if (Utils.isCanvasBarChart(w)) {
+      // Canvas bar-likes, one at a time: bars, candles, boxes and violins are
+      // painted, so there is no path to hover. Hover the whole plot and
+      // resolve the mark by coordinate (Intersect.getPaintedMark ->
+      // renderer.hitTest), as a canvas heatmap does its cells. A bar-like
+      // series in a combo of another type needs it as much as a bar chart.
+      this.addPathsEventListeners([hoverArea], seriesHoverParams)
+    } else if (
+      chartWithmarkers &&
+      this.showOnIntersect &&
+      Utils.isCanvasMarkerChart(w)
+    ) {
+      // Canvas markers, one at a time: painted, so there is no marker node
+      // to hover. Hover the whole plot and resolve the marker by coordinate
+      // (Intersect.getPaintedMarker -> renderer.hitTestMarker).
+      this.addPathsEventListeners([hoverArea], seriesHoverParams)
     } else if (
       (commonBar && !w.globals.comboCharts) ||
       (chartWithmarkers && this.showOnIntersect) ||
@@ -603,6 +782,63 @@ export default class Tooltip {
         this.addDatapointEventsListeners(seriesHoverParams)
       }
     }
+  }
+
+  /**
+   * Has the pointer left the plot toward an interactive box that a short plot
+   * put above or below its mark (so past the plot's edge on that side):
+   * leaving upward to a box on top, or downward to one below, within reach of
+   * the box sideways?
+   *
+   * @param {HTMLElement | null | undefined} tooltipEl
+   * @param {number} clientX
+   * @param {boolean} exitedAbove
+   * @returns {boolean}
+   */
+  isHeadingForOutsideBox(tooltipEl, clientX, exitedAbove) {
+    if (!tooltipEl || !this.tooltipPosition?.shortPlotPlacement) return false
+    if (!tooltipEl.classList.contains('apexcharts-active')) return false
+    const side = tooltipEl.dataset.placement
+    if (side !== (exitedAbove ? 'top' : 'bottom')) return false
+    const r = tooltipEl.getBoundingClientRect()
+    return (
+      clientX >= r.left - INTERACTIVE_REACH_SLACK &&
+      clientX <= r.right + INTERACTIVE_REACH_SLACK
+    )
+  }
+
+  /**
+   * How long an interactive tooltip waits to close once the pointer has left
+   * what it captions. Beside a point the box is a few px away and the base
+   * delay covers it; on a short plot a box above or below the mark can be a
+   * whole margin away, so the wait grows with the distance still to travel.
+   *
+   * @param {number | undefined} clientX
+   * @param {number | undefined} clientY
+   * @returns {number}
+   */
+  interactiveHideDelay(clientX, clientY) {
+    const tooltipEl = this.tooltipPosition?.shortPlotPlacement
+      ? this.getElTooltip()
+      : null
+    if (!tooltipEl || clientX == null || clientY == null) {
+      return INTERACTIVE_TOOLTIP_HIDE_DELAY
+    }
+    const r = tooltipEl.getBoundingClientRect()
+    const dx = Math.max(r.left - clientX, 0, clientX - r.right)
+    const dy = Math.max(r.top - clientY, 0, clientY - r.bottom)
+    const travel = Math.hypot(dx, dy) / SLOW_POINTER_SPEED
+    return (
+      INTERACTIVE_TOOLTIP_HIDE_DELAY +
+      Math.min(travel, INTERACTIVE_TRAVEL_ALLOWANCE_MAX)
+    )
+  }
+
+  /** Call off a close `offMarkHideTimeout` has pending. */
+  cancelOffMarkHide() {
+    if (this.offMarkHideTimeout === undefined) return
+    clearTimeout(this.offMarkHideTimeout)
+    this.offMarkHideTimeout = undefined
   }
 
   drawFixedTooltipRect() {
@@ -646,7 +882,7 @@ export default class Tooltip {
   addDatapointEventsListeners(seriesHoverParams) {
     const w = this.w
     const points = w.dom.baseEl.querySelectorAll(
-      '.apexcharts-series-markers .apexcharts-marker, .apexcharts-bar-area, .apexcharts-candlestick-area, .apexcharts-boxPlot-area, .apexcharts-rangebar-area',
+      '.apexcharts-series-markers .apexcharts-marker, .apexcharts-bar-area, .apexcharts-candlestick-area, .apexcharts-boxPlot-area, .apexcharts-violin-area, .apexcharts-rangebar-area',
     )
     this.addPathsEventListeners(points, seriesHoverParams)
   }
@@ -678,13 +914,32 @@ export default class Tooltip {
       ]
 
       events.map((ev) => {
-        return paths[p].addEventListener(
-          ev,
-          self.onSeriesHover.bind(self, extendedOpts),
-          { capture: false, passive: true },
-        )
+        const handler = self.onSeriesHover.bind(self, extendedOpts)
+        if (paths[p] === opts.hoverArea) {
+          self.hoverAreaListeners.push({ el: paths[p], ev, handler })
+        }
+        return paths[p].addEventListener(ev, handler, {
+          capture: false,
+          passive: true,
+        })
       })
     }
+  }
+
+  /**
+   * Take off the hover listeners the last addSVGEvents put on the svg. Every
+   * other target is a mark or series group that a render draws anew, so its
+   * listeners go with it; the svg survives the data-only fast update, which
+   * calls addSVGEvents again. Left on, each update stacked another set there,
+   * each holding the tooltip element that update replaced: every pointer
+   * move ran them all, the oldest drawing into its detached box first while
+   * the live box waited out the hover throttle.
+   */
+  detachHoverAreaListeners() {
+    for (const { el, ev, handler } of this.hoverAreaListeners) {
+      el.removeEventListener(ev, handler)
+    }
+    this.hoverAreaListeners = []
   }
 
   /*
@@ -694,6 +949,22 @@ export default class Tooltip {
    */
   /** @param {Record<string, any>} opt @param {any} e */
   onSeriesHover(opt, e) {
+    if (this.tConfig.interactive) {
+      clearTimeout(this.interactiveHideTimeout)
+      if (e.type === 'mouseout') {
+        // Give the pointer time to cross the gap between the data point and
+        // tooltip. Entering the tooltip cancels this deferred close.
+        clearTimeout(this.seriesHoverTimeout)
+        this.interactiveHideTimeout = setTimeout(
+          () => {
+            if (!this.w.globals.isDestroyed) this.seriesHover(opt, e)
+          },
+          this.interactiveHideDelay(e.clientX, e.clientY),
+        )
+        return
+      }
+    }
+
     // Note down the element under the pointer NOW, while the event is still
     // propagating. The draw below can be deferred past the end of dispatch, and
     // by then a chart inside a shadow root reports the host element as the
@@ -765,20 +1036,85 @@ export default class Tooltip {
     }
 
     if (chartGroups.length) {
+      // A canvas bar chart with an intersect tooltip hovers its painted marks
+      // through one listener on the whole plot, so a move off every mark is
+      // a move like any other. Alone, the hit test in handleBarTooltip hides
+      // the box there; in a group every member takes the sticky path, which
+      // never asks, so the hovered chart asks here. Off every mark the group
+      // closes, as when an SVG mark is left (its mouseout), and on one the
+      // members are told its series, which no node under the pointer names.
+      const painted = this.groupPaintedMark(opt, e)
+      if (painted?.noHit && this.showOnIntersect) {
+        const at = Utils.eventPointer(e, opt)
+        const out = {
+          type: 'mouseout',
+          target: e.target,
+          clientX: at.x,
+          clientY: at.y,
+        }
+        if (
+          this.tConfig.interactive &&
+          opt.tooltipEl?.classList.contains('apexcharts-active')
+        ) {
+          // The grace a mouseout gets to reach an interactive box
+          // (onSeriesHover), started by the first move off the mark and left
+          // to run by the ones after; the box or another mark calls it off.
+          if (this.offMarkHideTimeout === undefined) {
+            this.offMarkHideTimeout = setTimeout(
+              () => {
+                this.offMarkHideTimeout = undefined
+                if (!this.w.globals.isDestroyed) this.seriesHover(opt, out)
+              },
+              this.interactiveHideDelay(at.x, at.y),
+            )
+          }
+          return
+        }
+        e = out
+      }
+
+      // Plot to plot: every member measures the pointer from its own plot's
+      // corner (`Utils.plotRect`), so that is what the pointer is mapped
+      // between, not the grid groups' boxes, whose offsets from their plots
+      // depend on what each grid draws.
+      const sourceRect = opt.elGrid ? Utils.plotRect(w) : null
+      const pointer = e.type === 'touchmove' ? e.touches[0] : e
       /**
        * @param {Record<string, any>} ch
        */
       chartGroups.forEach((ch) => {
         const tooltipEl = this.getElTooltip(ch)
+        const elGrid = ch.w.globals.tooltip.getElGrid()
+        const targetRect = elGrid ? Utils.plotRect(ch.w) : null
+        const clientX =
+          sourceRect && targetRect
+            ? targetRect.left +
+              ((pointer.clientX - sourceRect.left) / sourceRect.width) *
+                targetRect.width
+            : pointer.clientX
+        const clientY =
+          sourceRect && targetRect
+            ? targetRect.top +
+              ((pointer.clientY - sourceRect.top) / sourceRect.height) *
+                targetRect.height
+            : pointer.clientY
 
         const newOpts = {
           paths: opt.paths,
           tooltipEl,
           tooltipY: opt.tooltipY,
           tooltipX: opt.tooltipX,
-          elGrid: opt.elGrid,
+          elGrid: elGrid || opt.elGrid,
           hoverArea: opt.hoverArea,
           ttItems: ch.w.globals.tooltip.ttItems,
+          clientX,
+          clientY,
+          // the realIndex of the painted mark hovered, null off every one
+          paintedSeries: painted
+            ? painted.noHit
+              ? null
+              : painted.i
+            : undefined,
         }
 
         // all the charts should have the same minX and maxX (same xaxis) for multiple tooltips to work correctly
@@ -802,6 +1138,33 @@ export default class Tooltip {
         e,
       })
     }
+  }
+
+  /**
+   * The painted mark a pointer move over a canvas bar chart's plot is on,
+   * when its tooltip is synced to a group (seriesHover), in any tooltip mode:
+   * the members need its series to highlight, which no node under the
+   * pointer names. Only an intersect tooltip closes off every mark. Null for
+   * any other hover. Being on one calls off a close `offMarkHideTimeout` has
+   * pending, as handleBarTooltip does.
+   * @param {Record<string, any>} opt
+   * @param {any} e
+   * @returns {any}
+   */
+  groupPaintedMark(opt, e) {
+    if (
+      e.type !== 'mousemove' &&
+      e.type !== 'touchmove' &&
+      e.type !== 'mouseup'
+    ) {
+      return null
+    }
+    if (opt.paths !== opt.hoverArea || !Utils.isCanvasBarChart(this.w)) {
+      return null
+    }
+    const mark = this.intersect.getPaintedMark(e, opt)
+    if (!mark.noHit) this.cancelOffMarkHide()
+    return mark
   }
 
   /** @param {{chartCtx: any, ttCtx: any, opt: any, e: any}} opts */
@@ -829,7 +1192,39 @@ export default class Tooltip {
     ) {
       if (this.tConfig.onDatasetHover.highlightDataSeries) {
         const series = new Series(chartCtx.w)
-        series.toggleSeriesOnHover(e, Utils.hoverTarget(e)?.parentNode)
+        const parent = Utils.hoverTarget(e)?.parentNode
+        if (
+          (opt.paths === opt.hoverArea && Utils.isCanvasBarChart(w)) ||
+          (opt.paintedSeries !== undefined && !parent?.getAttribute?.('rel'))
+        ) {
+          // Painted marks have no node, so what is under the pointer says
+          // nothing of the series (its parent has no `rel`, and an unnamed
+          // series threw); the hit test says which one it is, the hovered
+          // chart's own when a synced group passes it on (seriesHover), as
+          // an SVG mark passes on its series group. Off every mark, the
+          // highlight goes, as it does when an SVG bar is left.
+          let i = opt.paintedSeries
+          if (i === undefined) {
+            const mark = ttCtx.intersect.getPaintedMark(e, opt)
+            i = mark.noHit ? null : mark.i
+          }
+          const group =
+            i == null
+              ? null
+              : Array.from(
+                  w.dom.baseEl.querySelectorAll('.apexcharts-series'),
+                ).find((g) => g.getAttribute('data:realIndex') === String(i))
+          series.toggleSeriesOnHover(group ? e : { type: 'mouseout' }, group)
+        } else if (parent?.getAttribute?.('rel')) {
+          series.toggleSeriesOnHover(e, parent)
+        } else {
+          // Nothing under the pointer names a series (an unnamed one threw),
+          // so the highlight goes, as when a bar is left.
+          series.toggleSeriesOnHover(
+            /** @type {any} */ ({ type: 'mouseout' }),
+            parent,
+          )
+        }
       }
     }
 
@@ -861,29 +1256,72 @@ export default class Tooltip {
 
     // Every hit-test below is measured against the grid, so without one there
     // is nothing to hover. `drawSeriesTooltip` already treats a missing grid as
-    // normal (it skips caching `seriesBound`), and a pointer event can still
-    // arrive with the grid gone: a cross-type morph tears down the axis chrome
-    // while the listeners bound to the old plot are still live.
+    // normal, and a pointer event can still arrive with the grid gone: a
+    // cross-type morph tears down the axis chrome while the listeners bound to
+    // the old plot are still live.
     if (!opt.elGrid) return
 
-    const seriesBound = opt.elGrid.getBoundingClientRect()
+    // The plot itself, not the grid group's box, which starts a pixel below
+    // it and so counted the plot's top row of pixels as off the plot.
+    const seriesBound = Utils.plotRect(w)
 
-    const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX
-    const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY
+    const clientX =
+      opt.clientX ??
+      (e.type === 'touchmove' ? e.touches[0].clientX : e.clientX)
+    const clientY =
+      opt.clientY ??
+      (e.type === 'touchmove' ? e.touches[0].clientY : e.clientY)
 
     this.clientY = clientY
     this.clientX = clientX
 
+    const offPlotVertically =
+      clientY < seriesBound.top ||
+      clientY > seriesBound.top + seriesBound.height
+
+    // An interactive box that a short plot pushed past the plot's edge is
+    // reached by moving out of the plot toward it, across the chart's own
+    // margin. Leaving that way only starts the close, the same grace a
+    // mouseout gets, and entering the box cancels it. The box still captions
+    // its point meanwhile, so the captured indices stay until it closes (a
+    // click in it reports them). Leaving any other way closes at once, and so
+    // does the deferred mouseout pass itself: that pass IS the grace, and
+    // deferring again would double it.
+    if (
+      offPlotVertically &&
+      e?.type !== 'mouseout' &&
+      this.tConfig?.interactive &&
+      this.isHeadingForOutsideBox(
+        opt.tooltipEl,
+        clientX,
+        clientY < seriesBound.top,
+      )
+    ) {
+      clearTimeout(this.interactiveHideTimeout)
+      this.interactiveHideTimeout = setTimeout(
+        () => {
+          if (this.w.globals.isDestroyed) return
+          w.interact.capturedSeriesIndex = -1
+          w.interact.capturedDataPointIndex = -1
+          this.handleMouseOut(opt)
+        },
+        this.interactiveHideDelay(clientX, clientY),
+      )
+      return
+    }
+
     w.interact.capturedSeriesIndex = -1
     w.interact.capturedDataPointIndex = -1
 
-    if (
-      clientY < seriesBound.top ||
-      clientY > seriesBound.top + seriesBound.height
-    ) {
+    if (offPlotVertically) {
       this.handleMouseOut(opt)
       return
     }
+
+    // Back over the plot: a close this chart deferred on the way out is void.
+    // (In a group only the hovered chart's own events clear its timer; a
+    // sibling's is cleared here, by its own pass.)
+    if (this.tConfig?.interactive) clearTimeout(this.interactiveHideTimeout)
 
     // Point-annotation hover tooltip (apexcharts/apexcharts.js#2424): while
     // one is showing (pointer over an annotation marker), keep the series
@@ -901,7 +1339,15 @@ export default class Tooltip {
 
     if (
       Array.isArray(this.tConfig.enabledOnSeries) &&
-      !w.config.tooltip.shared
+      !w.config.tooltip.shared &&
+      // The plot-wide listener a canvas bar chart hovers its marks through
+      // (one at a time) names no series; the hit test does, and
+      // Intersect.handleBarTooltip checks that one.
+      !(
+        opt.paths === opt.hoverArea &&
+        this.showOnIntersect &&
+        (Utils.isCanvasBarChart(w) || Utils.isCanvasMarkerChart(w))
+      )
     ) {
       const index = parseInt(opt.paths.getAttribute('index'), 10)
       if (this.tConfig.enabledOnSeries.indexOf(index) < 0) {
@@ -965,6 +1411,17 @@ export default class Tooltip {
         _yc.classList.add('apexcharts-active')
       }
 
+      // The handlers below can decide there is nothing under the pointer and
+      // hide the tooltip: off the plot horizontally, or on a null datum. That
+      // decision used to be undone a few lines later, where this branch ends by
+      // activating the tooltip unconditionally, and an activated tooltip that
+      // was never positioned keeps whatever geometry it last had. So it came
+      // back in the margin still captioning the previous column, or, if nothing
+      // had been shown yet, as an empty 2px box pinned at the chart's top-left.
+      // The vertical guard at the top of this method returns for exactly this
+      // reason; these paths could not, because they hide from inside a helper.
+      this.tooltipHidden = false
+
       if (
         !isCellChart &&
         ((isStickyTooltip && !this.showOnIntersect) || syncedCharts.length > 1)
@@ -990,22 +1447,26 @@ export default class Tooltip {
           x = markerXY.x
           y = markerXY.y
 
-          if (!markerXY.positioned) {
-            // Legacy beside-the-cell placement writes style directly. Arrow-mode
-            // heatmaps have already positioned via applyTooltipPosition (which
-            // also sets the arrow and data-placement), so don't overwrite it.
-            tooltipEl.style.left = x + 'px'
-            tooltipEl.style.top = y + 'px'
-          }
+          this.placeCellTooltip(tooltipEl, markerXY)
         } else {
-          if (this.tooltipUtil.hasBars()) {
-            this.intersect.handleBarTooltip({
+          // A marker under the pointer is what is hovered, whatever the
+          // chart's first series is: a scatter of outliers over box plots,
+          // or line markers over columns, are drawn over the bar-likes.
+          // Painted to canvas it has no node, so the renderer finds it, and
+          // first, as markers paint last there.
+          const paintedMarker = this.intersect.getPaintedMarker(e, opt)
+          if (paintedMarker) {
+            this.intersect.handlePaintedMarkerTooltip({
               e,
               opt,
+              marker: paintedMarker,
             })
-          }
-
-          if (this.tooltipUtil.hasMarkers(0)) {
+          } else if (
+            Utils.hoverTarget(e)?.classList?.contains('apexcharts-marker') &&
+            // a marker of a data point, not a series' hover dot, which
+            // names none
+            Utils.hoverTarget(e).hasAttribute('rel')
+          ) {
             // intersect - line/area/scatter/bubble
             this.intersect.handleMarkerTooltip({
               e,
@@ -1013,9 +1474,24 @@ export default class Tooltip {
               x,
               y,
             })
+          } else if (this.tooltipUtil.hasBars()) {
+            this.intersect.handleBarTooltip({
+              e,
+              opt,
+            })
+          } else if (
+            opt.paths === opt.hoverArea &&
+            Utils.isCanvasMarkerChart(w)
+          ) {
+            // A canvas marker chart hovered off every marker.
+            this.intersect.leavePaintedMark(e, opt)
           }
         }
       }
+
+      // Hidden above: leave it hidden. The axis tooltips go with it, which
+      // handleMouseOut has already seen to.
+      if (this.tooltipHidden) return
 
       if (this.yaxisTooltips && this.yaxisTooltips.length) {
         for (let yt = 0; yt < w.config.yaxis.length; yt++) {
@@ -1126,8 +1602,6 @@ export default class Tooltip {
         })
       }
 
-      let x, y
-
       // opt.paths is the <g class="apexcharts-series"> group element;
       // data:cx / data:cy are set on the child <path> arc element inside it
       const arcPath = opt.paths.querySelector('path[data\\:cx]') || opt.paths
@@ -1135,21 +1609,33 @@ export default class Tooltip {
         ? this.getSliceAnchor(arcPath)
         : null
 
-      if (anchor) {
-        x = anchor.x - tooltipRect.ttWidth / 2
-        y = anchor.y - tooltipRect.ttHeight - 10
-      } else {
-        x =
-          (w.interact.clientX ?? 0) - seriesBound.left - tooltipRect.ttWidth / 2
-        y =
-          (w.interact.clientY ?? 0) -
-          seriesBound.top -
-          tooltipRect.ttHeight -
-          10
-      }
-
-      tooltipEl.style.left = x + 'px'
-      tooltipEl.style.top = y + 'px'
+      // Above the slice or the pointer, and below it only when the page has no
+      // room above (a small pie near the top of the viewport or of a clipping
+      // card). Sideways it stays on the visible page: a pie sparkline is
+      // narrower than its tooltip.
+      // This event's own pointer. `w.interact` is filled in by a listener on
+      // the chart's root, which this event reaches only after the slice's
+      // listener has run, so on the first move into a slice it still held
+      // the previous position and the box opened there.
+      const pointer = Utils.eventPointer(e, opt)
+      const pos = anchor
+        ? this.tooltipPosition.placeOverAnchor(
+            anchor.x,
+            anchor.y,
+            tooltipRect.ttWidth,
+            tooltipRect.ttHeight,
+            10,
+          )
+        : this.tooltipPosition.placeOverAnchor(
+            pointer.x - seriesBound.left,
+            pointer.y - seriesBound.top,
+            tooltipRect.ttWidth,
+            tooltipRect.ttHeight,
+            10,
+            POINTER_CLEARANCE_BELOW,
+          )
+      tooltipEl.style.left = pos.x + 'px'
+      tooltipEl.style.top = pos.y + 'px'
 
       if (w.config.legend.tooltipHoverFormatter) {
         const legendFormatter = w.config.legend.tooltipHoverFormatter
@@ -1292,6 +1778,31 @@ export default class Tooltip {
   }
 
   /**
+   * Put the box where Intersect.handleHeatTreeTooltip placed it for a
+   * heatmap or treemap cell. Shared by the pointer and by keyboard focus on
+   * a box that follows the pointer (KeyboardNavigation._hoverFocusedCell).
+   * @param {HTMLElement} tooltipEl
+   * @param {{ x: number, y: number, positioned?: boolean, placement?: string, arrowX?: number }} markerXY
+   */
+  placeCellTooltip(tooltipEl, markerXY) {
+    // Legacy beside-the-cell placement writes style directly. Arrow-mode
+    // heatmaps have already positioned via applyTooltipPosition (which
+    // also sets the arrow and data-placement), so don't overwrite it.
+    if (markerXY.positioned) return
+    tooltipEl.style.left = markerXY.x + 'px'
+    tooltipEl.style.top = markerXY.y + 'px'
+    // Only set when the box left a short plot (top/bottom); beside the
+    // cell this path has never written one, and must not leave one
+    // behind. (A treemap without followCursor draws an arrow here.)
+    if (markerXY.placement) {
+      tooltipEl.dataset.placement = markerXY.placement
+      tooltipEl.style.setProperty('--apx-tt-arrow-x', markerXY.arrowX + 'px')
+    } else if (tooltipEl.dataset.placement) {
+      delete tooltipEl.dataset.placement
+    }
+  }
+
+  /**
    * @param {Event} e
    * @param {number} clientX
    * @param {number} clientY
@@ -1302,7 +1813,6 @@ export default class Tooltip {
     const capj = this.tooltipUtil.getNearestValues({
       context: this,
       hoverArea: opt.hoverArea,
-      elGrid: opt.elGrid,
       clientX,
       clientY,
     })
@@ -1320,8 +1830,17 @@ export default class Tooltip {
     // sit at 0 and `gridWidth`, so half of `barPadForNumericAxis` hangs outside
     // the plot on each side. Hovering that half still has to resolve a tooltip,
     // so widen the bound by the pad rather than clipping at the plot box.
+    //
+    // A WHOLE pixel beyond that is out; a fraction of one is still on the
+    // edge. A grid rarely lands on a whole pixel (1194.29 wide, origin at
+    // .36), so its leftmost column of pixels measures a hair NEGATIVE, and
+    // that is exactly where a line chart's first marker sits: a bare `< 0`
+    // hid the tooltip on the point being pointed at.
     const edgePad = w.globals.barPadForNumericAxis || 0
-    if (capj.hoverX < -edgePad || capj.hoverX > w.layout.gridWidth + edgePad) {
+    if (
+      capj.hoverX <= -edgePad - 1 ||
+      capj.hoverX >= w.layout.gridWidth + edgePad + 1
+    ) {
       this.handleMouseOut(opt)
       return
     }
@@ -1403,6 +1922,11 @@ export default class Tooltip {
    */
   handleMouseOut(opt) {
     const w = this.w
+
+    this.tooltipHidden = true
+    // The next show looks the page's clipping ancestors up again, in case the
+    // chart moved in between.
+    this.tooltipPosition.resetPlacementCache()
 
     const xcrosshairs = this.getElXCrosshairs()
     w.dom.baseEl.classList.remove('apexcharts-tooltip-active')
@@ -1518,6 +2042,18 @@ export default class Tooltip {
     // reads the canvas coord cache); only non-bar canvas series (line/area/
     // scatter markers) route through the pointsArray positioners here.
     const canvasNonBar = canvasMode && !this.tooltipUtil.hasBars()
+    // A line, area or scatter series beside the bars of a combo is painted
+    // too, so when it is the one captured there is no marker node for
+    // hasMarkers to find, where on SVG its marker is enlarged and the box
+    // goes to its point. It takes the pointsArray positioners as well; only
+    // a captured bar-like stays with the bars.
+    const canvasPointSeries =
+      canvasMode &&
+      !canvasNonBar &&
+      !Utils.isBarLikeType(
+        /** @type {any} */ (w.config.series[capturedSeries])?.type ??
+          w.config.chart.type,
+      )
     // Marks (#11): custom series paint their own marks (no .apexcharts-marker
     // nodes to enlarge/position), but they populate w.globals.pointsArray just
     // like canvas does. So when a custom-series chart has no markers and no
@@ -1528,7 +2064,7 @@ export default class Tooltip {
       !hasMarkers &&
       !this.tooltipUtil.hasBars() &&
       this._hasCustomSeries()
-    const dynamicPoints = canvasNonBar || marksMode
+    const dynamicPoints = canvasNonBar || canvasPointSeries || marksMode
 
     const bars = this.tooltipUtil.getElBars()
 

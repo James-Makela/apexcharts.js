@@ -8,14 +8,6 @@
   }
 }
 
-@keyframes resizeanim {
-
-  0%,
-  to {
-    opacity: 0
-  }
-}
-
 .apexcharts-canvas {
   position: relative;
   direction: ltr !important;
@@ -47,11 +39,19 @@
   border: 0;
 }
 
-/* Respect OS-level reduced-motion preference (WCAG 2.3.3). */
+/* Respect OS-level reduced-motion preference (WCAG 2.3.3).
+ *
+ * Scoped with :not() so chart.animations.respectReducedMotion:false opts a
+ * chart out of the CSS policy as well as the JS one (Core.setupElements puts
+ * the class on the canvas). Without the scope the flag only half worked: it
+ * turned the JS tweens back on but could not reach a stylesheet, so everything
+ * CSS-driven, the pie slice-offset slide, the drilldown spinner, the tooltip
+ * and crosshair fades, stayed frozen with no way out short of out-specifying
+ * an !important rule from the page. */
 @media (prefers-reduced-motion: reduce) {
-  .apexcharts-canvas *,
-  .apexcharts-canvas *::before,
-  .apexcharts-canvas *::after {
+  .apexcharts-canvas:not(.apexcharts-ignore-reduced-motion) *,
+  .apexcharts-canvas:not(.apexcharts-ignore-reduced-motion) *::before,
+  .apexcharts-canvas:not(.apexcharts-ignore-reduced-motion) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -359,13 +359,22 @@ rect.legend-mouseover-inactive,
 .apexcharts-bar-area.apexcharts-keyboard-focused,
 .apexcharts-candlestick-area.apexcharts-keyboard-focused,
 .apexcharts-boxPlot-area.apexcharts-keyboard-focused,
+.apexcharts-violin-area.apexcharts-keyboard-focused,
 .apexcharts-rangebar-area.apexcharts-keyboard-focused,
 .apexcharts-pie-area.apexcharts-keyboard-focused,
 .apexcharts-heatmap-rect.apexcharts-keyboard-focused,
-.apexcharts-treemap-rect.apexcharts-keyboard-focused {
+.apexcharts-treemap-rect.apexcharts-keyboard-focused,
+.apexcharts-keyboard-focus-ring {
   stroke: var(--apexcharts-focus-color, #008FFB);
   stroke-width: 2;
   stroke-opacity: 1;
+}
+
+/* A heatmap or a bar-like painted to canvas has no node per cell or mark, so
+   keyboard focus draws this outline over the focused one instead. */
+.apexcharts-keyboard-focus-ring {
+  fill: none;
+  pointer-events: none;
 }
 
 .apexcharts-tooltip {
@@ -429,6 +438,11 @@ rect.legend-mouseover-inactive,
 .apexcharts-tooltip.apexcharts-active {
   opacity: 1;
   transition: opacity .12s ease
+}
+/* Only while shown: a hidden box keeps its last position, which on a short
+ * chart is outside the chart, over whatever the page has there. */
+.apexcharts-tooltip.apexcharts-tooltip-interactive.apexcharts-active {
+  pointer-events: auto;
 }
 .apexcharts-tooltip.apexcharts-active[data-positioned="true"] {
   transition: opacity .12s ease, left .16s ease-out, top .16s ease-out
@@ -529,7 +543,13 @@ rect.legend-mouseover-inactive,
  * (-6px = -1px border - 10px/2), i.e. exactly on the body's border line,
  * so the two borders meet end to end instead of overlapping or gapping.
  * `box-sizing` must be border-box or the bordered sides would grow the
- * square asymmetrically and knock its centre off that line. */
+ * square asymmetrically and knock its centre off that line.
+ *
+ * Along the edge, `--apx-tt-arrow-y` / `--apx-tt-arrow-x` are measured from
+ * the body's outer edge, as every position the script works out is, while
+ * `top` / `left` count from inside its 1px border: hence 6px back, not 5px,
+ * or the arrow stands a pixel past the mark it points at. The 50% default
+ * centres on the padding box, which is the body's centre either way. */
 .apexcharts-tooltip-arrow {
   position: absolute;
   box-sizing: border-box;
@@ -538,7 +558,7 @@ rect.legend-mouseover-inactive,
   background: var(--apx-tt-arrow-bg);
   transform: rotate(45deg);
   pointer-events: none;
-  top: calc(var(--apx-tt-arrow-y, 50%) - 5px)
+  top: calc(var(--apx-tt-arrow-y, calc(50% + 1px)) - 6px)
 }
 
 /* Which two sides face outward depends on the placement. Under
@@ -565,7 +585,7 @@ rect.legend-mouseover-inactive,
 .apexcharts-tooltip[data-placement="top"] .apexcharts-tooltip-arrow,
 .apexcharts-tooltip[data-placement="bottom"] .apexcharts-tooltip-arrow {
   top: auto;
-  left: calc(var(--apx-tt-arrow-x, 50%) - 5px)
+  left: calc(var(--apx-tt-arrow-x, calc(50% + 1px)) - 6px)
 }
 
 .apexcharts-tooltip[data-placement="top"] .apexcharts-tooltip-arrow {
@@ -1285,38 +1305,6 @@ rect.legend-mouseover-inactive,
   pointer-events: none;
 }
 
-.resize-triggers {
-  animation: 1ms resizeanim;
-  visibility: hidden;
-  opacity: 0;
-  height: 100%;
-  width: 100%;
-  overflow: hidden
-}
-
-.contract-trigger:before,
-.resize-triggers,
-.resize-triggers>div {
-  content: " ";
-  display: block;
-  position: absolute;
-  top: 0;
-  left: 0
-}
-
-.resize-triggers>div {
-  height: 100%;
-  width: 100%;
-  background: #eee;
-  overflow: auto
-}
-
-.contract-trigger:before {
-  overflow: hidden;
-  width: 200%;
-  height: 200%
-}
-
 .apexcharts-bar-goals-markers {
   pointer-events: none
 }
@@ -1426,8 +1414,16 @@ rect.legend-mouseover-inactive,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .apexcharts-drilldown-loading-spinner {
-    animation: apexcharts-drilldown-pulse 1.4s ease-in-out infinite
+  /* Swap the spin for a pulse: opacity only, nothing moves, which is what
+   * 2.3.3 asks for while still showing the drill is working.
+   *
+   * Scoped and !important because the blanket rule at the top of this file
+   * would otherwise flatten this fallback too (0.01ms, one iteration), leaving
+   * a drill with no loading indication at all: the rule was written but never
+   * actually ran. It has to beat that rule on both specificity and origin. */
+  .apexcharts-canvas:not(.apexcharts-ignore-reduced-motion)
+    .apexcharts-drilldown-loading-spinner {
+    animation: apexcharts-drilldown-pulse 1.4s ease-in-out infinite !important
   }
 
   @keyframes apexcharts-drilldown-pulse {
@@ -1464,13 +1460,13 @@ rect.legend-mouseover-inactive,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
 }
 .apexcharts-trellis-title {
   font-size: 14px;
   font-weight: 700;
   padding: 2px 0 6px;
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
 }
 /* Edge-label policy: a muted cell hides its axis-label INK, never the label
    SPACE — every panel keeps the identical plot rectangle, and flipping the
@@ -1494,7 +1490,7 @@ rect.legend-mouseover-inactive,
 .apexcharts-trellis-strip {
   font-size: 12px;
   font-weight: 600;
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1523,7 +1519,7 @@ rect.legend-mouseover-inactive,
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
   opacity: 0.45;
   pointer-events: none;
 }
@@ -1540,7 +1536,7 @@ rect.legend-mouseover-inactive,
    shift; the skeleton itself is a quiet tinted block. Deliberately not
    animated: a shimmering grid of 200 placeholders is noise. */
 .apexcharts-trellis-panel.apexcharts-trellis-skeleton {
-  background: var(--apx-fore, #373d3f);
+  background: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
   opacity: 0.05;
   border-radius: 4px;
 }
@@ -1568,7 +1564,7 @@ rect.legend-mouseover-inactive,
   opacity: 0;
   transition: opacity 0.1s ease;
   background: var(--apx-bg, #fff);
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
   border: 1px solid rgba(120, 120, 120, 0.25);
   border-radius: 5px;
   box-shadow: 2px 2px 6px -4px rgba(0, 0, 0, 0.4);
@@ -1645,7 +1641,7 @@ rect.legend-mouseover-inactive,
   gap: 6px;
   font-size: 12px;
   padding: 2px 0 6px;
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
 }
 .apexcharts-trellis-breadcrumb-back {
   border: none;
@@ -1690,7 +1686,7 @@ rect.legend-mouseover-inactive,
   padding: 5px 8px;
   border-radius: 3px;
   cursor: pointer;
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
 }
 .apexcharts-trellis-menu-item:hover {
   background: rgba(120, 120, 120, 0.12);
@@ -1713,7 +1709,7 @@ rect.legend-mouseover-inactive,
   line-height: 0;
 }
 .apexcharts-trellis-tool:hover {
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
 }
 .apexcharts-trellis-tool.apexcharts-selected {
   color: var(--apx-accent, #008ffb);
@@ -1740,7 +1736,7 @@ rect.legend-mouseover-inactive,
 }
 .apexcharts-trellis-legend-item .apexcharts-legend-text {
   font-size: 12px;
-  color: var(--apx-fore, #373d3f);
+  color: var(--apx-fore, var(--apx-trellis-fore, #373d3f));
 }
 .apexcharts-trellis-legend-item.apexcharts-inactive-legend {
   opacity: 0.45;

@@ -52,9 +52,25 @@ type ApexFormatterOpts = {
   dataPointIndex: number
   series?: any[][]
   w: ApexChartContext
+  /**
+   * Highlight filter, on a pie, donut or polarArea slice's label, a treemap
+   * tile's label and a slice's tooltip row: the part, its whole and the
+   * share (see ApexHighlightInfo).
+   */
+  highlight?: ApexHighlightInfo
   // Some formatter call sites spread extra state into the opts object (e.g.
   // the bar total-label formatter spreads `w`), so allow arbitrary reads.
   [key: string]: any
+}
+
+/**
+ * Opts object passed to `dataLabels.formatter`. The labels drawn at a point
+ * (line, area, rangeArea, scatter, bubble, radar) also get `ctx`, the chart
+ * instance.
+ */
+type ApexDataLabelsFormatterOpts = ApexFormatterOpts & {
+  /** The chart instance, on the labels drawn at a point. */
+  ctx?: ApexCharts
 }
 
 /**
@@ -80,6 +96,8 @@ type ApexColorFormatterOpts = {
  * matrix; `y1`/`y2` are populated for range-bar / range-area tooltips.
  */
 type ApexTooltipCustomOpts = {
+  /** The chart instance the tooltip belongs to. */
+  ctx?: ApexCharts
   series: number[][]
   seriesIndex: number
   dataPointIndex: number
@@ -199,6 +217,9 @@ declare class ApexCharts {
    * chart.updateOptions({ chart: { type: 'unit' }, series: chart.rowSeries() })
    * ```
    *
+   * The unit type is not in the default bundle since 8.0, so the page needs
+   * `import 'apexcharts/unit'` (or `dist/unit.js`, or the full bundle) first.
+   *
    * With the `morph` feature loaded, each dot then leaves from the part of the
    * mark that was standing for it, and collapsing back is the inverse.
    *
@@ -282,19 +303,22 @@ declare class ApexCharts {
 
   /**
    * Drills into the child level referenced by `id` (a `drilldown.series` entry).
-   * Requires the Drilldown feature: import 'apexcharts/features/drilldown'.
+   * Requires the Drilldown feature, not in the default bundle since 8.0:
+   * import 'apexcharts/features/drilldown' (or the full bundle).
    */
   drillDown(id: string | number): Promise<ApexCharts>
 
   /**
    * Navigates back one drilldown level.
-   * Requires the Drilldown feature: import 'apexcharts/features/drilldown'.
+   * Requires the Drilldown feature, not in the default bundle since 8.0:
+   * import 'apexcharts/features/drilldown' (or the full bundle).
    */
   drillUp(): Promise<ApexCharts>
 
   /**
    * Navigates back to the root drilldown level.
-   * Requires the Drilldown feature: import 'apexcharts/features/drilldown'.
+   * Requires the Drilldown feature, not in the default bundle since 8.0:
+   * import 'apexcharts/features/drilldown' (or the full bundle).
    */
   drillToRoot(): Promise<ApexCharts>
 
@@ -302,7 +326,7 @@ declare class ApexCharts {
    * Drops levels cached from `drilldown.onDrillDown`, so the next drill re-runs
    * the resolver. Call it when the data behind an already-drilled chart
    * changes. Omit `id` to clear every level.
-   * Requires the Drilldown feature.
+   * Requires the Drilldown feature, not in the default bundle since 8.0.
    */
   clearDrilldownCache(id?: string | number): ApexCharts
 
@@ -438,7 +462,7 @@ declare class ApexCharts {
   /**
    * Registers a custom series type (Marks #11): a `{ renderItem }` definition
    * that draws primitives per datum. Requires the Marks feature to be bundled
-   * (`import 'apexcharts/features/marks'`, included in the full bundle).
+   * (`import 'apexcharts/features/marks'`, included in the default bundle).
    * Once registered, reference it via `series[].type` or `chart.type`.
    * Re-registering a custom name replaces it; a built-in chart type name is
    * rejected with a console warning (the registry is global, so shadowing a
@@ -621,6 +645,33 @@ declare class ApexCharts {
     list(): { id: string; name: string; token: ApexPerspective }[]
     delete(id: string): void
   }
+
+  /**
+   * Highlight filter: each value drawn faded with a part of it solid in
+   * front. Requires the highlight-filter feature, which is NOT in the default
+   * bundle: `import 'apexcharts/features/highlight-filter'`, or add
+   * `dist/features/highlight-filter.js` after apexcharts.js on a script-tag
+   * page. Without it `chart.highlightFilter` is null.
+   */
+  highlightFilter: {
+    /** True when this chart is drawing parts. */
+    isActive(): boolean
+    /** The part at a datum, or null. On a pie, donut or polarArea the slice is the series and `dataPointIndex` is ignored. */
+    valueAt(seriesIndex: number, dataPointIndex?: number): number | null
+    /**
+     * Set the parts and redraw: one row per series (null where a datum has no
+     * part), one value per slice (or ring) on a pie, donut, polarArea,
+     * radialBar or gauge, or a function of the datum. On those a row of one
+     * value reads as that value; a longer row is ignored with a warning.
+     * Resolves when the update is drawn.
+     */
+    set(
+      parts: ApexHighlightParts,
+      opts?: { animate?: boolean; series?: ApexAxisChartSeries },
+    ): Promise<ApexCharts>
+    /** Remove every part and redraw the plain chart. */
+    clear(opts?: { animate?: boolean }): Promise<ApexCharts>
+  } | null
 
   /**
    * Storyboard: scroll-driven chart choreography (scrollytelling). Beats are
@@ -836,6 +887,62 @@ interface ApexPluginAPI {
   layer(opts?: { z?: 'front' | 'behind'; className?: string }): ApexPluginLayer
   readonly scales: ApexPluginScales | null
   readonly data: ApexPluginSeries[]
+  /**
+   * What kind of chart this is, for a plugin deciding whether it applies here
+   * at all. The alternative to asking is adding a series and letting the core
+   * warn at the user.
+   *
+   * @since Weave v2 (`title` since v6)
+   */
+  readonly info: ApexPluginChartInfo
+  /**
+   * Declare which series on this chart are the plugin's rather than the
+   * caller's.
+   *
+   * The core cannot tell them apart, and several behaviours depend on the
+   * distinction: today the host keeps them out of the initial-series snapshot,
+   * so `resetSeries()` and the toolbar's reset give the caller their own data
+   * back rather than the plugin's output. It is also what puts the plugin's
+   * name on those series in `drawn()`, so a reader can be told whose they are.
+   *
+   * Idempotent. Pass an empty array when the plugin's series are gone.
+   *
+   * @since Weave v2
+   */
+  markDerived(names: string[]): ApexPluginAPI
+  /**
+   * Reserve space inside the chart's container for the plugin's own UI.
+   *
+   * A plugin that renders beside the chart cannot make room for itself: the
+   * chart sizes from the element the caller handed it, so a sibling inserted
+   * there does not narrow it. The host does the arithmetic instead. The
+   * container keeps its size and the chart draws inside what is left.
+   *
+   * Reservations are per plugin and summed, so two plugins each asking for a
+   * right-hand gutter get one each. Call again to change the amount, and pass
+   * `null` (or all zeros) to give the space back; an unchanged box does
+   * nothing, so calling this on every render is free. The total is clamped so
+   * the chart keeps at least half the container on each axis.
+   *
+   * @since Weave v3
+   */
+  reserve(box?: { left?: number; right?: number; top?: number; bottom?: number } | null): ApexPluginAPI
+  /**
+   * Subscribe to the data point a viewer is pointing at.
+   *
+   * The chart has already resolved this for its own tooltip, so this forwards
+   * the host's answer rather than leaving a plugin to hit-test the SVG and
+   * disagree with it. Nothing here can intercept or cancel: the tooltip,
+   * selection state and the caller's own events are unaffected.
+   *
+   * `category` is the resolved display label rather than an index, because a
+   * plugin coordinating two charts keys on the label; an index means something
+   * different on each chart.
+   *
+   * @returns unsubscribe
+   * @since Weave v4 (`modifiers` since v6)
+   */
+  pointer(fn: (e: ApexPluginPointerEvent) => void): () => void
   theme: {
     readonly mode: string
     readonly foreColor: string
@@ -850,6 +957,152 @@ interface ApexPluginAPI {
    */
   emit(name: string, detail?: any): void
   readonly el: Element
+  /**
+   * What this host supports, for a plugin that has to run against older ones
+   * too. A plugin targeting several hosts declares the lowest `apiVersion` it
+   * can run on (a newer one is skipped outright) and asks this for the rest.
+   *
+   * @since Weave v6
+   */
+  can(name: string): boolean
+  /** The same list, for logging and support. Frozen. @since Weave v6 */
+  readonly capabilities: readonly string[]
+  /**
+   * Set a positional option for your own series without writing the caller's
+   * config.
+   *
+   * Options like `stroke.dashArray` are indexed by series position with no
+   * per-series alternative, so setting one for a single series has meant
+   * writing the whole array and restoring the caller's afterwards. A claim is
+   * resolved where the option is READ instead: nothing is written, releasing is
+   * a deletion rather than a restore, and a caller's own `updateOptions`
+   * composes with the claim instead of being reverted by it.
+   *
+   * Name the series rather than its position where you can: the name is
+   * resolved each time the option is read, so the claim follows that series
+   * when others are added, removed or reordered.
+   *
+   * Returns null for an option that is not claimable, so a plugin written
+   * against a newer host degrades instead of throwing. Every claim is released
+   * on teardown, on destroy, and if the host disables the plugin.
+   *
+   * @since Weave v6
+   */
+  claim(
+    option: 'stroke.dashArray' | 'dataLabels.enabledOnSeries' | (string & {}),
+    entries: Array<{ series: string | number; value: any }>
+  ): ApexPluginClaim | null
+  /**
+   * Everything drawn on this chart, including other features' output: the
+   * series, the caller's annotations (ink strokes among them), and whatever
+   * plugins have declared.
+   *
+   * Read only. Every entry names its `owner`, because the list is only as
+   * complete as the features that opted in, and a reader should be able to say
+   * what it covers rather than assume it is exhaustive.
+   *
+   * @since Weave v6
+   */
+  drawn(): ReadonlyArray<ApexDrawnItem>
+  /**
+   * Say what this plugin has drawn, so it appears in `drawn()`. Declare from
+   * your draw handler: declarations are cleared with the layers at the start of
+   * every draw, so an inventory cannot outlive what it describes.
+   *
+   * @since Weave v6
+   */
+  declare(item: { id: string; label?: string; visible?: boolean }): ApexPluginAPI
+}
+
+/** The shape of the chart a plugin is attached to. @since Weave v2 */
+interface ApexPluginChartInfo {
+  /**
+   * The type the caller ASKED for, which survives the aliasing that rewrites
+   * e.g. raincloud to violin.
+   */
+  readonly type: string
+  /** False for pie, donut and radialBar, where `data` is one value per slice. */
+  readonly axisChart: boolean
+  readonly datetimeX: boolean
+  /**
+   * The core refuses to draw a horizontal bar in a combo, so a plugin must not
+   * add a derived series to one.
+   */
+  readonly horizontalBars: boolean
+  /**
+   * Whether the chart prints a value on each point, and which series it prints
+   * them for. A plugin that ADDS a series needs both: there is no per-series
+   * `dataLabels` flag, so `enabledOnSeries` is the only way to keep labels off
+   * a computed series, and narrowing it without knowing the caller's own value
+   * would silently discard it.
+   */
+  readonly dataLabels: {
+    readonly enabled: boolean
+    /** Null when the caller set no list. */
+    readonly enabledOnSeries: number[] | null
+  }
+  readonly stroke: {
+    /**
+     * The caller's own dashing. A scalar applies to every series, an array is
+     * per series, and 0 means none, so there is no "unset" to report.
+     */
+    readonly dashArray: number | number[]
+  }
+  /**
+   * What the chart calls itself, where the caller titled it. For a plugin that
+   * has to NAME this chart to somebody: a page-level readout otherwise has only
+   * the container's id, which is a string written for a stylesheet.
+   *
+   * Empty string rather than undefined for an untitled chart, so it can be used
+   * directly in a template.
+   *
+   * @since Weave v6
+   */
+  readonly title: string
+}
+
+/** A viewer pointing at a data point. @since Weave v4 */
+interface ApexPluginPointerEvent {
+  readonly type: 'enter' | 'leave' | 'select'
+  readonly seriesIndex: number
+  readonly dataPointIndex: number
+  /** The resolved display label, the same string `api.categories` carries. */
+  readonly category: string | undefined
+  readonly seriesName: string | undefined
+  readonly selected: boolean | undefined
+  /**
+   * The keys held during the interaction, for the gestures that need them.
+   * All four are false when the interaction came from somewhere with no DOM
+   * event, such as the keyboard.
+   *
+   * @since Weave v6
+   */
+  readonly modifiers: {
+    readonly shift: boolean
+    readonly ctrl: boolean
+    readonly alt: boolean
+    readonly meta: boolean
+  }
+}
+
+/** One thing drawn on a chart. @since Weave v6 */
+interface ApexDrawnItem {
+  /** Stable within this chart, opaque to readers. */
+  readonly id: string
+  readonly kind: 'series' | 'annotation' | 'overlay'
+  /** A human name where one exists. */
+  readonly label: string
+  /** 'core', or the plugin that put it there. */
+  readonly owner: string
+  readonly visible: boolean
+}
+
+/** A live claim over one positional option. @since Weave v6 */
+interface ApexPluginClaim {
+  /** Drop the claim. Idempotent. */
+  release(): void
+  /** Replace this claim's entries, keeping its place in the resolution order. */
+  update(entries: Array<{ series: string | number; value: any }>): void
 }
 
 interface ApexPlugin {
@@ -936,11 +1189,21 @@ interface ApexSeriesTypeDef {
 
 declare namespace ApexCharts {
   export interface ChartState {
+    /**
+     * The merged options: library defaults, then `window.Apex`, then what was
+     * passed in, with the chart-type defaults and any alias rewrite applied.
+     * Every branch is still optional here, as it is on the way in, so read it
+     * with `?.`: this reports what the chart was configured with, not a
+     * promise that a given leaf was resolved to a value.
+     */
+    config: ApexOptions
     // Series data — computed/parsed form used for rendering
     series: number[][] | any[]
-    seriesNames: string[]
+    /** Numeric where the series were named with numbers. */
+    seriesNames: (string | number)[]
     colors: string[]
-    labels: string[]
+    /** Numeric on a numeric or datetime axis, where labels are tick values. */
+    labels: (string | number)[]
     seriesTotals: number[]
     seriesPercent: number[][]
     seriesXvalues: number[][]
@@ -1122,11 +1385,20 @@ declare namespace ApexCharts {
      */
     colors?: Array<string | ((opts: ApexColorFormatterOpts) => string)>
     dataLabels?: ApexDataLabels
-    /** Opt-in drilldown navigation. Requires `import 'apexcharts/features/drilldown'`. */
+    /**
+     * Opt-in drilldown navigation. Not in the default bundle since 8.0: `import 'apexcharts/features/drilldown'`, or load `dist/features/drilldown.js` after the ApexCharts script, or use the full bundle.
+     */
     drilldown?: ApexDrilldown
     fill?: ApexFill
     forecastDataPoints?: ApexForecastDataPoints
     grid?: ApexGrid
+    /**
+     * Draw each value faded and a part of it solid in front, from the same
+     * baseline. The part comes with the data: `highlight` on a point or
+     * `highlightData` on a series. Requires
+     * `import 'apexcharts/features/highlight-filter'`.
+     */
+    highlightFilter?: ApexHighlightFilter
     labels?: string[]
     legend?: ApexLegend
     markers?: ApexMarkers
@@ -1163,6 +1435,9 @@ declare namespace ApexCharts {
   export type { ApexDataLabels }
   export type { ApexFill }
   export type { ApexForecastDataPoints }
+  export type { ApexHighlightFilter }
+  export type { ApexHighlightParts }
+  export type { ApexHighlightInfo }
   export type { ApexGrid }
   export type { ApexLegend }
   export type { ApexMarkers }
@@ -1184,6 +1459,7 @@ declare namespace ApexCharts {
   export type { ApexChartContext }
   export type { ApexChartEventOpts }
   export type { ApexFormatterOpts }
+  export type { ApexDataLabelsFormatterOpts }
   export type { ApexLegendFormatterOpts }
   export type { ApexColorFormatterOpts }
   export type { ApexTooltipCustomOpts }
@@ -1210,6 +1486,11 @@ declare namespace ApexCharts {
  * pixel-aligned plot rectangles, the color-by-series-name map, the headers,
  * one legend, one toolbar and the responsive column count. Series WITHOUT the
  * facet key repeat in every panel (reference series).
+ *
+ * To turn a trellis back into a single chart, pass `trellis: null` (or
+ * `trellis: { by: null }`) to updateOptions. Leaving the key OUT of the options
+ * keeps the grid: updateOptions merges, so an absent key never resets its
+ * option, here or anywhere else.
  */
 type ApexTrellis = {
   /**
@@ -1260,6 +1541,13 @@ type ApexTrellis = {
   aspectRatio?: number
   /** Explicit panel height in px; wins over aspectRatio and chart.height. */
   panelHeight?: number
+  /**
+   * Floor for a height-derived panel, px. Default 80. Below this a panel
+   * stops being readable, so a grid that cannot fit its container overflows
+   * (and warns) rather than shrink past it. Lower it when fitting a short
+   * container matters more than panel legibility.
+   */
+  minPanelHeight?: number
   /** Panel order. Default 'first-seen'. */
   order?:
     | 'first-seen'
@@ -1323,8 +1611,10 @@ type ApexTrellis = {
   zoom?: 'sync' | 'none'
   /**
    * Clicking a cell's header expands that panel to the grid's full width,
-   * with an "All panels" breadcrumb back (default true). Also available as
-   * chart.promotePanel(key) / chart.restorePanels().
+   * with an "All panels" breadcrumb back. Default false: an embedded trellis
+   * is usually read rather than driven, so headers are inert unless you ask
+   * for the interaction. `chart.promotePanel(key)` / `chart.restorePanels()`
+   * work either way.
    */
   promote?: boolean
   /**
@@ -1407,6 +1697,8 @@ type ApexChart = {
   | 'line'
   | 'area'
   | 'bar'
+  /** A synonym for `'bar'`; rewritten to it on the way in. */
+  | 'column'
   | 'pie'
   | 'donut'
   | 'radialBar'
@@ -1415,20 +1707,28 @@ type ApexChart = {
   | 'heatmap'
   | 'candlestick'
   | 'boxPlot'
+  /** Not in the default bundle since 8.0: `import 'apexcharts/violin'`, or load `dist/violin.js` after the ApexCharts script, or use the full bundle. */
   | 'violin'
   | 'histogram'
   | 'radar'
   | 'polarArea'
   | 'rangeBar'
   | 'rangeArea'
+  /** Not in the default bundle since 8.0: `import 'apexcharts/features/waterfall'`, or load `dist/features/waterfall.js` after the ApexCharts script, or use the full bundle. */
   | 'waterfall'
+  /** Not in the default bundle since 8.0: `import 'apexcharts/features/dumbbell'`, or load `dist/features/dumbbell.js` after the ApexCharts script, or use the full bundle. */
   | 'dumbbell'
+  /** Not in the default bundle since 8.0: `import 'apexcharts/features/streamgraph'`, or load `dist/features/streamgraph.js` after the ApexCharts script, or use the full bundle. */
   | 'streamgraph'
   | 'raincloud'
   | 'treemap'
+  /** Not in the default bundle since 8.0: `import 'apexcharts/unit'`, or load `dist/unit.js` after the ApexCharts script, or use the full bundle. */
   | 'unit'
+  /** An alias of `'unit'`, so also not in the default bundle since 8.0: `import 'apexcharts/unit'`, or load `dist/unit.js` after the ApexCharts script, or use the full bundle. */
   | 'waffle'
+  /** Not in the default bundle since 8.0: `import 'apexcharts/sunburst'`, or load `dist/sunburst.js` after the ApexCharts script, or use the full bundle. */
   | 'sunburst'
+  | 'icicle'
   | 'funnel'
   | 'pyramid'
   | 'gauge'
@@ -1491,6 +1791,8 @@ type ApexChart = {
      * (active filters, filtered/total counts), the source chartID, and the key.
      */
     filterChange?(chart: ApexCharts, options?: { filters: Record<string, any>; filteredCount: number; total: number; sourceChartID?: string; key?: any }): void
+    /** The highlight filter's parts arrived ('enter'), changed ('update') or were removed ('clear'); fires once that render is drawn. */
+    highlightFilterChanged?(chart: ApexCharts, options: { active: boolean; phase: 'enter' | 'update' | 'clear' }): void
     /**
      * Ink Layer (#7): fired after an annotation is dragged or resized. `options`
      * carries the annotation type ('point' | 'xaxis' | 'yaxis'), id/index, and
@@ -1878,6 +2180,17 @@ type ApexChart = {
      * @default 'auto'
      */
     pinch?: boolean | 'auto'
+    /**
+     * The way back out of a zoom on a chart whose toolbar is hidden. While the
+     * chart is zoomed and nothing else on screen can reset it, one reset
+     * control is drawn where the toolbar would have been, and it goes when the
+     * range does; `Escape` resets the zoom as well. `'auto'` supplies both only
+     * where there is no reset button already, `true` also forces the control on
+     * where `toolbar.tools.reset` is off, and `false` turns both off for a page
+     * that supplies its own reset. Requires `enabled: true`.
+     * @default 'auto'
+     */
+    resetControl?: boolean | 'auto'
     zoomedArea?: {
       fill?: {
         color?: string
@@ -1977,8 +2290,15 @@ type ApexChart = {
     }
     /**
      * When true (default), honors the OS-level prefers-reduced-motion media
-     * query — all initial-mount animations are skipped and the chart renders
-     * instantly. Set to false to override (e.g. for QA / demo screens).
+     * query: BOTH `animations.enabled` and `animations.dynamicAnimation.enabled`
+     * are forced off while it matches, so neither the initial mount nor a data
+     * update animates and the chart renders instantly.
+     *
+     * Set to false to animate regardless (a kiosk display, a screen-recording
+     * rig, a QA harness). Since 7.5.2 that also opts the chart out of the
+     * stylesheet's reduced-motion rules, via an `apexcharts-ignore-reduced-motion`
+     * class on the canvas; before then the flag reached only the JS tweens and
+     * CSS-driven motion stayed flattened.
      */
     respectReducedMotion?: boolean
     /**
@@ -2110,16 +2430,49 @@ type ApexHierarchyNode = {
    * `plotOptions.treemap.nested.drilldownAsLevels`).
    */
   drilldown?: string | number
+  /**
+   * Highlight filter (`treemap`): the part of this leaf's value to draw
+   * solid over its faded tile. On a branch it is ignored, with a warning: a
+   * branch adds up its leaves' parts (`node.highlight` in the header and
+   * parent tooltip formatters).
+   */
+  highlight?: number | null
+}
+
+/**
+ * A branch of a nested treemap as the header and parent tooltip formatters
+ * are handed it. With a highlight, `highlight` adds up its leaves' parts
+ * against the branch's total.
+ */
+type ApexTreemapNode = {
+  name: string
+  value: number
+  depth?: number
+  children?: ApexTreemapNode[]
+  highlight?: ApexHighlightInfo
+  [key: string]: any
 }
 
 type ApexAxisChartSeries = {
- name?: string
+ /**
+  * The series' display name. A number is accepted (and kept as one): it
+  * renders, legends, and reaches the `seriesName` attribute like any other
+  * name, so a year or an id needs no `String()` on the way in.
+  */
+ name?: string | number
  type?: string
  color?: string
  group?: string
  hidden?: boolean
  zIndex?: number
  parsing?: ApexParsing;
+ /**
+  * Highlight filter: the part of each value to draw solid over the faded
+  * whole, parallel to `data` (null where a datum has none). A point's own
+  * `highlight` wins. Requires the highlight-filter feature. A nested
+  * treemap ignores it (with a warning): put `highlight` on each leaf.
+  */
+ highlightData?: (number | null)[]
  /**
   * Trellis facet key: which panel this series belongs to. The blessed typed
   * field for `trellis.by: 'facet'`; any other key name works from plain JS,
@@ -2183,6 +2536,11 @@ type ApexAxisChartSeries = {
    }[];
    barHeightOffset?: number;
    columnWidthOffset?: number;
+   /**
+    * Highlight filter: the part of `y` to draw solid over the faded whole.
+    * May be larger than `y` (an average) or of the other sign.
+    */
+   highlight?: number | null;
  }[]
  | [number, number | null][]
  | [number, (number | null)[]][]
@@ -2441,6 +2799,11 @@ type ApexLocale = {
       exportToPNG?: string
       exportToCSV?: string
     }
+    /** The highlight filter add-on's words. */
+    highlightFilter?: {
+      /** Names the part beside the whole on a ring's whole lane (tooltip.formatter). Default 'part'. */
+      part?: string
+    }
   }
 }
 
@@ -2561,7 +2924,7 @@ type ApexTreemapLevel = {
         value: number
         depth: number
         seriesIndex: number
-        node: any
+        node: ApexTreemapNode
         w: any
       },
     ): string
@@ -2656,6 +3019,12 @@ type ApexPlotOptions = {
     distributed?: boolean
     borderRadius?: number;
     borderRadiusApplication?: 'around' | 'end';
+    /**
+     * Which segments of a stack round. 'all' (default) caps both ends of the
+     * stack, the baseline and the far end; 'last' caps only the far end so
+     * the stack sits square on the baseline. Stacked bar/column only.
+     */
+    borderRadiusWhenStacked?: 'all' | 'last';
     hideZeroBarsWhenGrouped?: boolean
     rangeBarOverlap?: boolean
     rangeBarGroupRows?: boolean
@@ -2801,6 +3170,7 @@ type ApexPlotOptions = {
       }
     }
   }
+  /** The violin chart. Not in the default bundle since 8.0: `import 'apexcharts/violin'`, or load `dist/violin.js` after the ApexCharts script, or use the full bundle. */
   violin?: {
     /**
      * Multiplies the density-derived half-width. 1 maps the density's own
@@ -2998,6 +3368,7 @@ type ApexPlotOptions = {
       gradientLegend?: ApexGradientLegend
     }
   }
+  /** `chart.type: 'waterfall'`. Not in the default bundle since 8.0: `import 'apexcharts/features/waterfall'`, or load `dist/features/waterfall.js` after the ApexCharts script, or use the full bundle. */
   waterfall?: {
     /**
      * Semantic fills for the three kinds of bar. A datum's own `fillColor`
@@ -3032,6 +3403,7 @@ type ApexPlotOptions = {
       strokeDashArray?: number
     }
   }
+  /** `chart.type: 'streamgraph'`. Not in the default bundle since 8.0: `import 'apexcharts/features/streamgraph'`, or load `dist/features/streamgraph.js` after the ApexCharts script, or use the full bundle. */
   streamgraph?: {
     /**
      * Where the baseline goes.
@@ -3242,7 +3614,7 @@ type ApexPlotOptions = {
           leafCount: number
           percentOfParent: number
           percentOfTotal: number
-          node: any
+          node: ApexTreemapNode
           w: any
         }): string
       }
@@ -3291,6 +3663,7 @@ type ApexPlotOptions = {
       },
     }
   }
+  /** The unit chart. Not in the default bundle since 8.0: `import 'apexcharts/unit'`, or load `dist/unit.js` after the ApexCharts script, or use the full bundle. */
   unit?: {
     /**
      * 'grouped' (default): each category is its own cluster, laid out in a row.
@@ -3734,7 +4107,15 @@ type ApexPlotOptions = {
           fontWeight?: string | number
           color?: string
           offsetY?: number
-          formatter?(val: number | string): string
+          /**
+           * `opts.highlight` is the highlight filter's part, whole and share
+           * of the slice shown (undefined without a highlight).
+           */
+          formatter?(
+            val: number | string,
+            w?: ApexChartContext,
+            opts?: { highlight?: ApexHighlightInfo },
+          ): string
         }
         total?: {
           show?: boolean
@@ -3744,7 +4125,15 @@ type ApexPlotOptions = {
           fontSize?: string
           label?: string
           color?: string
-          formatter?(w: ApexChartContext): string
+          /**
+           * With a highlight, `w.globals.seriesTotals` reads the parts while
+           * this runs (unless `highlightFilter.dataLabels.total` is 'whole'),
+           * and `opts.highlight` sums the parts against the wholes.
+           */
+          formatter?(
+            w: ApexChartContext,
+            opts?: { highlight?: ApexHighlightInfo },
+          ): string
         }
       }
     }
@@ -3760,10 +4149,90 @@ type ApexPlotOptions = {
     };
   }
   /**
+   * Icicle (cartesian partition). One band per hierarchy level, each child cell
+   * nested inside its parent's extent along the value axis: the sunburst's
+   * layout in cartesian coordinates. Accepts a native `children` hierarchy or an
+   * existing `drilldown` config (adapter).
+   *
+   * Opt-in: `import ApexCharts from 'apexcharts/icicle'`, or load
+   * `dist/icicle.js` after the core script.
+   */
+  icicle?: {
+    /**
+     * Which way the tree grows from the root. 'down' (default) puts the root
+     * band on top; 'up' puts it at the bottom, the flame-graph orientation;
+     * 'right'/'left' grow sideways.
+     */
+    direction?: 'down' | 'up' | 'right' | 'left'
+    /**
+     * Thickness of one depth band: 'equal' divides the depth axis by the
+     * deepest visible level, a number is px, a '%' string is a share of the
+     * depth axis.
+     */
+    levelSize?: 'equal' | number | string
+    /**
+     * How many levels to draw, counting the focused one. 'auto' (default) draws
+     * the whole tree. A number keeps the top levels readable on a very deep
+     * tree; branches cut that way are marked and zoom in to reveal.
+     */
+    maxDepth?: 'auto' | number
+    /** Gap between adjacent cells (px), same semantics as pie spacing. */
+    spacing?: number
+    /** Corner rounding of each cell (px), same semantics as pie borderRadius. */
+    borderRadius?: number
+    /**
+     * A branch that bottoms out early ends at its own band ('stop', default,
+     * leaving the white space that shows how deep each branch goes) or
+     * stretches to the far edge ('extend').
+     */
+    leaf?: 'extend' | 'stop'
+    /** Partition of a parent's extent among its children. */
+    partition?: 'normalize' | 'strict'
+    /**
+     * Sibling order within a parent. 'name' is the flame-graph convention: it
+     * holds a frame in the same place across profiles, so two runs of the same
+     * program can be compared by eye.
+     */
+    sort?: 'none' | 'value' | 'name'
+    /** Per-depth lightening of the parent colour (0 = same, 1 = white). */
+    tint?: number
+    /** Click a cell to zoom into its branch (breadcrumb to go back). Default true. */
+    zoomOnClick?: boolean
+    /**
+     * What a zoom changes, the partition equivalent of `chart.zoom.type`.
+     * 'value' (default) rescales the value axis only, so the branch stretches
+     * to fill the width and every level stays where it was. 'both' also
+     * re-bands the depth axis, promoting the branch to the top level.
+     */
+    zoomType?: 'value' | 'both'
+    dataLabels?: {
+      show?: boolean
+      /** Hide the label on any cell shorter than this (px) along the reading direction. */
+      minSizeToShow?: number
+      /** Along the reading direction. Default 'center'; a flame graph wants 'left'. */
+      align?: 'left' | 'center' | 'right'
+      /**
+       * 'auto' (default) turns the label a quarter turn on a cell taller than
+       * it is wide; 'always' turns every label (a turned label reads across the
+       * band thickness, so it suits short names); 'never' keeps them flat.
+       */
+      rotate?: 'auto' | 'always' | 'never'
+      showValue?: boolean
+      style?: {
+        fontSize?: string
+        fontFamily?: string
+        fontWeight?: string | number
+        colors?: string[]
+      }
+    }
+  }
+  /**
    * Sunburst / nested pie-donut (hierarchical radial). Rings go from the centre
    * hole outward, one per hierarchy level; each child arc is nested inside its
    * parent's angular wedge. Accepts a native `children` hierarchy or an existing
    * `drilldown` config (adapter).
+   *
+   * Not in the default bundle since 8.0: `import 'apexcharts/sunburst'`, or load `dist/sunburst.js` after the ApexCharts script, or use the full bundle.
    */
   sunburst?: {
     offsetX?: number
@@ -3942,7 +4411,19 @@ type ApexPlotOptions = {
         fontWeight?: string | number
         color?: string
         offsetY?: number
-        formatter?(val: number): string
+        /**
+         * `opts.highlight` is the highlight filter's part, whole and share
+         * of the ring shown (undefined without a highlight). With
+         * `highlightFilter.radialBar.indicator` 'lanes' it is also called
+         * for the muted line under the value, with the whole and
+         * `opts.lane: 'whole'`; what it returns there is that line, or,
+         * when it returns the same as without the lane, "/ " before it.
+         */
+        formatter?(
+          val: number,
+          w?: ApexChartContext,
+          opts?: { highlight?: ApexHighlightInfo; lane?: 'whole' },
+        ): string
       }
       total?: {
         show?: boolean
@@ -3951,7 +4432,17 @@ type ApexPlotOptions = {
         fontFamily?: string
         fontWeight?: string | number
         fontSize?: string
-        formatter?(w: ApexChartContext): string
+        /**
+         * With a highlight, `w.globals.seriesTotals` reads the parts while
+         * this runs (unless `highlightFilter.dataLabels.total` is 'whole'),
+         * and `opts.highlight` sums the parts against the wholes. In lanes
+         * it is also called for the line under it, with the wholes in
+         * `seriesTotals` and `opts.lane: 'whole'` (see the value's).
+         */
+        formatter?(
+          w: ApexChartContext,
+          opts?: { highlight?: ApexHighlightInfo; lane?: 'whole' },
+        ): string
       }
     }
     barLabels?: {
@@ -4128,6 +4619,41 @@ type ApexDataLabels = {
   textAnchor?: 'start' | 'middle' | 'end'
   distributed?: boolean
   /**
+   * Nudge data labels apart when they land on each other, across series as
+   * well as within one. On by default; set `false` to place every label
+   * strictly at its own mark, overlapping or not.
+   *
+   * Labels separate along the value axis, so a horizontal bar's labels move
+   * left/right and everything else moves up/down. A pair that cannot be
+   * separated within `maxShift` is left overlapping unless `hide` is set.
+   *
+   * This matters most on multi-axis charts, where the two axes are scaled
+   * independently and so two labels can share a pixel row no matter how far
+   * apart their values are, and on dense bar/waterfall charts whose labels are
+   * wider than their bars.
+   *
+   * Rotated labels (`plotOptions.bar.dataLabels.orientation: 'vertical'`) are
+   * avoided but never moved, and radial types (pie, donut, polarArea,
+   * radialBar, radar) are left to their own label placement.
+   */
+  avoidOverlap?:
+    | boolean
+    | {
+        /** Clear space left between two separated labels, in px. Default 2. */
+        gap?: number
+        /**
+         * How far a label may travel from its own mark. Defaults to roughly
+         * the label's own size along the axis it is separated on.
+         */
+        maxShift?: number
+        /**
+         * Drop a label that still collides once both it and its neighbour have
+         * spent their budget, later-drawn first. Default `false`: an
+         * unseparated overlap is left alone rather than a value removed.
+         */
+        hide?: boolean
+      }
+  /**
    * Horizontal offset of the label. Pass a function to vary the offset per
    * data point, e.g. to separate labels that would otherwise overlap.
    * The function must be pure, as it may be called more than once per label.
@@ -4143,7 +4669,12 @@ type ApexDataLabels = {
     fontSize?: string
     fontFamily?: string
     fontWeight?: string | number
-    colors?: string[]
+    /**
+     * One colour per series (per data point when `distributed` is set). An
+     * entry may be a function, resolved per label, which is how a colour can
+     * follow the theme or the value it is printing.
+     */
+    colors?: (string | ((opts: ApexFormatterOpts) => string))[]
   }
   background?: {
     enabled?: boolean
@@ -4174,7 +4705,7 @@ type ApexDataLabels = {
   countUp?: {
     enabled?: boolean
   }
-  formatter?(val: string | number | number[], opts?: ApexFormatterOpts): string | number | (string | number)[]
+  formatter?(val: string | number | number[], opts?: ApexDataLabelsFormatterOpts): string | number | (string | number)[]
 }
 
 type ApexResponsive = {
@@ -4186,7 +4717,11 @@ type ApexTooltipY = {
   title?: {
     formatter?(seriesName: string, opts?: ApexFormatterOpts): string
   }
-  formatter?(val: number, opts?: ApexFormatterOpts): string
+  /**
+   * `val` is `null` wherever the series has a gap, so guard before reaching
+   * for a number method: `(val) => val?.toFixed(2) ?? 'n/a'`.
+   */
+  formatter?(val: number | null, opts?: ApexFormatterOpts): string
 }
 
 /**
@@ -4197,9 +4732,17 @@ type ApexTooltip = {
   enabled?: boolean
   enabledOnSeries?: undefined | number[]
   shared?: boolean
+  /** Ignored while `interactive` is enabled. */
   followCursor?: boolean
   intersect?: boolean
   inverseOrder?: boolean
+  /**
+   * Keep the tooltip visible while it is hovered, allowing users to interact
+   * with links, buttons, and other controls returned by `custom`. When
+   * enabled, `followCursor` is ignored so the pointer can reach that content.
+   * @default false
+   */
+  interactive?: boolean
   arrow?: boolean
   /**
    * One tight line instead of a card: the x label sits inline before the
@@ -4324,8 +4867,16 @@ type ApexXAxis = {
   tickPlacement?: string
   tickAmount?: number | 'dataPoints'
   stepSize?: number
-  min?: number
-  max?: number
+  /**
+   * The window's lower bound. A `datetime` axis takes a timestamp, a date
+   * string or a `Date`: the same forms a point's `x` takes, parsed the same
+   * way. Any other axis takes a number (a numeric string converts). A value
+   * that cannot be read as a number is reported on the console and ignored,
+   * leaving the axis to scale to the data.
+   */
+  min?: number | string | Date
+  /** The window's upper bound; see `min` for the forms it accepts. */
+  max?: number | string | Date
   range?: number
   floating?: boolean
   decimalsInFloat?: number
@@ -4394,8 +4945,14 @@ type ApexYAxis = {
   stepSize?: number
   forceNiceScale?: boolean
   alignZero?: boolean
-  min?: number | ((min: number) => number)
-  max?: number | ((max: number) => number)
+  /**
+   * The axis floor. A numeric string converts; a function is called with the
+   * extent computed from the data. A value that cannot be read as a number is
+   * reported on the console and ignored, leaving the axis automatic.
+   */
+  min?: number | string | ((min: number) => number)
+  /** The axis ceiling; see `min` for the forms it accepts. */
+  max?: number | string | ((max: number) => number)
   floating?: boolean
   decimalsInFloat?: number
   labels?: {
@@ -4465,6 +5022,146 @@ type ApexForecastDataPoints = {
   strokeWidth?: undefined | number
   dashArray?: number
 }
+
+/**
+ * Highlight filter options. The parts themselves travel with the data.
+ */
+type ApexHighlightFilter = {
+  /** false keeps the parts in the data but draws the chart as usual. */
+  enabled?: boolean
+  /** Opacity of the faded whole. */
+  fadeOpacity?: number
+  /** The thin outline that keeps a faded whole readable; width 0 for none. */
+  outline?: { width?: number; opacity?: number }
+  /**
+   * How a first pick draws its parts: 'whole' starts each part as its whole
+   * and drains (or grows) to the part, 'baseline' rises from the baseline.
+   */
+  enter?: 'whole' | 'baseline'
+  /**
+   * A part outside the value axis: 'extend' stretches the axis to it,
+   * 'clamp' leaves the axis as the wholes set it.
+   */
+  axis?: 'extend' | 'clamp'
+  /**
+   * Pie, donut, polarArea, radialBar and gauge: one part per slice (or
+   * ring), parallel to the slices (null where a slice has none). A
+   * `highlight` on a slice's own point (`{ x, y, highlight }`) wins.
+   * Ignored, with a warning, while its length differs from the slice count.
+   * A row of one value (`[[40], [null]]`) reads as that value; a row of
+   * several is ignored, with a warning.
+   */
+  data?: (number | null)[] | [number | null][] | null
+  /**
+   * Data labels state the part ('part') or the whole ('whole'). `total` is
+   * the stacked total (the sum of the parts at the part stack's edge, or
+   * the whole stack's total) and the donut's centre total.
+   */
+  dataLabels?: { value?: 'part' | 'whole'; total?: 'part' | 'whole' }
+  /**
+   * Each tooltip row reads "part / whole" (the part bold, the whole muted),
+   * with a marker drawn half solid, half faded. `share` appends the part's
+   * share of the whole ("50 / 66 · 76%"). `formatter` returns the row's whole
+   * value text instead, as plain text or HTML. For a tooltip of your own, read
+   * the part in `tooltip.custom` with
+   * `opts.ctx.highlightFilter.valueAt(opts.seriesIndex, opts.dataPointIndex)`.
+   */
+  tooltip?: {
+    show?: boolean
+    share?: boolean
+    /**
+     * On a ring split in lanes, `opts.lane` says which lane is hovered:
+     * 'part' (the inner lane, whose default row reads "part / whole") or
+     * 'whole' (the outer lane, whose default row reads "whole (part p)";
+     * the word comes from the locale's `highlightFilter.part`, 'part' when
+     * the locale has none).
+     */
+    formatter?(
+      part: number | null,
+      whole: number | null,
+      opts: {
+        seriesIndex: number
+        dataPointIndex: number
+        w: any
+        lane?: 'part' | 'whole'
+      },
+    ): string
+  }
+  /**
+   * Line, spline and step line: the whole is drawn dashed (this dash, in
+   * px) at full strength instead of faded, with the part solid over it.
+   */
+  line?: { dashArray?: number }
+  /**
+   * Pie and donut: how a part's share sets its radius, from the centre or
+   * the hole. 'radius' is linear in the radius; 'area' makes the part's area
+   * its share of the slice's. polarArea always follows its own value scale.
+   */
+  pie?: { encoding?: 'radius' | 'area' }
+  /**
+   * radialBar and gauge: 'arc' (the default) draws the part as a solid arc
+   * in front of its whole on the same track, from the same start, the
+   * whole faded; where the part runs past its whole, a short tick
+   * (`apexcharts-highlight-edge`) marks where the whole ends. 'lanes'
+   * (opt-in, made for a part that can exceed its whole, such as an average)
+   * splits each ring's band in two lanes with a small gap, each on a track
+   * of its own and on the dial's own angles: the outer lane is the whole,
+   * light (`lanes.opacity`, 0.45 of its own strength), the inner lane the
+   * part, solid. Each lane is its own hover target (see
+   * `tooltip.formatter`'s `opts.lane`), and the centre adds a smaller muted
+   * line under the value, which states the part: the whole, "/ 78" through
+   * the value formatter (the total's with several rings), which is told
+   * `opts.lane: 'whole'` and may write that line itself. 'needle' points a
+   * second needle at the part (on any gauge shape, the first ring only)
+   * and leaves the ring as it is. Unset, every radialBar and gauge, single
+   * or several rings, gets the arc, except a gauge that draws its own
+   * needle (`plotOptions.radialBar.shape: 'needle'`), which gets the needle
+   * and fades its own needle while a pick is active; rings after the first
+   * always show arcs. A part past `max` is pinned to the end and
+   * carries `apexcharts-highlight-overflow` (in lanes, so does a part past
+   * its whole, which gets no tick). The needle's keys each fall back to
+   * `plotOptions.radialBar.needle`; its colour to the series'. While a pick
+   * is active the tooltip is on (one "part / whole" row per ring) unless
+   * the page set `tooltip.enabled` itself.
+   */
+  radialBar?: {
+    indicator?: 'needle' | 'arc' | 'lanes'
+    /** The whole lane's strength, against its own (default 0.45). */
+    lanes?: { opacity?: number }
+    needle?: {
+      color?: string
+      length?: string | number
+      baseWidth?: number
+      tipWidth?: number
+      offsetY?: number
+    }
+  }
+}
+
+/**
+ * What a formatter is told about a highlight part. `share` is part / whole,
+ * never clamped; `overflow` is true past the whole and 'sign' when the part
+ * and its whole disagree in sign.
+ */
+type ApexHighlightInfo = {
+  value: number | null
+  total: number | null
+  share: number | null
+  overflow: boolean | 'sign'
+}
+
+type ApexHighlightParts =
+  | (number | null)[][]
+  | (number | null)[]
+  | ((ctx: {
+      seriesIndex: number
+      dataPointIndex: number
+      seriesName: string
+      x: any
+      value: number | null
+      datum: any
+      w: any
+    }) => number | null)
 
 /**
  * Plot X and Y grid options

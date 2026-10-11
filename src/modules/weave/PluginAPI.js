@@ -1,4 +1,7 @@
 // @ts-check
+import { addClaim, normaliseEntries, releaseClaim } from './Claims'
+import { collectDrawn } from './Drawn'
+
 /**
  * The frozen facade handed to each Weave plugin. Plugins NEVER receive raw `w`,
  * internal module instances, or the `__apex_*` internals: only this stable,
@@ -7,8 +10,74 @@
  * @module weave/PluginAPI
  */
 
-/** Weave contract version. Plugins declare `apiVersion`; a mismatch is skipped. */
-export const WEAVE_API_VERSION = 1
+/**
+ * Weave contract version. Plugins declare `apiVersion`; a plugin targeting a
+ * NEWER version than the host is skipped, an older one is served (every change
+ * so far has been additive, so a v1 plugin runs unchanged on a v2 host).
+ *
+ * v2 added, for out-of-tree analysis plugins: `data[].raw` (the caller's own
+ * data array, the only reliable template for emitting a derived series),
+ * `api.info` (chart type / axis kind / horizontal bars), `api.categories`
+ * (resolved display labels) and `api.markDerived()`.
+ *
+ * v3 added `api.reserve()`, for a plugin that renders its own UI inside the
+ * chart's container and needs the chart to make room for it.
+ *
+ * v4 added `api.pointer()`, so a plugin can learn which data point a viewer is
+ * pointing at or has selected. The chart already computed that for its own
+ * tooltip and its `dataPoint*` events; before this a plugin either re-derived
+ * it from raw pixels or did without.
+ *
+ * v5 added `api.info.stroke`, the caller's own `stroke.dashArray`. That option
+ * is indexed by series position, so a plugin that wants its own derived series
+ * dashed must write the whole array; reporting the current value is what lets
+ * it put back what it found instead of flattening the caller's dashed lines.
+ *
+ * v6 also added `api.info.title` (the name the page already gave this chart, so
+ * a readout naming several charts has something better than a container id) and
+ * `modifiers` on the pointer payload (so a gesture can be shift-click).
+ *
+ * v6 added three larger pieces, each closing a class rather than one incident.
+ * `api.capabilities` / `api.can()` replace the typeof-sniffing below with
+ * something a plugin can ask. `api.claim()` generalises what v5 only reported,
+ * so a plugin sets a positional option for ITS OWN series and the host resolves
+ * it where the option is read, writing nothing. `api.drawn()` / `api.declare()`
+ * publish what is on the chart, including other features' output, which is the
+ * question a layers panel and an export summary both ask. See
+ * `plans/26-weave-capabilities.md`.
+ *
+ * Feature-detect rather than bumping `apiVersion` unless the plugin genuinely
+ * cannot work without the new surface: a plugin declaring v3 is SKIPPED
+ * outright on a v2 host, so `apiVersion: 2` plus a capability check keeps one
+ * build working on both.
+ */
+export const WEAVE_API_VERSION = 6
+
+/**
+ * What this host can do, for plugins that must run against older ones too.
+ *
+ * The version integer cannot answer this. A plugin declaring a version newer
+ * than the host is skipped outright, so a plugin supporting several hosts
+ * declares the LOWEST version it can run on and then has to discover anything
+ * above that. Until now it did so by sniffing the facade for function members.
+ *
+ * Named for the capability rather than the version that introduced it, and
+ * permanent once published: removing a name is a breaking change on the same
+ * terms as removing a member.
+ *
+ * `scales` is deliberately absent. It is null for non-axis charts, which is a
+ * property of the chart rather than of the host, and advertising it here would
+ * tell a plugin on a pie chart that projection is available.
+ */
+export const WEAVE_CAPABILITIES = Object.freeze([
+  'layer',
+  'derived',
+  'reserve',
+  'pointer',
+  'stroke-info',
+  'claim',
+  'drawn',
+])
 
 /**
  * Public chart methods safe to expose to plugins (each bound to ctx). Excludes
@@ -56,8 +125,10 @@ function buildBoundPublicMethods(ctx) {
  *
  * @param {any} g       svg.js group element (the plugin layer)
  * @param {any} graphics ctx.graphics
+ * @param {() => void} [onClear] run when the plugin empties the layer, so the
+ *   host can drop what that plugin declared it drew (v6)
  */
-export function makeLayerHandle(g, graphics) {
+export function makeLayerHandle(g, graphics, onClear) {
   /** @param {any} el */
   const add = (el) => {
     if (el) g.add(el)
@@ -155,6 +226,15 @@ export function makeLayerHandle(g, graphics) {
     clear() {
       const node = g.node
       while (node.firstChild) node.removeChild(node.firstChild)
+      // What the plugin declared it drew goes with the drawing (v6).
+      //
+      // Clearing at the start of each draw is not enough on its own. A plugin
+      // that repaints its overlays on an interaction rather than on a chart
+      // render (switching one off, say) clears its layer and never reaches a
+      // draw hook, so a declaration made for the previous paint would go on
+      // being reported for something no longer on screen. The plugin has just
+      // said, in the only way it can, that it is drawing nothing.
+      if (onClear) onClear()
       return handle
     },
   }
@@ -249,6 +329,255 @@ export function buildPluginAPI(host, record) {
     // ── curated actions (bound public methods only; NEVER raw w) ──
     chart: buildBoundPublicMethods(ctx),
 
+    // ── chart shape (v2) ──
+    // What kind of chart this is, for a plugin that has to decide whether it
+    // applies at all. An analysis or derived-series plugin cannot work on every
+    // type, and the alternative to asking is adding a series and letting the
+    // core warn at the user.
+    get info() {
+      return Object.freeze({
+        // The type the caller ASKED for: `requestedType` survives the aliasing
+        // that rewrites e.g. raincloud to violin.
+        type: String(
+          (w.config.chart && (w.config.chart.requestedType || w.config.chart.type)) ||
+            'line',
+        ),
+        // false for pie / donut / radialBar, where `data` is one value per slice.
+        axisChart: w.globals.axisCharts === true,
+        datetimeX: !!(w.config.xaxis && w.config.xaxis.type === 'datetime'),
+        // The core refuses to draw a horizontal bar in a combo, so a plugin must
+        // not add a derived series to one.
+        horizontalBars: !!(
+          w.config.plotOptions &&
+          w.config.plotOptions.bar &&
+          w.config.plotOptions.bar.horizontal
+        ),
+        // Whether the chart prints a value on each point, and which series it
+        // prints them for. A plugin that ADDS a series needs both: there is no
+        // per-series dataLabels flag, so `dataLabels.enabledOnSeries` is the
+        // only way to keep labels off a computed series, and narrowing it
+        // without knowing the caller's own value would silently discard it.
+        dataLabels: Object.freeze({
+          enabled: !!(w.config.dataLabels && w.config.dataLabels.enabled),
+          enabledOnSeries: Array.isArray(
+            w.config.dataLabels && w.config.dataLabels.enabledOnSeries,
+          )
+            ? w.config.dataLabels.enabledOnSeries.slice()
+            : null,
+        }),
+        // The caller's own dashing, reported for the same reason and against
+        // the same trap (v5). `stroke.dashArray` is indexed by series position
+        // with no per-series escape hatch, so a plugin that wants ITS OWN
+        // computed series dashed has to write the whole array, and writing one
+        // without knowing what was there discards the caller's dashed lines
+        // with nothing to restore them from.
+        //
+        // A scalar applies to every series and an array is per series. There is
+        // no "unset" to report: the option defaults to 0, and 0 already means
+        // no dashing, so restoring it restores exactly what was there.
+        stroke: Object.freeze({
+          dashArray: Array.isArray(w.config.stroke && w.config.stroke.dashArray)
+            ? w.config.stroke.dashArray.slice()
+            : (w.config.stroke && w.config.stroke.dashArray) || 0,
+        }),
+        // What the chart calls itself, where the caller titled it (v6).
+        //
+        // For a plugin that has to NAME this chart to somebody: a page-level
+        // readout listing several charts otherwise has only the container's id
+        // to head each row with, which is a string written for a stylesheet.
+        // The title is the name the page already chose and put on screen.
+        //
+        // Empty string rather than undefined for an untitled chart, so a
+        // caller can use it directly in a template; falsy either way.
+        title: String((w.config.title && w.config.title.text) || ''),
+      })
+    },
+
+    // Display labels per x position (v2).
+    //
+    // Resolved config-first on purpose. `globals.categoryLabels` and
+    // `globals.labels` are populated after a mount and EMPTY after an
+    // updateSeries(), so a plugin reading either directly would render real
+    // labels on first paint and ordinals after any update.
+    get categories() {
+      return host._categories()
+    },
+
+    /**
+     * Declare which series on this chart belong to the plugin rather than to
+     * the caller (v2).
+     *
+     * A plugin that adds computed series has to say so, because the core cannot
+     * tell them apart and several behaviours depend on the distinction. Today
+     * the host uses it to keep them out of the initial-series snapshot, so
+     * `resetSeries()` and the toolbar's reset restore the caller's own data
+     * instead of the plugin's output.
+     *
+     * Idempotent; pass an empty array when the plugin's series are gone.
+     *
+     * @param {string[]} names series names the plugin owns
+     */
+    markDerived(names) {
+      host._markDerived(record.def.name, names)
+      return api
+    },
+
+    /**
+     * Reserve space inside the chart's container for the plugin's own UI (v3).
+     *
+     * A plugin that renders HTML beside the chart (a docked panel, a toolbar of
+     * its own) cannot make room for it. The chart sizes itself from the element
+     * the caller handed it, so a sibling inserted into that element does not
+     * narrow the chart: the chart is drawn at full width underneath. Every
+     * route a plugin has to fix that on its own is worse. Writing `chart.width`
+     * means owning config the caller owns and losing it on their next
+     * `updateOptions`. Positioning the UI absolutely over the chart means
+     * guessing a size it cannot know, and being clipped by any ancestor with
+     * `overflow: hidden`. Narrowing the container means writing to the caller's
+     * own element and changing the page's layout around it.
+     *
+     * So the host does the arithmetic, in the one place that already does it.
+     * The container keeps its size; the chart draws inside what is left.
+     *
+     * Reservations are per plugin and summed, so two plugins each asking for a
+     * right-hand gutter get one each instead of overlapping. Call it again to
+     * change the amount, and pass `null` (or all zeros) to give the space back.
+     * Nothing happens when the box is unchanged, so calling it on every render
+     * with the same numbers is free.
+     *
+     * The total is clamped so the chart keeps at least half the container on
+     * each axis: a plugin may not reduce the chart it is annotating to nothing.
+     * A plugin whose UI needs more room than that should render below the chart
+     * instead, which it can do without asking.
+     *
+     * Changing a reservation re-renders the chart, one task later so that
+     * calling it from inside a draw handler cannot re-enter the render.
+     *
+     * @param {{left?: number, right?: number, top?: number, bottom?: number}|null} [box]
+     */
+    reserve(box) {
+      host._reserve(record.def.name, box)
+      return api
+    },
+
+    /**
+     * Set a positional option for your own series, without writing the
+     * caller's config.
+     *
+     * Some options are indexed by series position with no per-series escape
+     * hatch, so setting one for a single series has always meant writing the
+     * array that covers all of them, then putting the caller's value back. A
+     * claim says what this plugin wants instead, and the host answers with it
+     * where the option is READ. Nothing is written, so releasing is a deletion
+     * rather than a restore, and a caller's own `updateOptions` composes with
+     * the claim instead of being reverted by it.
+     *
+     *     const claim = api.claim('stroke.dashArray', [
+     *       { series: 'Revenue (forecast)', value: 6 },
+     *     ])
+     *     claim.release()
+     *
+     * Name the series rather than its position where you can: a name is
+     * resolved each time the option is read, so the claim follows the series
+     * through the caller adding, removing or reordering others.
+     *
+     * Claimable options are an allowlist (see `CLAIMABLE`). An option that is
+     * not on it returns null rather than throwing, so a plugin written against
+     * a newer host degrades. Every claim is released on teardown, on destroy,
+     * and if the host disables this plugin after repeated failures.
+     *
+     * @param {string} option
+     * @param {Array<{series: string|number, value: any}>} entries
+     * @returns {{release: () => void, update: (entries: Array<{series: string|number, value: any}>) => void}|null}
+     * @since Weave v6
+     */
+    claim(option, entries) {
+      const claim = addClaim(w, record.def.name, option, entries)
+      if (!claim) return null
+      return Object.freeze({
+        release() {
+          releaseClaim(w, claim)
+        },
+        update(next) {
+          claim.entries = normaliseEntries(option, next)
+        },
+      })
+    },
+
+    /**
+     * Everything drawn on this chart, including what other features drew.
+     *
+     * The chart's series, the caller's annotations (ink strokes among them,
+     * since an ink stroke is an annotation), and whatever plugins have
+     * declared. Each entry names its `owner`, because the list is only as
+     * complete as the features that opted into it: a reader can say what it
+     * covers instead of assuming it is everything.
+     *
+     * Read only. Removing or hiding another feature's output is a much larger
+     * promise than this platform makes, and is deliberately not here.
+     *
+     * Rebuilt per call: it is a projection of live state, and a remembered
+     * inventory is a list of what WAS drawn.
+     *
+     * @returns {ReadonlyArray<{id: string, kind: 'series'|'annotation'|'overlay', label: string, owner: string, visible: boolean}>}
+     * @since Weave v6
+     */
+    drawn() {
+      return Object.freeze(collectDrawn(w, host).map((i) => Object.freeze(i)))
+    },
+
+    /**
+     * Say what this plugin has drawn, so it appears in `api.drawn()`.
+     *
+     * Declare from your draw handler, on the same terms as the drawing itself:
+     * declarations are cleared with the layers at the start of every draw, so
+     * an inventory cannot outlive what it describes. Declaring the same id
+     * twice replaces it rather than adding a second row.
+     *
+     * @param {{id: string, label?: string, visible?: boolean}} item
+     * @since Weave v6
+     */
+    declare(item) {
+      host._declare(record.def.name, item)
+      return api
+    },
+
+    /**
+     * Subscribe to the data point a viewer is pointing at.
+     *
+     * The chart already knows this: it resolves the series and point under the
+     * pointer for its own tooltip and fires `dataPointMouseEnter`,
+     * `dataPointMouseLeave` and `dataPointSelection` for the caller. This
+     * forwards the same three, so a plugin gets the host's answer rather than
+     * hit-testing the SVG itself and disagreeing with the tooltip.
+     *
+     * The payload is normalised rather than the chart's own argument list,
+     * which passes `w`. A plugin must not receive `w`, and the three things a
+     * plugin actually wants (which series, which point, what the point is
+     * called) are exactly what the chart has already resolved.
+     *
+     * `category` is the resolved display label, the same string `api.categories`
+     * carries, because a plugin coordinating two charts keys on the label
+     * rather than on an index that means something different on each chart.
+     *
+     * Nothing here gives a plugin the ability to intercept or cancel: the
+     * chart's own tooltip, selection state and caller events are unaffected,
+     * and a handler that throws is contained rather than allowed to break the
+     * interaction it was watching.
+     *
+     * `modifiers` (v6) reports the keys held during the interaction, for the
+     * gestures that need them: shift-click to add to a selection is the one
+     * page-level coordination wants. All four are false when the interaction
+     * came from somewhere with no DOM event, such as the keyboard.
+     *
+     * @param {(e: {type: 'enter'|'leave'|'select', seriesIndex: number, dataPointIndex: number, category: string|undefined, seriesName: string|undefined, selected: boolean|undefined, modifiers: {shift: boolean, ctrl: boolean, alt: boolean, meta: boolean}}) => void} fn
+     * @returns {() => void} unsubscribe
+     * @since Weave v4
+     */
+    pointer(fn) {
+      return host._onPointer(record.def.name, fn)
+    },
+
     // ── custom events out to the host app ──
     /**
      * Fires as `plugin:<pluginName>:<name>` on the chart's event bus. The
@@ -269,5 +598,37 @@ export function buildPluginAPI(host, record) {
     },
   }
 
+  // Probed off the facade that was actually built rather than copied from the
+  // constant, so a member that is ever made conditional drops out instead of
+  // being advertised and then missing.
+  //
+  // An ARRAY rather than a Set, because a frozen Set is not actually read-only:
+  // Object.freeze does not touch internal slots, so `add()` and `delete()` keep
+  // working and one plugin could edit what every later one is told. The Set
+  // stays in the closure and `can()` is the lookup.
+  const probes = /** @type {Record<string, (a: any) => boolean>} */ (WIRED)
+  const granted = WEAVE_CAPABILITIES.filter((name) => probes[name](api))
+  const grantedSet = new Set(granted)
+  const extras = /** @type {any} */ (api)
+  extras.capabilities = Object.freeze(granted)
+  /** Whether this host supports a named capability. @since Weave v6 */
+  extras.can = (/** @type {string} */ name) => grantedSet.has(name)
+
   return Object.freeze(api)
+}
+
+/**
+ * How each capability name is confirmed present. One entry per member of
+ * {@link WEAVE_CAPABILITIES}; a name with no probe would always be advertised,
+ * which is the failure this table exists to prevent.
+ */
+const WIRED = {
+  layer: (/** @type {any} */ a) => typeof a.layer === 'function',
+  derived: (/** @type {any} */ a) => typeof a.markDerived === 'function',
+  reserve: (/** @type {any} */ a) => typeof a.reserve === 'function',
+  pointer: (/** @type {any} */ a) => typeof a.pointer === 'function',
+  'stroke-info': (/** @type {any} */ a) => !!(a.info && a.info.stroke),
+  claim: (/** @type {any} */ a) => typeof a.claim === 'function',
+  drawn: (/** @type {any} */ a) =>
+    typeof a.drawn === 'function' && typeof a.declare === 'function',
 }

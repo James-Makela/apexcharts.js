@@ -5,11 +5,14 @@ import Animations from '../modules/Animations'
 import Fill from '../modules/Fill'
 import Helpers from './common/treemap/Helpers'
 import Filters from '../modules/Filters'
+import Series from '../modules/Series'
 
 import Utils from '../utils/Utils'
 import { Environment } from '../utils/Environment.js'
 import { getTreemapRoots } from './common/treemap/Nested'
 import { morphKey } from './common/Hierarchy'
+import { rafTween } from '../modules/animations/LengthTransition'
+import { resolveEasing } from '../modules/animations/Easing'
 import { buildContinuousScale, colorValueOf, readableOn } from './common/treemap/ColorScale'
 import {
   BREADCRUMB_HEIGHT,
@@ -24,6 +27,38 @@ import {
  * @returns {number}
  */
 const areaOf = (r) => (r[2] - r[0]) * (r[3] - r[1])
+
+/** @typedef {{x: number, y: number, width: number, height: number}} Box */
+
+/**
+ * A colour a tween can ease between. A gradient or pattern fill is a url()
+ * into the old render's defs, which are gone.
+ * @param {any} c
+ * @returns {boolean}
+ */
+const isPlainColor = (c) => typeof c === 'string' && /^(#|rgb)/i.test(c)
+
+/**
+ * A box tween's two ends, with the fill eased too when it changed between
+ * plain colours.
+ * @param {Record<string, any>} from
+ * @param {Record<string, any>} to
+ * @param {string | null | undefined} fillWas
+ * @param {string | null | undefined} fillNow
+ * @returns {[Record<string, any>, Record<string, any>]}
+ */
+function withFills(from, to, fillWas, fillNow) {
+  if (isPlainColor(fillWas) && isPlainColor(fillNow) && fillWas !== fillNow) {
+    return [
+      { ...from, fill: fillWas },
+      { ...to, fill: fillNow },
+    ]
+  }
+  return [from, to]
+}
+
+const headerLook = (/** @type {Element | null | undefined} */ el) =>
+  Series.treemapHeaderLook(el)
 
 /**
  * ApexCharts TreemapChart Class.
@@ -60,6 +95,12 @@ export default class TreemapChart {
     this._tipOwned = false
     /** How many leaves have taken a captured shape by draw order this render. */
     /** @type {number} */ this._morphLeafIndex = 0
+    /**
+     * The map a click-to-zoom moves the picture by (see _zoomCamera), for the
+     * render that zoom asked for.
+     * @type {{fwd: (b: Box) => Box, back: (b: Box) => Box} | null}
+     */
+    this.camera = null
   }
 
   /**
@@ -94,11 +135,15 @@ export default class TreemapChart {
     this.negRange = this.helpers.checkColorRange()
 
     w.config.series.forEach((/** @type {any} */ s, /** @type {any} */ i) => {
+      // Every series gets its row, an empty one included. A series declared
+      // `hidden: true` arrives here with no data, and allocating the row only
+      // inside the loop below left a hole in `labels` that _averageLabelSize
+      // then recursed into, so the draw threw and the chart rendered blank.
+      if (!Array.isArray(this.labels[i])) this.labels[i] = []
       /**
        * @param {number} l
        */
       s.data.forEach((/** @type {any} */ l) => {
-        if (!Array.isArray(this.labels[i])) this.labels[i] = []
         this.labels[i].push(l.x)
       })
     })
@@ -143,6 +188,9 @@ export default class TreemapChart {
           this.showParents ? this._levelHeader(node, depth, rw, rh) : 0,
       },
     )
+    this.camera = this._zoomCamera()
+    // Highlight filter (opt-in): this pass's tile painter, or undefined.
+    const hl = this.ctx.highlightFilter?.treemap(this)
 
     // Cross-type morph (sunburst -> treemap) via the optional `morph` feature.
     // Tiles consume the captured marks in draw order, the same order the
@@ -169,6 +217,10 @@ export default class TreemapChart {
         rel: i + 1,
         'data:realIndex': i,
       })
+      // Marks a hidden series the way every other type does, which is what
+      // showSeries() looks for: without it, showing a series hidden through
+      // the API found nothing hidden and did nothing.
+      Series.addCollapsedClassToSeries(this.w, elSeries, i)
 
       // Set up event delegation once per series group instead of per-cell listeners
       graphics.setupEventDelegation(elSeries, '.apexcharts-treemap-rect')
@@ -189,6 +241,9 @@ export default class TreemapChart {
         xMax: -Infinity,
         yMax: -Infinity,
       }
+      // The same corner over the tiles' previous layout, when a data change
+      // tweens them from it: the series title starts there and rides along.
+      const fromBounds = { xMin: Infinity, yMin: Infinity }
 
       // Parents first, so a container and its header sit under the tiles they
       // contain (a treemap has no z-index; paint order is the only ordering).
@@ -249,15 +304,20 @@ export default class TreemapChart {
         const x2 = r[2]
         const y2 = r[3]
 
-        bounds.xMin = Math.min(bounds.xMin, x1)
-        bounds.yMin = Math.min(bounds.yMin, y1)
-        bounds.xMax = Math.max(bounds.xMax, x2)
-        bounds.yMax = Math.max(bounds.yMax, y2)
+        // Only a tile with area places the series title. A hidden series lays
+        // out as one zero-size tile, which used to anchor a stray title plate
+        // on top of its neighbour's.
+        if (x2 > x1 && y2 > y1) {
+          bounds.xMin = Math.min(bounds.xMin, x1)
+          bounds.yMin = Math.min(bounds.yMin, y1)
+          bounds.xMax = Math.max(bounds.xMax, x2)
+          bounds.yMax = Math.max(bounds.yMax, y2)
+        }
 
         const colorProps = this._leafColor(i, j)
         const color = colorProps.color
 
-        const pathFill = fill.fillPath({
+        let pathFill = fill.fillPath({
           color,
           seriesNumber: i,
           dataPointIndex: j,
@@ -293,6 +353,10 @@ export default class TreemapChart {
                 ? color
                 : w.globals.stroke.colors[i],
             )
+
+        // Highlight filter: the tile's fill with its part's share in it, a
+        // url(), so the plain-colour ease below leaves it to the feature.
+        pathFill = hl?.(elRect, i, j, pathFill, leaf) || pathFill
 
         elRect.attr({
           cx: x1,
@@ -337,39 +401,77 @@ export default class TreemapChart {
           w.config.chart.animations.enabled &&
           !w.globals.dataChanged
         ) {
-          let speed = 1
-          if (!w.globals.resized) {
-            speed = w.config.chart.animations.speed
+          if (w.globals.resized) {
+            // A re-render that does not animate (a resize, a redraw with
+            // animate false) draws the tiles at rest, and only marks the
+            // animation over, as the other types do: completing it here
+            // would call animationEnd in the middle of the draw. Growing them
+            // in over 1ms instead put that 1ms behind each tile's cascade
+            // delay, so they popped in one after another.
+            w.globals.animationEnded = true
+          } else {
+            this.animateTreemap(
+              elRect,
+              fromRect,
+              toRect,
+              w.config.chart.animations.speed,
+              // Ranked by draw order, not by data index: the cascade is
+              // about what is on screen.
+              cascadeDelays[k] || 0,
+            )
           }
-          this.animateTreemap(
-            elRect,
-            fromRect,
-            toRect,
-            speed,
-            // Ranked by draw order, not by data index — the cascade is about
-            // what is on screen.
-            cascadeDelays[k] || 0,
-          )
         }
+        // A data change's tile tween, which the tile's label rides, and the
+        // centre the label rides from (null for a tile the update adds).
+        /** @type {any} */
+        let tileTween = null
+        /** @type {{x: number, y: number} | null} */
+        let labelFrom = null
+        // What the tile's label showed before ('' for none, null when not
+        // known): a label that is new, or that a zoom draws differently,
+        // fades in as it rides.
+        /** @type {string | null} */
+        let prevLook = null
         if (w.globals.dataChanged) {
           let speed = 1
           if (this.dynamicAnim.enabled && w.globals.shouldAnimate) {
             speed = this.dynamicAnim.speed
 
-            if (
-              w.globals.previousPaths[i] &&
-              /** @type {Record<string,any>} */ (w.globals.previousPaths[i])[
-                j
-              ] &&
-              /** @type {Record<string,any>} */ (w.globals.previousPaths[i])[j]
-                .rect
-            ) {
-              fromRect = /** @type {Record<string,any>} */ (
-                w.globals.previousPaths[i]
-              )[j].rect
+            const prev = /** @type {any} */ (w.globals.previousPaths[i])?.[j]
+            /** @type {Record<string, any>} */
+            const to = { ...toRect }
+            if (!prev?.rect && this.camera) {
+              // Off the old view: it rides in from outside the plot.
+              fromRect = this.camera.back(toRect)
+              labelFrom = {
+                x: fromRect.x + fromRect.width / 2,
+                y: fromRect.y + fromRect.height / 2,
+              }
+            }
+            if (prev?.rect) {
+              fromRect = { ...prev.rect }
+              if (fromRect.width > 0 && fromRect.height > 0) {
+                fromBounds.xMin = Math.min(fromBounds.xMin, fromRect.x)
+                fromBounds.yMin = Math.min(fromBounds.yMin, fromRect.y)
+                labelFrom = {
+                  x: fromRect.x + fromRect.width / 2,
+                  y: fromRect.y + fromRect.height / 2,
+                }
+                prevLook = typeof prev.label === 'string' ? prev.label : null
+                if (prev.labelFading && this.camera) prevLook = ''
+              }
+              // Its colour eases with it. Only between plain colours: a
+              // gradient or pattern fill is a url() into the old render's
+              // defs, which are gone.
+              const plain = (/** @type {any} */ c) =>
+                typeof c === 'string' && /^(#|rgb)/i.test(c)
+              if (plain(prev.fill) && plain(pathFill) && prev.fill !== pathFill) {
+                /** @type {Record<string, any>} */ (fromRect).fill = prev.fill
+                to.fill = pathFill
+              }
             }
 
-            this.animateTreemap(elRect, fromRect, toRect, speed)
+            tileTween = this.animateTreemap(elRect, fromRect, to, speed)
           }
         }
 
@@ -393,6 +495,7 @@ export default class TreemapChart {
             seriesIndex: i,
             dataPointIndex: j,
             w,
+            highlight: leaf.highlight,
           })
           if (w.config.plotOptions.treemap.dataLabels.format === 'truncate') {
             formattedText = this.truncateLabels(
@@ -430,7 +533,22 @@ export default class TreemapChart {
         }
         elSeries.add(elRect)
         if (dataLabels !== null) {
+          // Paired with its tile, so the next render knows this tile had one.
+          dataLabels.node.setAttribute('data:key', morphKey(leaf._key))
           elSeries.add(dataLabels)
+          // The label rides its tile from the old centre, on the tile's own
+          // tween; a tile the update adds fades its label in as it grows.
+          // It used to sit at its final spot from the first frame, over
+          // whatever tile was still there.
+          if (tileTween) {
+            const fade =
+              !labelFrom ||
+              prevLook === '' ||
+              (!!this.camera &&
+                prevLook !== null &&
+                prevLook !== Series.treemapLabelLook(dataLabels.node))
+            this._rideTile(dataLabels.node, labelFrom, x1, y1, x2, y2, tileTween, fade)
+          }
         }
       })
 
@@ -490,9 +608,11 @@ export default class TreemapChart {
             borderColor,
           )
 
+          const textX = labelX + padding.left
+          const textY = labelY + padding.top + (textSize?.height ?? 0) * 0.75
           const elLabelText = graphics.drawText({
-            x: labelX + padding.left,
-            y: labelY + padding.top + (textSize?.height ?? 0) * 0.75,
+            x: textX,
+            y: textY,
             text: sName,
             fontSize: style.fontSize,
             fontFamily: style.fontFamily,
@@ -500,6 +620,27 @@ export default class TreemapChart {
             foreColor: textColor,
             cssClass: style.cssClass || '',
           })
+
+          // A data change eases the tiles from their previous layout. Drawn
+          // straight at its new corner, the title would sit over a neighbour's
+          // tiles until they caught up, so it eases from its old corner too.
+          const dx = fromBounds.xMin - bounds.xMin
+          const dy = fromBounds.yMin - bounds.yMin
+          if (Number.isFinite(dx) && Number.isFinite(dy) && (dx || dy)) {
+            const speed = this.dynamicAnim.speed
+            this.animateTreemap(
+              elLabelRect,
+              { x: labelX + dx, y: labelY + dy },
+              { x: labelX, y: labelY },
+              speed,
+            )
+            this.animateTreemap(
+              elLabelText,
+              { x: textX + dx, y: textY + dy },
+              { x: textX, y: textY },
+              speed,
+            )
+          }
 
           elSeries.add(elLabelRect)
           elSeries.add(elLabelText)
@@ -509,6 +650,8 @@ export default class TreemapChart {
       elSeries.add(elDataLabelWrap)
       ret.add(elSeries)
     })
+
+    if (this.camera) this._playZoomExit(ret)
 
     this._renderBreadcrumb()
 
@@ -802,6 +945,63 @@ export default class TreemapChart {
         depth,
       )
     }
+    // A data change eases the container from the box it had, on the clock
+    // the tiles inside it use; a branch the update adds fades in. Drawn at
+    // their new boxes, the containers and headers jumped on the first frame
+    // while their tiles were still moving.
+    /** @type {any} */
+    let prevBox = null
+    /** @type {any} */
+    let parentTween = null
+    // Not in the old view at all: a zoom brings it in from outside the plot.
+    let entering = false
+    const dynamic = w.config.chart.animations.dynamicAnimation
+    if (
+      !morphFrom &&
+      w.globals.dataChanged &&
+      dynamic.enabled &&
+      w.globals.shouldAnimate
+    ) {
+      const speed = dynamic.speed
+      prevBox = w.globals.prevTreemapParents?.get(`${i}|${key}`) ?? null
+      if (!prevBox && this.camera) {
+        prevBox = this.camera.back({ x: x1, y: y1, width, height })
+        entering = true
+        // A container around the branch being left was not drawn in its
+        // view, yet from there it starts across the whole plot: it fades
+        // in as it closes in. One beside it starts outside and slides in.
+        const l = w.layout
+        if (
+          prevBox.x < l.gridWidth &&
+          prevBox.y < l.gridHeight &&
+          prevBox.x + prevBox.width > 0 &&
+          prevBox.y + prevBox.height > 0
+        ) {
+          elGroup.attr({ opacity: 0 }).animate(speed).attr({ opacity: 1 })
+        }
+      }
+      if (prevBox) {
+        parentTween = new Animations(w).animateRect(
+          elRect,
+          ...withFills(
+            {
+              x: prevBox.x,
+              y: prevBox.y,
+              width: prevBox.width,
+              height: prevBox.height,
+            },
+            { x: x1, y: y1, width, height },
+            prevBox.fill,
+            elRect.node.getAttribute('fill'),
+          ),
+          speed,
+          () => {},
+        )
+      } else {
+        elGroup.attr({ opacity: 0 }).animate(speed).attr({ opacity: 1 })
+      }
+    }
+
     // The interior belongs to the children painted on top; the gutter around
     // them is the only part of this rect the pointer should ever reach, and
     // that falls out of the children covering the rest.
@@ -826,6 +1026,28 @@ export default class TreemapChart {
       )
       elHeaderRect.node.classList.add('apexcharts-treemap-parent-header')
       elGroup.add(elHeaderRect)
+      if (prevBox) {
+        // From the strip it had: a zoom changes the container's depth, and
+        // with it the strip's height and colour. A strip the container did
+        // not have grows in.
+        const was = prevBox.header
+        const now = { x: x1, y: y1, width, height: headerHeight }
+        new Animations(w).animateRect(
+          elHeaderRect,
+          ...withFills(
+            was
+              ? { x: was.x, y: was.y, width: was.width, height: was.height }
+              : entering && this.camera
+                ? this.camera.back(now)
+                : { x: prevBox.x, y: prevBox.y, width: prevBox.width, height: 0 },
+            now,
+            was?.fill,
+            elHeaderRect.node.getAttribute('fill'),
+          ),
+          w.config.chart.animations.dynamicAnimation.speed,
+          () => {},
+        )
+      }
 
       let text = String(node.name ?? '')
       if (typeof header.formatter === 'function') {
@@ -884,6 +1106,37 @@ export default class TreemapChart {
         })
         elText.node.setAttribute('pointer-events', 'none')
         elGroup.add(elText)
+        if (parentTween && prevBox) {
+          // The header text rides its strip: the same anchor (left edge,
+          // centre or right edge) on the old box and on the new one.
+          const at = (/** @type {{x: number, width: number}} */ b) =>
+            align === 'center'
+              ? b.x + b.width / 2
+              : align === 'right'
+                ? b.x + b.width
+                : b.x
+          const was = {
+            x: at(prevBox) - at({ x: x1, width }) + (x1 + width / 2),
+            y: prevBox.y - y1 + (y1 + height / 2),
+          }
+          // A zoom that changes how the header reads (its depth sets the
+          // font, the formatter may add the value) fades the new text in
+          // over the old one riding out (_playZoomExit).
+          const changed =
+            !!this.camera &&
+            !entering &&
+            prevBox.header?.look !== headerLook(elText.node)
+          this._rideTile(
+            elText.node,
+            was,
+            x1,
+            y1,
+            x1 + width,
+            y1 + height,
+            parentTween,
+            changed,
+          )
+        }
       }
 
       this._attachParentEvents(elHeaderRect.node, node, chrome, elRect)
@@ -1027,6 +1280,9 @@ export default class TreemapChart {
    * view one level at a time, zoom reframes a tree that stays whole. Running
    * both would fight over the same click and over the one breadcrumb slot in
    * the wrap, so drilldown wins where it is active and this stands down.
+   * Active means the feature is loaded as well as configured: without it the
+   * click navigates nowhere (the chart warns about the missing feature), so
+   * standing zoom down too would leave the click doing nothing at all.
    * @returns {boolean}
    */
   _zoomEnabled() {
@@ -1035,7 +1291,13 @@ export default class TreemapChart {
     if (!z || !z.enabled || !this.showParents) return false
 
     const dd = w.config.drilldown
-    if (dd && dd.enabled && Array.isArray(dd.series) && dd.series.length) {
+    if (
+      this.ctx.drilldown &&
+      dd &&
+      dd.enabled &&
+      Array.isArray(dd.series) &&
+      dd.series.length
+    ) {
       if (!this._warnedZoomConflict) {
         this._warnedZoomConflict = true
         console.warn(
@@ -1087,9 +1349,7 @@ export default class TreemapChart {
     const w = this.w
     if (!node || !node.children || !node.children.length) return
     const next = w.globals.treemapFocusKey === node._key ? null : node._key
-    w.globals.treemapFocusKey = next
-    this._hideParentTooltip()
-    const done = this.ctx.update()
+    const done = this._refocus(next)
     if (!restoreFocus || !done || typeof done.then !== 'function') return
     done.then(() => {
       if (!Environment.isBrowser()) return
@@ -1113,6 +1373,360 @@ export default class TreemapChart {
       )
       if (header && header.focus) header.focus()
     })
+  }
+
+  /**
+   * Re-render focused on another branch (null: the whole tree).
+   *
+   * A zoom is an animated update of the same data, so it renders like one:
+   * the outgoing picture is captured first and the draw eases from it (see
+   * _zoomCamera). It used to re-render with whatever flags the last update
+   * left, which replayed the mount animation (every tile growing from
+   * nothing) or snapped, while the containers, headers and labels jumped.
+   * @param {string | null} next
+   * @returns {any} the update's promise
+   */
+  _refocus(next) {
+    const w = this.w
+    const gl = w.globals
+    const anim = w.config.chart.animations
+    const animate = !!(anim.enabled && anim.dynamicAnimation.enabled)
+    gl.treemapZoom =
+      animate && Environment.isBrowser()
+        ? { from: gl.treemapFocusKey ?? null, to: next }
+        : null
+    gl.treemapFocusKey = next
+    this._hideParentTooltip()
+    gl.shouldAnimate = animate
+    gl.resized = true
+    gl.dataChanged = true
+    if (gl.treemapZoom) this.ctx.series.getPreviousPaths()
+    return this.ctx.update()
+  }
+
+  /**
+   * A zoom reframes one tree, so it moves like a camera: one map takes the
+   * old view onto the new, set by the branch on the deeper side of the move
+   * (the one being entered, or the one being left), whose box fills the plot
+   * on that side. A tile in both views eases from its own old box; one only
+   * in the new view rides in along the map from outside the plot, and one
+   * only in the old view rides it out (_playZoomExit). Null unless this
+   * render is a zoom's.
+   * @returns {{fwd: (b: Box) => Box, back: (b: Box) => Box} | null}
+   */
+  _zoomCamera() {
+    const w = this.w
+    const zoom = w.globals.treemapZoom
+    w.globals.treemapZoom = null
+    const old = w.globals.prevTreemapParents
+    if (!zoom || !old || !w.globals.dataChanged || !w.globals.shouldAnimate) {
+      return null
+    }
+
+    /** @type {Map<string, any>} */
+    const byKey = new Map()
+    /** @param {any} n */
+    const index = (n) => {
+      byKey.set(n._key, n)
+      if (n.children) n.children.forEach(index)
+    }
+    this.drawn.forEach(index)
+    const under = (/** @type {string} */ k, /** @type {string} */ above) => {
+      for (let n = byKey.get(k); n; n = n._parent) if (n._key === above) return true
+      return false
+    }
+    const { from, to } = zoom
+    const anchor =
+      to && (from == null || under(to, from))
+        ? to
+        : from && (to == null || under(from, to))
+          ? from
+          : null
+    const node = anchor ? byKey.get(anchor) : null
+    if (!anchor || !node || !node.rect) return null
+
+    // Its old box, by series and branch: branch keys repeat from one series
+    // to the next (and every series root's is empty), so the series it sits
+    // in is part of the key, as the capture keyed it.
+    let top = node
+    while (top._parent) top = top._parent
+    const ri = Math.max(0, this.roots.indexOf(top))
+    /** @type {Box | null} */
+    const was = old.get(`${ri}|${morphKey(anchor)}`) ?? null
+    const r = node.rect
+    const now = { x: r[0], y: r[1], width: r[2] - r[0], height: r[3] - r[1] }
+    if (!was || !(was.width > 0 && was.height > 0 && now.width > 0 && now.height > 0)) {
+      return null
+    }
+    const o = was
+    const kx = now.width / o.width
+    const ky = now.height / o.height
+    return {
+      fwd: (b) => ({
+        x: now.x + (b.x - o.x) * kx,
+        y: now.y + (b.y - o.y) * ky,
+        width: b.width * kx,
+        height: b.height * ky,
+      }),
+      back: (b) => ({
+        x: o.x + (b.x - now.x) / kx,
+        y: o.y + (b.y - now.y) / ky,
+        width: b.width / kx,
+        height: b.height / ky,
+      }),
+    }
+  }
+
+  /**
+   * What a zoom leaves out of the new view rides off the plot on the camera
+   * and goes once it is out of sight: the old render's tiles, containers and
+   * labels that the new one does not redraw. A label whose tile stays but no
+   * longer has room for it rides to the tile's new place, fading. The
+   * treemap is clipped to the plot while this plays, since whatever rides in
+   * or out passes outside it.
+   * @param {any} ret
+   */
+  _playZoomExit(ret) {
+    const w = this.w
+    const camera = this.camera
+    const view = w.globals.prevTreemapView
+    w.globals.prevTreemapView = null
+    if (!camera || !Environment.isBrowser()) return
+    const root = /** @type {Element} */ (ret.node)
+    const graphics = new Graphics(this.w, this.ctx)
+
+    const KINDS = /** @type {const} */ ([
+      ['apexcharts-treemap-rect', 'T'],
+      ['apexcharts-treemap-parent-rect', 'P'],
+      ['apexcharts-data-labels', 'L'],
+    ])
+    const id = (/** @type {Element} */ el) => {
+      const kind = KINDS.find(([cls]) => el.classList.contains(cls))
+      const ri = el.closest('.apexcharts-series')?.getAttribute('data:realIndex')
+      return kind ? `${kind[1]}${ri}|${el.getAttribute('data:key')}` : ''
+    }
+    const num = (/** @type {Element} */ el, /** @type {string} */ a) =>
+      parseFloat(el.getAttribute(a) ?? '')
+    const boxOf = (/** @type {Element} */ el) => ({
+      x: num(el, 'x'),
+      y: num(el, 'y'),
+      width: num(el, 'width'),
+      height: num(el, 'height'),
+    })
+    const centre = (/** @type {Box} */ b) => ({
+      x: b.x + b.width / 2,
+      y: b.y + b.height / 2,
+    })
+
+    /** @type {Map<string, Element>} what the new view draws */
+    const drawnNow = new Map()
+    root.querySelectorAll('[data\\:key]').forEach((el) => {
+      const k = id(el)
+      if (k) drawnNow.set(k, el)
+    })
+
+    /** @type {Array<(e: number) => void>} */
+    const writers = []
+    const easeBox = (/** @type {Element} */ el, /** @type {Box} */ to) => {
+      const from = boxOf(el)
+      if (![from.x, from.y, from.width, from.height].every(Number.isFinite)) {
+        return
+      }
+      writers.push((e) => {
+        el.setAttribute('x', String(from.x + (to.x - from.x) * e))
+        el.setAttribute('y', String(from.y + (to.y - from.y) * e))
+        el.setAttribute('width', String(from.width + (to.width - from.width) * e))
+        el.setAttribute('height', String(from.height + (to.height - from.height) * e))
+      })
+    }
+    const ride = (
+      /** @type {Element} */ el,
+      /** @type {{x: number, y: number}} */ d,
+      fade = false,
+    ) => {
+      const base = el.getAttribute('transform') || ''
+      // From the strength it has: one still fading in fades out from there.
+      const o0 = parseFloat(el.getAttribute('opacity') ?? '1')
+      const from = Number.isFinite(o0) ? o0 : 1
+      writers.push((e) => {
+        el.setAttribute('transform', `translate(${d.x * e} ${d.y * e}) ${base}`.trim())
+        if (fade) el.setAttribute('opacity', String(from * (1 - e)))
+      })
+    }
+    // A label an earlier move was still fading in.
+    const fadingIn = (/** @type {Element} */ g) =>
+      parseFloat(g.getAttribute('opacity') ?? '1') < 0.999
+    // A ghost is no longer the thing it was: nothing that selects tiles,
+    // containers or labels may find it, and it is not announced.
+    const retire = (/** @type {Element} */ el) => {
+      ;[el, ...el.querySelectorAll('*')].forEach((n) => {
+        n.removeAttribute('data:key')
+        ;['role', 'tabindex', 'aria-label', 'aria-expanded'].forEach((a) =>
+          n.removeAttribute(a),
+        )
+        n.classList.remove(
+          'apexcharts-treemap-rect',
+          'apexcharts-treemap-parent',
+          'apexcharts-treemap-parent-rect',
+          'apexcharts-treemap-parent-header',
+          'apexcharts-treemap-parent-label',
+          'apexcharts-data-labels',
+        )
+      })
+    }
+
+    const shapes = graphics.group({ class: 'apexcharts-treemap-ghosts' }).node
+    const labels = graphics.group({ class: 'apexcharts-treemap-ghosts' }).node
+    if (view) {
+      // What an earlier zoom, still moving, was carrying off: it carries on
+      // under this camera from where it is, below this zoom's own ghosts.
+      const earlier = [...view.querySelectorAll(':scope > .apexcharts-treemap-ghosts')]
+      earlier.forEach((layer, n) => {
+        layer.querySelectorAll('rect').forEach((r) => easeBox(r, camera.fwd(boxOf(r))))
+        layer.querySelectorAll('text').forEach((t) => {
+          // Where it is now: its own spot, plus the ride it (or its label
+          // group) had got to.
+          const lead = (/** @type {Element | null} */ el) => {
+            const m = /^translate\(\s*([-+.\deE]+)[\s,]+([-+.\deE]+)\s*\)/.exec(
+              (el?.getAttribute('transform') || '').trim(),
+            )
+            return m ? [parseFloat(m[1]), parseFloat(m[2])] : [0, 0]
+          }
+          const [px, py] = lead(t.parentElement)
+          const [tx, ty] = lead(t)
+          const at = {
+            x: num(t, 'x') + px + tx,
+            y: num(t, 'y') + py + ty,
+            width: 0,
+            height: 0,
+          }
+          if (!Number.isFinite(at.x) || !Number.isFinite(at.y)) return
+          const to = camera.fwd(at)
+          ride(t, { x: to.x - at.x, y: to.y - at.y })
+        })
+        // The first layer held shapes, the last labels (see the end).
+        ;[...layer.childNodes].forEach((c) =>
+          (n === earlier.length - 1 && earlier.length > 1 ? labels : shapes).appendChild(c),
+        )
+        layer.remove()
+      })
+
+      /** @type {Map<string, Element>} */
+      const oldTiles = new Map()
+      view
+        .querySelectorAll('.apexcharts-treemap-rect[data\\:key]')
+        .forEach((el) => oldTiles.set(id(el), el))
+      // Labels first, while the old tiles still sit in their series groups.
+      // One that the new view draws the same way rides on its own; one it
+      // draws differently (turned, resized, cut shorter), not at all, or that
+      // was still fading in fades out on its way to the tile's new place,
+      // under the new one fading in.
+      view
+        .querySelectorAll('.apexcharts-data-labels[data\\:key]')
+        .forEach((g) => {
+          const k = id(g)
+          const fresh = drawnNow.get(k)
+          if (
+            fresh &&
+            !fadingIn(g) &&
+            Series.treemapLabelLook(fresh) === Series.treemapLabelLook(g)
+          ) {
+            return
+          }
+          const tile = oldTiles.get(`T${k.slice(1)}`)
+          if (!tile) return
+          const was = centre(boxOf(tile))
+          const stays = drawnNow.get(`T${k.slice(1)}`)
+          const to = stays ? centre(boxOf(stays)) : centre(camera.fwd(boxOf(tile)))
+          ride(g, { x: to.x - was.x, y: to.y - was.y }, !!stays)
+          retire(g)
+          labels.appendChild(g)
+        })
+      // Containers before the tiles in them, the order they were painted in:
+      // a container's tint over its own tiles would shade them.
+      view.querySelectorAll('.apexcharts-treemap-parent').forEach((g) => {
+        const rect = g.querySelector('.apexcharts-treemap-parent-rect[data\\:key]')
+        if (!rect || rect.tagName.toLowerCase() !== 'rect') return
+        const stays = drawnNow.get(id(rect))
+        if (stays) {
+          // A container in both views at another depth: its header may
+          // read differently. The old text rides its strip out, fading,
+          // under the new one fading in.
+          const was = g.querySelector('.apexcharts-treemap-parent-label')
+          const now = stays.parentElement?.querySelector(
+            '.apexcharts-treemap-parent-label',
+          )
+          if (was && headerLook(was) !== headerLook(now)) {
+            const ob = boxOf(rect)
+            const nb = boxOf(stays)
+            const anchor = was.getAttribute('text-anchor')
+            const at = (/** @type {Box} */ b) =>
+              anchor === 'middle'
+                ? b.x + b.width / 2
+                : anchor === 'end'
+                  ? b.x + b.width
+                  : b.x
+            ride(was, { x: at(nb) - at(ob), y: nb.y - ob.y }, true)
+            retire(was)
+            labels.appendChild(was)
+          }
+          return
+        }
+        g.querySelectorAll('rect').forEach((r) => easeBox(r, camera.fwd(boxOf(r))))
+        g.querySelectorAll('text').forEach((t) => {
+          const at = { x: num(t, 'x'), y: num(t, 'y'), width: 0, height: 0 }
+          if (!Number.isFinite(at.x) || !Number.isFinite(at.y)) return
+          const to = camera.fwd(at)
+          ride(t, { x: to.x - at.x, y: to.y - at.y })
+        })
+        // A container around the branch being entered is not drawn in its
+        // view, yet the camera takes it across the whole plot: it fades out
+        // as it opens up, where one beside it slides off.
+        const end = camera.fwd(boxOf(rect))
+        const l = w.layout
+        if (
+          end.x < l.gridWidth &&
+          end.y < l.gridHeight &&
+          end.x + end.width > 0 &&
+          end.y + end.height > 0
+        ) {
+          writers.push((e) => g.setAttribute('opacity', String(1 - e)))
+        }
+        retire(g)
+        shapes.appendChild(g)
+      })
+      oldTiles.forEach((el, k) => {
+        if (drawnNow.has(k) || el.tagName.toLowerCase() !== 'rect') return
+        easeBox(el, camera.fwd(boxOf(el)))
+        retire(el)
+        shapes.appendChild(el)
+      })
+      // The gradients, patterns and filters the ghosts paint with: the old
+      // render's defs went with it, so the capture copied them.
+      const defs = view.querySelector(':scope > defs.apexcharts-treemap-ghost-defs')
+      if (defs) shapes.insertBefore(defs, shapes.firstChild)
+    }
+
+    ;[shapes, labels].forEach((g) => {
+      g.setAttribute('pointer-events', 'none')
+      g.setAttribute('aria-hidden', 'true')
+    })
+    root.insertBefore(shapes, root.firstChild)
+    root.appendChild(labels)
+    root.setAttribute('clip-path', `url(#gridRectMask${w.globals.cuid})`)
+    // On the tiles' own curve: their tweens are runners, which use the
+    // chart's animations.easing (a dynamicAnimation.easing would part them).
+    rafTween(
+      w,
+      Math.max(1, this.dynamicAnim.speed || 1),
+      resolveEasing(w.config.chart.animations.easing),
+      (e) => writers.forEach((fn) => fn(e)),
+      () => {
+        shapes.remove()
+        labels.remove()
+        root.removeAttribute('clip-path')
+      },
+    )
   }
 
   /**
@@ -1164,9 +1778,7 @@ export default class TreemapChart {
         chain.map((/** @type {any} */ n) => ({ label: n.name, data: n })),
       ),
       onNavigate: (_i, crumb) => {
-        w.globals.treemapFocusKey = crumb.data ? crumb.data._key : null
-        this._hideParentTooltip()
-        this.ctx.update()
+        this._refocus(crumb.data ? crumb.data._key : null)
       },
     })
     if (!nav) return
@@ -1645,15 +2257,49 @@ export default class TreemapChart {
   }
 
   /**
+   * Carry a label (or any mark drawn at its final spot) along a tile tween:
+   * offset from where it was to where it is, eased off on the tween's own
+   * clock. With no `from`, it fades in instead.
+   * @param {Element} node
+   * @param {{x: number, y: number} | null} from the old centre
+   * @param {number} x1
+   * @param {number} y1
+   * @param {number} x2
+   * @param {number} y2
+   * @param {any} tween the tile's runner
+   * @param {boolean} [fade] fade in on the way (a label the tile did not
+   *   have before)
+   */
+  _rideTile(node, from, x1, y1, x2, y2, tween, fade = !from) {
+    const base = node.getAttribute('transform') || ''
+    const dx = from ? from.x - (x1 + x2) / 2 : 0
+    const dy = from ? from.y - (y1 + y2) / 2 : 0
+    const place = (/** @type {number} */ pos) => {
+      if (pos >= 1) {
+        if (base) node.setAttribute('transform', base)
+        else node.removeAttribute('transform')
+        node.removeAttribute('opacity')
+        return
+      }
+      const t = 1 - pos
+      node.setAttribute('transform', `translate(${dx * t} ${dy * t}) ${base}`.trim())
+      if (fade) node.setAttribute('opacity', String(pos))
+    }
+    place(0)
+    tween.during(place)
+  }
+
+  /**
    * @param {any} el
    * @param {Record<string, any>} fromRect
    * @param {Record<string, any>} toRect
    * @param {number} speed
    * @param {number} [delay] - per-tile cascade delay in ms
+   * @returns {any} the tween, which a label can ride (_rideTile)
    */
   animateTreemap(el, fromRect, toRect, speed, delay = 0) {
     const animations = new Animations(this.w)
-    animations.animateRect(
+    return animations.animateRect(
       el,
       fromRect,
       toRect,

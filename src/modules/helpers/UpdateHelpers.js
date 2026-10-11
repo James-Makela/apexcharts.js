@@ -6,6 +6,52 @@ import Graphics from '../Graphics'
 import Utils from '../../utils/Utils'
 import PerformanceCache from '../../utils/PerformanceCache'
 
+/**
+ * Drop every stash of RAW series input a series transform accumulates from.
+ *
+ * The transforms that derive their rows (the zoom-aware downsampler, the
+ * histogram's observations, the waterfall's deltas, the dumbbell's measures,
+ * the streamgraph's values, the treemap's levels) keep the caller's input in a
+ * stash, because `Data.parseData` writes what they return back to
+ * `config.series`: re-running against the derived rows would bin, accumulate or
+ * stack a level deeper on every render. The flip side is that a stash outlives
+ * the input it was taken from, so whenever a caller REDEFINES the series it has
+ * to go, or the transform keeps rebuilding the first dataset forever.
+ *
+ * One list, called from both update paths, so the two cannot drift apart.
+ *
+ * @param {any} w
+ */
+function clearRawSeriesStashes(w) {
+  w.globals.dataReducerRawSeries = null
+  w.globals.histogramRawSeries = null
+  w.globals.waterfallRawSeries = null
+  w.globals.dumbbellRawSeries = null
+  w.globals.streamgraphRawSeries = null
+  w.globals.treemapRawSeries = null
+}
+
+/**
+ * The category names on a category axis, as one comparable string, or null
+ * when the x axis is numeric (its ticks come from the value domain, which the
+ * axis-scale signature already compares).
+ *
+ * A converted axis (line, area, scatter and bubble with no xaxis.type) keeps
+ * its names in `categoryLabels`, and the render rewrites `labels` into tick
+ * values, so signing `labels` there never matched: every update lost the fast
+ * path, and a rename still went unseen.
+ *
+ * @param {any} w
+ * @returns {string | null}
+ */
+function categorySignature(w) {
+  if (w.config.xaxis.convertedCatToNumeric) {
+    return JSON.stringify(w.labelData.categoryLabels ?? [])
+  }
+  if (w.axisFlags.isXNumeric) return null
+  return JSON.stringify(w.labelData.labels ?? [])
+}
+
 export default class UpdateHelpers {
   /**
    * @param {import('../../types/internal').ChartStateW} w
@@ -56,6 +102,16 @@ export default class UpdateHelpers {
           if (animate && w.config.chart.animations.enabled) {
             ch.series.getPreviousPaths()
           }
+        } else {
+          // From scratch: render as the chart did when it mounted (or, with
+          // animate=false, simply at rest). Both flags outlive the update
+          // that set them, so after any earlier update a redraw used to morph
+          // from the paths THAT update captured: shapes two updates old,
+          // jumped to on the first frame. `resized` is what keeps the mount
+          // animation from replaying when the caller asked for none.
+          w.globals.resized = !animate
+          w.globals.dataChanged = false
+          w.globals.previousPaths = []
         }
 
         // Cross-type morph capture (opt-in via the 'morph' feature). Runs
@@ -87,6 +143,9 @@ export default class UpdateHelpers {
         }
 
         if (options && typeof options === 'object') {
+          // `tooltip: undefined` in a payload means "not given", as it does
+          // on a new chart (see Config.dropEmptyOptions).
+          options = Config.dropEmptyOptions(options)
           ch.config = new Config(options)
           // Collapse user-facing chart-type aliases (funnel / pyramid → bar
           // with isFunnel; gauge → radialBar). On the initial render this
@@ -127,6 +186,16 @@ export default class UpdateHelpers {
             }
           }
           ch.config.normalizeAliasedChartType(options)
+          // Axis bounds are coerced on the PAYLOAD, not on the merged config,
+          // because `lastXAxis` / `lastYAxis` are snapshotted from it below and
+          // revertDefaultAxisMinMax writes those straight back into w.config.
+          // Coercing after the merge would leave the snapshot holding the
+          // original Date or string, and the next revert would undo the work.
+          // The incoming axis type wins; absent, the chart's current one does.
+          Config.normalizeAxisBounds(options, {
+            xaxisType: w.config.xaxis.type,
+            datetimeUTC: w.config.xaxis.labels.datetimeUTC,
+          })
           options = CoreUtils.extendArrayProps(ch.config, options, w)
 
           // fixes #914, #623
@@ -140,6 +209,21 @@ export default class UpdateHelpers {
             // out of sync with this chart's own series-to-axis indices,
             // which can throw in Scales.setYScaleForIndex on next render
             delete options.yaxis
+          }
+
+          // updateOptions({ series }) redefines the INPUT just as updateSeries()
+          // does, so the raw stashes have to go with it — otherwise a waterfall
+          // keeps re-accumulating the deltas it was first given and silently
+          // ignores every later series (same for histogram, dumbbell,
+          // streamgraph and treemap, which stash the same way).
+          //
+          // `overwriteInitialConfig` draws the line `_updateSeries` draws with
+          // `overwriteInitialSeries`: the public API sets it, while the
+          // library's own replays (a Rewind restore, a trellis panel sync, a
+          // storyboard beat) pass false and hand back DERIVED rows. Clearing on
+          // those would feed the accumulated pairs back in as deltas.
+          if (overwriteInitialConfig && Array.isArray(options.series)) {
+            clearRawSeriesStashes(w)
           }
 
           w.config = Utils.extend(w.config, options)
@@ -180,9 +264,10 @@ export default class UpdateHelpers {
                 ? prevInitialSeries
                 : Utils.copySeriesShallow(w.config.series)
             w.globals.initialConfig = initialConfig
-            // lazy snapshot: deep clone deferred to first read
-            w.globals.initialSeries = w.config.series
-
+            if (options.series) {
+              // lazy snapshot: deep clone deferred to first read
+              w.globals.initialSeries = w.config.series
+            }
           }
 
           // Keep legend-hidden (collapsed) series hidden across ANY series
@@ -248,6 +333,19 @@ export default class UpdateHelpers {
         this.ctx.series.getPreviousPaths()
       }
 
+      // The category names on screen. The fast path keeps the axis DOM and the
+      // layout, and the axis-scale signature above only knows the value scale,
+      // so new names at the same count ({ x: 'United Kingdom' } for 'UK') used
+      // to leave the old names on the axis, in room sized for them.
+      const prevCategorySig = categorySignature(w)
+
+      // The numeric-axis bar pad the layout on screen was built with: the plot
+      // is inset by it on both sides so edge columns, candles and boxes have
+      // room. parseData resets it with the other per-render values and only
+      // Dimensions sets it again, which the fast path skips on a numeric (not
+      // datetime) x axis, so it is put back for the fast path below.
+      const prevBarPad = w.globals.barPadForNumericAxis
+
       // Capture previous series count and per-series data lengths BEFORE
       // parsing (parseData overwrites w.seriesData.series)
       const prevSeriesCount = w.config.series.length
@@ -269,17 +367,43 @@ export default class UpdateHelpers {
       // level deeper. `Data.parseData` already draws this same line for each of
       // these when it decides what initialSeries means.
       if (overwriteInitialSeries) {
-        w.globals.dataReducerRawSeries = null
-        w.globals.histogramRawSeries = null
-        w.globals.waterfallRawSeries = null
-        w.globals.dumbbellRawSeries = null
-        w.globals.streamgraphRawSeries = null
-        w.globals.treemapRawSeries = null
+        clearRawSeriesStashes(w)
+      }
+
+      const definedSeries = newSeries
+      let reconciledCollapses = false
+
+      // Keep legend-hidden (collapsed) series hidden across a data update,
+      // reconciled BY CATEGORY NAME by the same code the options path uses: a
+      // name still present stays hidden at its possibly-new index, one the
+      // update dropped comes back. Without this, updateSeries() disagreed with
+      // updateOptions({ series }) and a viewer's legend click was undone by
+      // the next refresh.
+      //
+      // Before parseData, or the collapsed row's values are parsed into the
+      // axis range and the chart rescales to fit a series nobody can see. On a
+      // COPY, because emptying writes `data: []` into each collapsed row and
+      // these objects belong to the caller.
+      // Axis charts only: a non-axis chart records collapses per slice, which
+      // does not reconcile against a series list at all. See prepareDataUpdate.
+      if (
+        w.globals.axisCharts &&
+        (w.globals.collapsedSeriesIndices.length > 0 ||
+          w.globals.ancillaryCollapsedSeriesIndices.length > 0)
+      ) {
+        newSeries = newSeries.map((/** @type {any} */ s) =>
+          s && typeof s === 'object' ? { ...s } : s,
+        )
+        this.ctx.series.reconcileCollapsedByName(newSeries)
+        reconciledCollapses = true
       }
 
       this.ctx.data.resetParsingFlags()
       // Phase 1: return value captured; writer stubs are no-ops.
-      const parsedState = this.ctx.data.parseData(newSeries)
+      const parsedState = this.ctx.data.parseData(
+        newSeries,
+        overwriteInitialSeries,
+      )
       this.ctx._writeParsedSeriesData(parsedState.seriesData)
       this.ctx._writeParsedRangeData(parsedState.rangeData)
       this.ctx._writeParsedCandleData(parsedState.candleData)
@@ -291,20 +415,36 @@ export default class UpdateHelpers {
         // defined. A copy, never the live array: this site used to assign
         // w.config.series itself, restoring the very alias #5118 came from, so
         // one updateSeries() would undo the capture Globals.init now makes.
-        // initialSeries was already captured by parseData above through the
-        // lazy-snapshot setter, so no deep clone happens here either.
+        // Both snapshots come off the array the caller handed in once the
+        // reconcile above has run, since that emptied the collapsed rows and
+        // parseData baselines from what it parses: the baseline would forget
+        // the data of exactly the series the viewer switched off.
+        // _updateOptions gets this for free, it reconciles after capturing.
         if (w.globals.initialConfig) {
           w.globals.initialConfig.series = Utils.copySeriesShallow(
-            w.config.series,
+            reconciledCollapses ? definedSeries : w.config.series,
           )
         }
-        w.globals.initialSeries = w.config.series
+        // With no reconcile, initialSeries stays as parseData left it: on the
+        // raw-stash and dataReducer types config.series holds rows this library
+        // derived, and reassigning it here made the baseline the bin counts,
+        // the accumulated pairs or the downsampled window (#5283).
+        if (reconciledCollapses) {
+          w.globals.initialSeries = definedSeries
+        }
       }
 
       // Use the fast path when the series structure is compatible:
       // same series count, same data lengths, same chart type, axis chart,
       // no series collapse in progress.
-      if (this._canUseFastPath(newSeries, prevSeriesCount, prevDataLengths, w)) {
+      if (
+        this._canUseFastPath(newSeries, prevSeriesCount, prevDataLengths, w) &&
+        categorySignature(w) === prevCategorySig
+      ) {
+        // Left at 0, a mark standing in the inset read as off-screen to
+        // Bar.renderSeries and was not drawn (or drawn leaving, then removed),
+        // and the tooltip, crosshair and gridlines lost their edge pad.
+        w.globals.barPadForNumericAxis = prevBarPad
         return this.ctx
           .fastUpdate(animate, prevAxisScaleSig)
           .then(() => {
@@ -340,6 +480,7 @@ export default class UpdateHelpers {
    * - No series currently collapsing (collapsed series changes visible data range)
    * - Not a combo chart (combo charts mix types and need coordinated axis recalc)
    * - Not currently zoomed (zoomed charts have altered x-labels that need recalculation)
+   * - The series renderer a full render would select is the one on screen
    * @param {any[]} newSeries
    * @param {number} prevSeriesCount
    * @param {number[]} prevDataLengths
@@ -362,6 +503,13 @@ export default class UpdateHelpers {
     if (w.globals.risingSeries.length > 0) return false
     if (w.globals.comboCharts) return false
     if (w.interact.zoomed) return false
+    // The fast path repaints into the series renderer already on screen and
+    // keeps the tooltip's listeners, both chosen for that backend. When a
+    // full render would now pick another one ('auto' crossing its threshold,
+    // or a backend registered since the chart drew), only that render swaps
+    // the series layer and rewires the hover for it.
+    const rc = this.ctx.rendererController
+    if (rc && rc.pendingKind() !== rc.getActiveKind()) return false
     return true
   }
 
@@ -384,6 +532,8 @@ export default class UpdateHelpers {
           ? s.hidden
           : /** @type {any} */ (ser)?.hidden,
       data: s.data ? s.data : /** @type {any} */ (ser)?.data,
+      // Not inherited: a series sent without its part has been cleared.
+      highlightData: s.highlightData,
       zIndex: typeof s.zIndex !== 'undefined' ? s.zIndex : i,
     }
   }
@@ -446,9 +596,27 @@ export default class UpdateHelpers {
       w.config.xaxis.categories = options.xaxis.categories
     }
 
+    // A category axis drawn as numbers keeps its names only in its label
+    // formatter. Converting a payload that names no categories rebuilt that
+    // formatter without them and wrote `categories: []` over the chart's, so
+    // any xaxis update (a bound, a label style, `xaxis: {}`) turned the
+    // names into 1, 2, 3 and dropped the user's formatter with them.
     if (w.config.xaxis.convertedCatToNumeric) {
-      const defaults = new Defaults(options)
-      options = defaults.convertCatToNumericXaxis(options, this.ctx)
+      const x = options.xaxis
+      if ('categories' in x || 'labels' in options) {
+        // New names, or an explicit empty list to clear them.
+        options = new Defaults(options).convertCatToNumericXaxis(options)
+      } else if (x.labels?.formatter) {
+        // A new formatter over the names the chart already has.
+        const names = /** @type {any} */ (w.config.xaxis.labels.formatter)
+          ?.categoryNames
+        options = new Defaults(options).convertCatToNumericXaxis(
+          options,
+          names,
+        )
+      }
+      // Otherwise the payload says nothing about the labels, and the
+      // converted formatter already in the config stands.
     }
     return options
   }

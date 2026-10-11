@@ -7,6 +7,7 @@ import Filters from '../modules/Filters'
 import Utils from '../utils/Utils'
 import Helpers from './common/circle/Helpers'
 import CoreUtils from '../modules/CoreUtils'
+import Series from '../modules/Series'
 
 /**
  * ApexCharts Radar Class for Spider/Radar Charts.
@@ -17,6 +18,23 @@ import CoreUtils from '../modules/CoreUtils'
 // (`markers.size: 0`). Matches the radar default marker size, see the note at
 // its use site in drawSeriesMarkers.
 const RADAR_HIT_AREA_SIZE = 5
+
+/**
+ * A radar path scaled `k` times about the web's centre (its group's origin).
+ * Radar paths are absolute M/L/Z polygons, so every number in them is a
+ * coordinate and scales alike; a path with an arc is left alone (its flags
+ * would scale too).
+ *
+ * @param {string | null} d
+ * @param {number} k
+ * @returns {string | null}
+ */
+function scalePath(d, k) {
+  if (!d || k === 1 || !Number.isFinite(k) || /[aA]/.test(d)) return d
+  return d.replace(/-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi, (n) =>
+    String(parseFloat(n) * k),
+  )
+}
 
 class Radar {
   /**
@@ -111,6 +129,24 @@ class Radar {
       transform: `translate(${translateX || 0}, ${translateY || 0})`,
     })
 
+    // Where the web lands on screen, for CircleTransition.
+    w.globals.circleGeometry = {
+      node: ret.node,
+      cx: translateX || 0,
+      cy: translateY || 0,
+      r: this.size,
+    }
+
+    // The previous polygons are in the previous render's pixels, around its
+    // radius. When the chrome resized the web, CircleTransition scales this
+    // render back to the old radius on the first frame, so they are restated
+    // at this one's radius first, or that scale would count twice.
+    const prevFrame = w.globals.prevCircleFrame
+    const fromScale =
+      prevFrame && prevFrame.type === 'radar' && prevFrame.rendered.r > 0
+        ? this.size / prevFrame.rendered.r
+        : 1
+
     /** @type {any[]} */
     let dataPointsPos = []
     /** @type {any | null} */
@@ -138,9 +174,31 @@ class Radar {
         'data:realIndex': i,
       })
 
+      // A legend-hidden series keeps its shape in the DOM (unpainted at rest
+      // via -collapsed), and stays painted for its exit via -collapsing.
+      Series.addCollapsedClassToSeries(this.w, elSeries, i)
+
       this.dataRadiusOfPercent[i] = []
       this.dataRadius[i] = []
       this.angleArr[i] = []
+
+      // A hidden series arrives with no data and used to draw a single stray
+      // point, so it vanished on the click and popped back fully formed. Its
+      // shape is every value at zero instead, collapsed into the center: the
+      // radar's baseline. Hiding then shrinks the polygon into the center and
+      // showing it grows back out. Only the shape: markers and labels below
+      // still iterate the real (empty) row, so nothing is drawn or hoverable.
+      const collapsed =
+        s.length === 0 &&
+        (w.globals.collapsedSeriesIndices.indexOf(i) > -1 ||
+          w.globals.ancillaryCollapsedSeriesIndices.indexOf(i) > -1)
+      if (collapsed) {
+        for (let j = 0; j < w.globals.dataPoints; j++) {
+          this.dataRadiusOfPercent[i][j] = 0
+          this.dataRadius[i][j] = 0
+          this.angleArr[i][j] = j * this.disAngle
+        }
+      }
 
       /**
        * @param {number} dv
@@ -201,7 +259,7 @@ class Radar {
       let pathFrom = null
 
       if (w.globals.previousPaths.length > 0) {
-        pathFrom = this.getPreviousPath(i)
+        pathFrom = scalePath(this.getPreviousPath(i), fromScale)
       }
 
       for (let p = 0; p < paths.linePathsTo.length; p++) {
@@ -318,7 +376,9 @@ class Radar {
         const dataLabelsConfig = w.config.dataLabels
 
         if (dataLabelsConfig.enabled) {
+          // `ctx` as on the other charts labelled at a point (DataLabels)
           const text = dataLabelsConfig.formatter(w.seriesData.series[i][j], {
+            ctx: this.ctx,
             seriesIndex: i,
             dataPointIndex: j,
             w,
@@ -462,7 +522,12 @@ class Radar {
      * @param {number} i
      */
     w.labelData.labels.forEach((label, i) => {
-      const formatter = w.config.xaxis.labels.formatter
+      // A chart switched to a radar from a type with no category axis (a pie)
+      // was never given one: the names are shown as they are.
+      const formatter =
+        typeof w.config.xaxis.labels.formatter === 'function'
+          ? w.config.xaxis.labels.formatter
+          : (/** @type {any} */ v) => v
       const dataLabels = new DataLabels(this.w, this.ctx)
 
       if (polygonPos[i]) {
@@ -604,7 +669,10 @@ class Radar {
     for (let pp = 0; pp < w.globals.previousPaths.length; pp++) {
       const gpp = w.globals.previousPaths[pp]
 
+      // A chart that was not a radar a moment ago (a pie switched to one)
+      // left plain values here, not paths: nothing to start from.
       if (
+        Array.isArray(gpp?.paths) &&
         gpp.paths.length > 0 &&
         parseInt(gpp.realIndex, 10) === parseInt(String(realIndex), 10)
       ) {

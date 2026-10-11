@@ -17,28 +17,9 @@ var __spreadValues = (a, b) => {
   return a;
 };
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 /*!
- * ApexCharts v7.1.0
+ * ApexCharts v8.0.0
  * (c) 2018-2026 ApexCharts
  */
 import * as _core from "apexcharts/core";
@@ -495,6 +476,7 @@ class Exports {
    */
   getSvgString(_scale) {
     return new Promise((resolve) => {
+      var _a, _b, _c;
       const w = this.w;
       let scale = _scale || w.config.chart.toolbar.export.scale || w.config.chart.toolbar.export.width / w.globals.svgWidth;
       if (!scale) {
@@ -502,6 +484,9 @@ class Exports {
       }
       const width = w.globals.svgWidth * scale;
       const height = w.globals.svgHeight * scale;
+      (_a = w.globals.layoutTween) == null ? void 0 : _a.finish();
+      (_b = w.globals.circleTween) == null ? void 0 : _b.finish();
+      (_c = w.globals.highlightTween) == null ? void 0 : _c.finish();
       const clonedNode = (
         /** @type {HTMLElement} */
         w.dom.elWrap.cloneNode(true)
@@ -809,8 +794,7 @@ class Exports {
       }
     };
     const handleUnequalXValues = () => {
-      const categories = /* @__PURE__ */ new Set();
-      const data = {};
+      const byCategory = /* @__PURE__ */ new Map();
       series.forEach((s, sI) => {
         s == null ? void 0 : s.data.forEach((dataItem) => {
           let cat, value;
@@ -823,24 +807,25 @@ class Exports {
           } else {
             return;
           }
-          if (!/** @type {Record<string,any>} */
-          data[cat]) {
-            data[cat] = Array(
-              series.length
-            ).fill("");
+          const key = String(cat);
+          let row = byCategory.get(key);
+          if (!row) {
+            row = { cat, values: Array(series.length).fill("") };
+            byCategory.set(key, row);
           }
-          data[cat][sI] = getFormattedValue(value);
-          categories.add(cat);
+          row.values[sI] = getFormattedValue(value);
         });
       });
       if (columns.length) {
         rows.push(columns.join(columnDelimiter));
       }
-      Array.from(categories).sort().forEach((cat) => {
-        const values = (
-          /** @type {Record<string,any>} */
-          data[cat]
-        );
+      Array.from(byCategory.values()).sort((a, b) => {
+        const aText = typeof a.cat === "string";
+        const bText = typeof b.cat === "string";
+        if (aText !== bText) return aText ? 1 : -1;
+        if (!aText) return a.cat - b.cat;
+        return a.cat < b.cat ? -1 : 1;
+      }).forEach(({ cat, values }) => {
         rows.push([getFormattedCategory(cat), ...values].join(columnDelimiter));
       });
     };
@@ -917,7 +902,7 @@ _core__default.registerFeatures({ exports: Exports });
 const CoreUtils = _core.__apex_CoreUtils;
 const Dimensions = _core.__apex_dimensions_Dimensions;
 const Graphics = _core.__apex_Graphics;
-const apexchartsLegendCSS = ".apexcharts-flip-y {\n  transform: scaleY(-1) translateY(-100%);\n  transform-origin: top;\n  transform-box: fill-box;\n}\n.apexcharts-flip-x {\n  transform: scaleX(-1);\n  transform-origin: center;\n  transform-box: fill-box;\n}\n.apexcharts-legend {\n  display: flex;\n  overflow: auto;\n  padding: 0 10px;\n}\n.apexcharts-legend.apexcharts-legend-group-horizontal {\n  flex-direction: column;\n}\n.apexcharts-legend-group {\n  display: flex;\n}\n.apexcharts-legend-group-vertical {\n  flex-direction: column-reverse;\n}\n.apexcharts-legend.apx-legend-position-bottom, .apexcharts-legend.apx-legend-position-top {\n  flex-wrap: wrap\n}\n.apexcharts-legend.apx-legend-position-right, .apexcharts-legend.apx-legend-position-left {\n  flex-direction: column;\n  bottom: 0;\n}\n.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-left, .apexcharts-legend.apx-legend-position-top.apexcharts-align-left, .apexcharts-legend.apx-legend-position-right, .apexcharts-legend.apx-legend-position-left {\n  justify-content: flex-start;\n  align-items: flex-start;\n}\n.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-center, .apexcharts-legend.apx-legend-position-top.apexcharts-align-center {\n  justify-content: center;\n  align-items: center;\n}\n.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-right, .apexcharts-legend.apx-legend-position-top.apexcharts-align-right {\n  justify-content: flex-end;\n  align-items: flex-end;\n}\n.apexcharts-legend-series {\n  cursor: pointer;\n  line-height: normal;\n  display: flex;\n  align-items: center;\n}\n.apexcharts-legend-text {\n  position: relative;\n  font-size: 14px;\n}\n.apexcharts-legend-text *, .apexcharts-legend-marker * {\n  pointer-events: none;\n}\n.apexcharts-legend-marker {\n  position: relative;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  cursor: pointer;\n  margin-right: 1px;\n}\n\n.apexcharts-legend-series.apexcharts-no-click {\n  cursor: auto;\n}\n.apexcharts-legend .apexcharts-hidden-zero-series, .apexcharts-legend .apexcharts-hidden-null-series {\n  display: none !important;\n}\n.apexcharts-inactive-legend {\n  opacity: 0.45;\n} ";
+const apexchartsLegendCSS = ".apexcharts-flip-y{transform:scaleY(-1) translateY(-100%);transform-origin:top;transform-box:fill-box}.apexcharts-flip-x{transform:scaleX(-1);transform-origin:center;transform-box:fill-box}.apexcharts-legend{display:flex;overflow:auto;padding:0 10px}.apexcharts-legend.apexcharts-legend-group-horizontal{flex-direction:column}.apexcharts-legend-group{display:flex}.apexcharts-legend-group-vertical{flex-direction:column-reverse}.apexcharts-legend.apx-legend-position-bottom,.apexcharts-legend.apx-legend-position-top{flex-wrap:wrap}.apexcharts-legend.apx-legend-position-right,.apexcharts-legend.apx-legend-position-left{flex-direction:column;bottom:0}.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-left,.apexcharts-legend.apx-legend-position-top.apexcharts-align-left,.apexcharts-legend.apx-legend-position-right,.apexcharts-legend.apx-legend-position-left{justify-content:flex-start;align-items:flex-start}.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-center,.apexcharts-legend.apx-legend-position-top.apexcharts-align-center{justify-content:center;align-items:center}.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-right,.apexcharts-legend.apx-legend-position-top.apexcharts-align-right{justify-content:flex-end;align-items:flex-end}.apexcharts-legend-series{cursor:pointer;line-height:normal;display:flex;align-items:center}.apexcharts-legend-text{position:relative;font-size:14px}.apexcharts-legend-text *,.apexcharts-legend-marker *{pointer-events:none}.apexcharts-legend-marker{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-right:1px}.apexcharts-legend-series.apexcharts-no-click{cursor:auto}.apexcharts-legend .apexcharts-hidden-zero-series,.apexcharts-legend .apexcharts-hidden-null-series{display:none!important}.apexcharts-inactive-legend{opacity:.45}";
 let Helpers$1 = class Helpers {
   /**
    * @param {import('./Legend').default} lgCtx
@@ -1086,7 +1071,7 @@ let Helpers$1 = class Helpers {
    */
   _nonAxisSliceContainer(series) {
     const type = this.w.config.chart.type;
-    if ((type === "pie" || type === "donut" || type === "polarArea" || type === "sunburst") && series.length === 1 && series[0] && typeof series[0] === "object" && Array.isArray(series[0].data)) {
+    if ((type === "pie" || type === "donut" || type === "polarArea" || type === "sunburst" || type === "icicle") && series.length === 1 && series[0] && typeof series[0] === "object" && Array.isArray(series[0].data)) {
       return series[0].data;
     }
     return series;
@@ -1228,10 +1213,18 @@ let Helpers$1 = class Helpers {
         }
       }
       series = this._getSeriesBasedOnCollapsedState(series);
-      this.lgCtx.updateSeries(
+      const updated = this.lgCtx.updateSeries(
         series,
         w.config.chart.animations.dynamicAnimation.enabled
       );
+      const settled = () => {
+        w.globals.risingSeries = [];
+      };
+      if (updated && typeof updated.then === "function") {
+        updated.then(settled, settled);
+      } else {
+        settled();
+      }
     }
   }
   /**
@@ -1317,19 +1310,19 @@ function resolveStops(cfg, min, max, midpoint) {
   if (midpoint != null && n >= 3) {
     const mid = Math.floor((n - 1) / 2);
     const out = [];
-    for (let k = 0; k <= mid; k++) {
-      out.push({ value: lerp(min, midpoint, k / mid), color: colors[k] });
+    for (let k2 = 0; k2 <= mid; k2++) {
+      out.push({ value: lerp(min, midpoint, k2 / mid), color: colors[k2] });
     }
-    for (let k = mid + 1; k < n; k++) {
+    for (let k2 = mid + 1; k2 < n; k2++) {
       out.push({
-        value: lerp(midpoint, max, (k - mid) / (n - 1 - mid)),
-        color: colors[k]
+        value: lerp(midpoint, max, (k2 - mid) / (n - 1 - mid)),
+        color: colors[k2]
       });
     }
     return out;
   }
-  return colors.map((c, k) => ({
-    value: lerp(min, max, k / (n - 1)),
+  return colors.map((c, k2) => ({
+    value: lerp(min, max, k2 / (n - 1)),
     color: c
   }));
 }
@@ -1388,10 +1381,10 @@ function buildContinuousScale(w) {
     if (v <= stops[0].value) return stops[0].color;
     const last = stops[stops.length - 1];
     if (v >= last.value) return last.color;
-    for (let k = 1; k < stops.length; k++) {
-      const hi = stops[k];
+    for (let k2 = 1; k2 < stops.length; k2++) {
+      const hi = stops[k2];
       if (v <= hi.value) {
-        const lo = stops[k - 1];
+        const lo = stops[k2 - 1];
         const span2 = hi.value - lo.value;
         const t = span2 === 0 ? 0 : (v - lo.value) / span2;
         return mixColors(lo.color, hi.color, t);
@@ -1406,6 +1399,7 @@ function buildContinuousScale(w) {
   }));
   return { min, max, midpoint, stops, at, legendStops };
 }
+const TooltipUtils = _core.__apex_tooltip_Utils;
 const SVG_NS = "http://www.w3.org/2000/svg";
 class HeatmapGradientLegend {
   /**
@@ -1562,9 +1556,9 @@ class HeatmapGradientLegend {
       const labelFontSize = ((_d = cfg.labelStyle) == null ? void 0 : _d.fontSize) || "11px";
       const labelFontFamily = ((_e = cfg.labelStyle) == null ? void 0 : _e.fontFamily) || w.config.chart.fontFamily;
       const fmt = this._getFormatter();
-      const makeLabel = (text, x, y, anchor) => {
+      const makeLabel = (text, x2, y, anchor) => {
         const t = BrowserAPIs.createElementNS(SVG_NS, "text");
-        t.setAttribute("x", String(x));
+        t.setAttribute("x", String(x2));
         t.setAttribute("y", String(y));
         t.setAttribute("text-anchor", anchor);
         t.setAttribute("dominant-baseline", "middle");
@@ -1727,11 +1721,11 @@ class HeatmapGradientLegend {
       }
     } else {
       const availableWidth = chartWidth - svgWidth - edgePad * 2;
-      let x;
-      if (align === "start") x = edgePad;
-      else if (align === "end") x = edgePad + Math.max(0, availableWidth);
-      else x = edgePad + Math.max(0, availableWidth) / 2;
-      elLegendWrap.style.left = x + userOffsetX + "px";
+      let x2;
+      if (align === "start") x2 = edgePad;
+      else if (align === "end") x2 = edgePad + Math.max(0, availableWidth);
+      else x2 = edgePad + Math.max(0, availableWidth) / 2;
+      elLegendWrap.style.left = x2 + userOffsetX + "px";
       if (position === "top") {
         elLegendWrap.style.top = edgePad + userOffsetY + "px";
       } else {
@@ -1807,22 +1801,29 @@ class HeatmapGradientLegend {
       w.dom.elLegendWrap
     );
     const strip = this.svgEl && this.svgEl.querySelector("rect");
-    const grid = w.dom.baseEl.querySelector(".apexcharts-grid");
-    if (!wrap || !strip || !grid || !this._geom) return;
+    if (!wrap || !strip || !this._geom) return;
+    if (!w.dom.baseEl || !w.dom.baseEl.querySelector(".apexcharts-svg")) return;
     const s = strip.getBoundingClientRect();
-    const gr = grid.getBoundingClientRect();
-    if (!s.width || !s.height || !gr.width || !gr.height) return;
+    const plot = TooltipUtils.plotRect(w);
+    if (!s.width || !s.height || !plot.width || !plot.height) return;
+    const gr = {
+      left: plot.left,
+      right: plot.left + plot.width,
+      top: plot.top,
+      bottom: plot.top + plot.height
+    };
+    const zoom = plot.zoom;
     const MIN_GAP = 16;
     const { isVertical, position } = this._geom;
     if (isVertical) {
-      const gap = position === "left" ? gr.left - s.right : s.left - gr.right;
+      const gap = (position === "left" ? gr.left - s.right : s.left - gr.right) / zoom;
       if (gap < MIN_GAP) {
         const curLeft = parseFloat(wrap.style.left) || 0;
         const shift = MIN_GAP - gap;
         wrap.style.left = curLeft + (position === "left" ? -shift : shift) + "px";
       }
     } else {
-      const gap = position === "top" ? gr.top - s.bottom : s.top - gr.bottom;
+      const gap = (position === "top" ? gr.top - s.bottom : s.top - gr.bottom) / zoom;
       if (gap < MIN_GAP) {
         const curTop = parseFloat(wrap.style.top) || 0;
         const shift = MIN_GAP - gap;
@@ -2417,7 +2418,7 @@ class Legend {
       w.dom.elLegendWrap
     );
     const legendHeight = elLegendWrap.clientHeight;
-    let x = 0;
+    let x2 = 0;
     let y = 0;
     if (w.config.legend.position === "bottom") {
       y = w.globals.svgHeight - Math.min(legendHeight, w.globals.svgHeight / 2) - 5;
@@ -2428,9 +2429,9 @@ class Legend {
       y = (titleH > 0 ? titleH - 10 : 0) + (subtitleH > 0 ? subtitleH - 10 : 0);
     }
     elLegendWrap.style.position = "absolute";
-    x = x + offsetX + w.config.legend.offsetX;
+    x2 = x2 + offsetX + w.config.legend.offsetX;
     y = y + offsetY + w.config.legend.offsetY;
-    elLegendWrap.style.left = x + "px";
+    elLegendWrap.style.left = x2 + "px";
     elLegendWrap.style.top = y + "px";
     if (w.config.legend.position === "right") {
       elLegendWrap.style.left = "auto";
@@ -2599,10 +2600,49 @@ class Toolbar {
     this.elMenu = null;
     this.elMenuItems = [];
     this.t = null;
+    this._drawnForZoom = null;
   }
-  createToolbar() {
-    var _a, _b;
+  /**
+   * Whether this chart's built-in ways back out of a zoom are switched on.
+   *
+   * The gate `chart.zoom.resetControl` opens, and the one the Escape shortcut
+   * reads too, so a page that says it supplies its own reset gets neither.
+   * 'auto' means "supply one when nothing else on screen can": a toolbar
+   * showing its reset tool is a way back, and anything else is not.
+   *
+   * @returns {boolean}
+   */
+  resetControlAllowed() {
+    const c = this.w.config.chart;
+    if (!c.zoom || !c.zoom.enabled) return false;
+    const setting = c.zoom.resetControl === void 0 ? "auto" : c.zoom.resetControl;
+    if (setting !== "auto") return !!setting;
+    const onScreen = c.toolbar && c.toolbar.show && c.toolbar.tools && c.toolbar.tools.reset;
+    return !onScreen;
+  }
+  /**
+   * Whether a reset control has to be drawn for the state the chart is in now.
+   *
+   * Only while the chart is actually zoomed, which is the whole idea: the
+   * control appears at the moment the viewer changed the view, where they are
+   * already looking, and goes again when the range does. A page that never
+   * zooms never sees it, so `toolbar: { show: false }` still means an empty
+   * chart for everyone who does not zoom.
+   *
+   * @returns {boolean}
+   */
+  resetControlDue() {
+    return !!this.w.interact.zoomed && this.resetControlAllowed();
+  }
+  /**
+   * @param {{ resetOnly?: boolean }} [opts] `resetOnly` draws the on-demand
+   *   reset control and nothing else, for a chart whose page asked for no
+   *   toolbar at all. See {@link Toolbar#resetControlDue}.
+   */
+  createToolbar(opts = {}) {
+    var _a, _b, _c;
     const w = this.w;
+    const resetOnly = !!opts.resetOnly;
     const createDiv = () => {
       return BrowserAPIs.createElementNS("http://www.w3.org/1999/xhtml", "div");
     };
@@ -2630,6 +2670,24 @@ class Toolbar {
     this.elMenu = createDiv();
     this.elCustomIcons = [];
     this.t = w.config.chart.toolbar.tools;
+    this._drawnForZoom = null;
+    if (resetOnly) {
+      this.t = {
+        zoom: false,
+        zoomin: false,
+        zoomout: false,
+        selection: false,
+        pan: false,
+        measure: false,
+        download: false,
+        customIcons: [],
+        reset: true
+      };
+      this._drawnForZoom = "wrap";
+    } else if (!this.t.reset && this.resetControlDue()) {
+      this.t = __spreadProps(__spreadValues({}, this.t), { reset: true });
+      this._drawnForZoom = "control";
+    }
     if (Array.isArray(this.t.customIcons)) {
       for (let i = 0; i < this.t.customIcons.length; i++) {
         this.elCustomIcons.push(createBtn());
@@ -2740,7 +2798,14 @@ class Toolbar {
       this.elMenuIcon.setAttribute("aria-haspopup", "true");
       this.elMenuIcon.setAttribute("aria-expanded", "false");
     }
-    this._createHamburgerMenu(elToolbarWrap);
+    if (!resetOnly) this._createHamburgerMenu(elToolbarWrap);
+    if (resetOnly) {
+      (_a = this.elZoomReset) == null ? void 0 : _a.addEventListener(
+        "click",
+        this.handleZoomReset.bind(this)
+      );
+      return;
+    }
     if (w.interact.zoomEnabled) {
       this.elZoom.classList.add(this.selectedClass);
     } else if (w.interact.panEnabled) {
@@ -2749,7 +2814,7 @@ class Toolbar {
       this.elSelection.classList.add(this.selectedClass);
     } else if (w.interact.measureEnabled && this.elMeasure) {
       this.elMeasure.classList.add(this.selectedClass);
-      (_b = (_a = this.ctx.measure) == null ? void 0 : _a.startMeasure) == null ? void 0 : _b.call(_a);
+      (_c = (_b = this.ctx.measure) == null ? void 0 : _b.startMeasure) == null ? void 0 : _c.call(_b);
     }
     this.addToolbarEventListeners();
   }
@@ -3155,9 +3220,28 @@ class Toolbar {
         break;
     }
   }
+  /**
+   * Take down whatever the zoom alone put on screen.
+   *
+   * By hand, and not left to the next render, because of the order in
+   * {@link Toolbar#handleZoomReset}: the re-render happens while
+   * `interact.zoomed` is still true, so the control is drawn once more and then
+   * the flag clears with no further pass to notice. Reversing that order would
+   * change what every listener downstream of the update sees, which is a much
+   * larger promise than this control is worth.
+   */
+  clearZoomAffordance() {
+    const drawn = this._drawnForZoom;
+    this._drawnForZoom = null;
+    if (!drawn || !this.elZoomReset) return;
+    const parent = this.elZoomReset.parentNode;
+    const gone = drawn === "wrap" ? parent : this.elZoomReset;
+    if (gone && gone.parentNode) gone.parentNode.removeChild(gone);
+  }
   handleZoomReset() {
     const charts = this.ctx.getSyncedCharts();
     charts.forEach((ch) => {
+      var _a;
       const w = ch.w;
       if (!w.interact.zoomed) return;
       w.globals.lastXAxis.min = w.globals.initialConfig.xaxis.min;
@@ -3183,6 +3267,7 @@ class Toolbar {
         w.config.chart.animations.dynamicAnimation.enabled
       );
       w.interact.zoomed = false;
+      (_a = ch.ctx.toolbar) == null ? void 0 : _a.clearZoomAffordance();
     });
   }
   destroy() {
@@ -3251,6 +3336,7 @@ const INERTIA_DEFAULT_FRICTION = 0.92;
 const INERTIA_STOP_VELOCITY = 0.02;
 const FRAME_MS_60FPS = 16.6667;
 const PAN_NUDGE_DIVISOR = 15;
+const PLOT_ORIGIN_PX = 0;
 class ZoomPanSelection extends Toolbar {
   /**
    * @param {import('../types/internal').ChartStateW} w
@@ -3330,6 +3416,10 @@ class ZoomPanSelection extends Toolbar {
         passive: false
       });
     }
+    this.hoverArea.addEventListener("keydown", me.escapeResetEvent.bind(me), {
+      capture: false,
+      passive: true
+    });
     if (this._momentumEnabled()) {
       ["touchstart", "touchmove", "touchend", "touchcancel"].forEach(
         (event) => {
@@ -3387,10 +3477,9 @@ class ZoomPanSelection extends Toolbar {
     this.clientX = e.type === "touchmove" || e.type === "touchstart" ? e.touches[0].clientX : e.type === "touchend" ? e.changedTouches[0].clientX : e.clientX;
     this.clientY = e.type === "touchmove" || e.type === "touchstart" ? e.touches[0].clientY : e.type === "touchend" ? e.changedTouches[0].clientY : e.clientY;
     if (e.type === "mousedown" && e.which === 1 || e.type === "touchstart") {
-      const gridRectDim = this._gridRect();
-      if (!gridRectDim) return;
+      if (!this._hasPlot()) return;
       this.startX = this._screenXToPlotPx(this.clientX);
-      this.startY = this.clientY - gridRectDim.top;
+      this.startY = this._screenYToPlotPx(this.clientY);
       this.dragged = false;
       this.w.interact.mousedown = true;
     }
@@ -3422,10 +3511,9 @@ class ZoomPanSelection extends Toolbar {
   /** @param {{ zoomtype?: any, isResized?: any }} opts */
   handleMouseUp({ zoomtype, isResized }) {
     const w = this.w;
-    const gridRectDim = this._gridRect();
-    if (gridRectDim && (this.w.interact.mousedown || isResized)) {
+    if (this._hasPlot() && (this.w.interact.mousedown || isResized)) {
       this.endX = this._screenXToPlotPx(this.clientX);
-      this.endY = this.clientY - gridRectDim.top;
+      this.endY = this._screenYToPlotPx(this.clientY);
       this.dragX = Math.abs(this.endX - this.startX);
       this.dragY = Math.abs(this.endY - this.startY);
       if (w.interact.zoomEnabled || w.interact.selectionEnabled) {
@@ -3462,12 +3550,16 @@ class ZoomPanSelection extends Toolbar {
   /**
    * A wheel or pinch zoom is an incidental gesture: the viewer can land in a
    * zoomed window without meaning to (a page scroll over the chart, a two-finger
-   * swipe), so it is only offered when there is a way back out of it. The only
-   * built-in way back is the toolbar's reset button, hence 'auto' (the default
-   * for both allowMouseWheelZoom and pinch) resolves against that button being
-   * present. A page that builds its own reset control sets the option to true
-   * and gets the gesture with no toolbar. Drag-to-zoom is deliberate, so it is
-   * not gated this way.
+   * swipe), so it is only offered when there is a way back out of it. 'auto'
+   * (the default for both allowMouseWheelZoom and pinch) resolves against a
+   * reset button that is already on screen. A page that builds its own reset
+   * control sets the option to true and gets the gesture with no toolbar.
+   * Drag-to-zoom is deliberate, so it is not gated this way.
+   *
+   * `chart.zoom.resetControl` supplies a reset of its own once a chart IS
+   * zoomed, and deliberately does NOT open this gate. It arrives after the
+   * fact, and what an incidental wheel zoom takes from the viewer first is the
+   * page scroll it swallowed, which no button hands back.
    *
    * @param {boolean|'auto'} setting
    */
@@ -3481,6 +3573,58 @@ class ZoomPanSelection extends Toolbar {
   _wheelZoomEnabled() {
     const { zoom } = this.w.config.chart;
     return this._incidentalZoomEnabled(zoom && zoom.allowMouseWheelZoom);
+  }
+  /**
+   * Put keyboard focus on the chart, where the chart is focusable at all.
+   *
+   * A drag is swallowed by the zoom handlers before the browser can move focus,
+   * so a viewer who has just zoomed by hand leaves nothing focused, and every
+   * key the chart offers is out of reach: Escape to reset (see
+   * {@link ZoomPanSelection#escapeResetEvent}) and the +, - and 0 the keyboard
+   * module already binds. Focusing what they just acted on puts those in reach.
+   *
+   * Pointer-driven focus, which keyboard navigation expects and does not read
+   * as a request to start navigating, and which the stylesheet draws no ring
+   * around (`svg:focus:not(:focus-visible)`).
+   *
+   * Only where the accessibility module has made the SVG focusable, which is
+   * the default: a page that turned keyboard support off is not handed a tab
+   * stop it never asked for, and still has the reset control as its way back.
+   */
+  _focusForKeyboard() {
+    var _a, _b;
+    const node = this.w.dom.Paper && this.w.dom.Paper.node;
+    if (!node || typeof node.focus !== "function") return;
+    if (node.getAttribute("tabindex") === null) return;
+    (_b = (_a = this.ctx.keyboardNavigation) == null ? void 0 : _a.notePointerFocus) == null ? void 0 : _b.call(_a);
+    try {
+      node.focus({ preventScroll: true });
+    } catch (e) {
+      node.focus();
+    }
+  }
+  /**
+   * Escape, on a zoomed chart, puts the range back.
+   *
+   * The quiet half of the same answer the on-demand reset control gives, and
+   * gated on it, so a page that says it supplies its own way back gets neither.
+   *
+   * It defers to keyboard navigation, whose Escape dismisses the tooltip and
+   * which offers `0` for this, so the key means one thing at a time. It does
+   * not stop the event either, so a page listening for Escape still hears it.
+   *
+   * Reachable because a completed drag-zoom puts focus on the chart; see
+   * {@link ZoomPanSelection#_focusForKeyboard}.
+   *
+   * @param {any} e
+   */
+  escapeResetEvent(e) {
+    if (e.key !== "Escape" && e.key !== "Esc") return;
+    if (!this.w.interact.zoomed) return;
+    const nav = this.ctx.keyboardNavigation;
+    if (nav && nav.active) return;
+    if (!this.resetControlAllowed()) return;
+    this.handleZoomReset();
   }
   /** Lazily-created, re-render-surviving wheel-gesture state. */
   _wheel() {
@@ -3525,12 +3669,12 @@ class ZoomPanSelection extends Toolbar {
     const scale = st.factor;
     st.factor = 1;
     if (scale === 1 || w.globals.isDestroyed) return;
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim || !gridRectDim.width) return;
+    const gridWidth = w.layout.gridWidth;
+    if (!this._hasPlot() || !gridWidth) return;
     const { min, max } = this._currentXWindow();
     const range = max - min;
     const mouseX = Math.min(
-      Math.max((st.clientX - gridRectDim.left) / gridRectDim.width, 0),
+      Math.max(this._screenXToPlotPx(st.clientX) / gridWidth, 0),
       1
     );
     let newRange = range * scale;
@@ -3590,6 +3734,7 @@ class ZoomPanSelection extends Toolbar {
         }
       }).resize().on("resize", () => {
         var _a;
+        this._clampSelectionRectToPlot();
         if (w.interact.selectionEnabled) {
           w.interact.selection = {
             x: parseFloat(this.selectionRect.node.getAttribute("x")),
@@ -3619,14 +3764,14 @@ class ZoomPanSelection extends Toolbar {
         }));
       } else {
         if (w.config.chart.selection.xaxis.min !== void 0 && w.config.chart.selection.xaxis.max !== void 0) {
-          let x = AxisMapping.dataXToPx(w, w.config.chart.selection.xaxis.min);
-          let width = AxisMapping.dataXToPx(w, w.config.chart.selection.xaxis.max) - x;
+          let x2 = AxisMapping.dataXToPx(w, w.config.chart.selection.xaxis.min);
+          let width = AxisMapping.dataXToPx(w, w.config.chart.selection.xaxis.max) - x2;
           if (w.axisFlags.isRangeBar) {
-            x = (w.config.chart.selection.xaxis.min - w.globals.yAxisScale[0].niceMin) / xyRatios.invertedYRatio;
+            x2 = (w.config.chart.selection.xaxis.min - w.globals.yAxisScale[0].niceMin) / xyRatios.invertedYRatio;
             width = (w.config.chart.selection.xaxis.max - w.config.chart.selection.xaxis.min) / xyRatios.invertedYRatio;
           }
           const selectionRect = {
-            x,
+            x: x2,
             y: 0,
             width,
             height: w.layout.gridHeight,
@@ -3650,7 +3795,7 @@ class ZoomPanSelection extends Toolbar {
     }
   }
   /** @param {{x: any, y: any, width: any, height: any, translateX: any, translateY: any}} opts */
-  drawSelectionRect({ x, y, width, height, translateX = 0, translateY = 0 }) {
+  drawSelectionRect({ x: x2, y, width, height, translateX = 0, translateY = 0 }) {
     const w = this.w;
     const zoomRect = this.zoomRect;
     const selectionRect = this.selectionRect;
@@ -3661,7 +3806,7 @@ class ZoomPanSelection extends Toolbar {
       if (w.interact.zoomEnabled && this.dragged) {
         if (width < 0) width = 1;
         zoomRect.attr({
-          x,
+          x: x2,
           y,
           width,
           height,
@@ -3675,7 +3820,7 @@ class ZoomPanSelection extends Toolbar {
       }
       if (w.interact.selectionEnabled) {
         selectionRect.attr({
-          x,
+          x: x2,
           y,
           width: width > 0 ? width : 0,
           height: height > 0 ? height : 0,
@@ -3689,6 +3834,32 @@ class ZoomPanSelection extends Toolbar {
         Graphics.setAttrs(selectionRect.node, scalingAttrs);
       }
     }
+  }
+  /**
+   * Clamp the persistent selection rect to the pixel span the x-domain occupies,
+   * i.e. PLOT_ORIGIN_PX..gridWidth, which under AxisMapping is exactly
+   * minX..maxX. A body drag has always obeyed this box through `this.constraints`;
+   * this puts a handle resize on the same footing.
+   *
+   * The rect itself is rewritten rather than only the numbers reported to
+   * listeners, so the range every consumer receives keeps matching the rect the
+   * user sees (the one-mapping invariant selection-geometry.spec.js guards), and
+   * the handles are repositioned onto the clamped edge so a handle held past the
+   * boundary stays visually pinned there.
+   */
+  _clampSelectionRectToPlot() {
+    const rect = this.selectionRect;
+    if (!rect || !rect.node) return;
+    const maxPx = this.w.layout.gridWidth;
+    if (!(maxPx > PLOT_ORIGIN_PX)) return;
+    const x2 = parseFloat(rect.node.getAttribute("x")) || 0;
+    const width = parseFloat(rect.node.getAttribute("width")) || 0;
+    const clamp = (px) => Math.min(Math.max(px, PLOT_ORIGIN_PX), maxPx);
+    const left = clamp(x2);
+    const right = clamp(x2 + width);
+    if (left === x2 && right === x2 + width) return;
+    rect.attr({ x: left, width: right - left });
+    if (rect._updateSelectPositions) rect._updateSelectPositions();
   }
   /**
    * @param {any} rect
@@ -3706,14 +3877,13 @@ class ZoomPanSelection extends Toolbar {
   selectionDrawing({ context, zoomtype }) {
     const w = this.w;
     const me = context;
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim) return;
-    const startX = me.startX - 1;
+    if (!this._hasPlot()) return;
+    const startX = me.startX;
     const startY = me.startY;
     let inversedX = false;
     let inversedY = false;
     const left = this._screenXToPlotPx(me.clientX);
-    const top = me.clientY - gridRectDim.top;
+    const top = this._screenYToPlotPx(me.clientY);
     let selectionWidth = left - startX;
     let selectionHeight = top - startY;
     let selectionRect = {
@@ -3777,20 +3947,20 @@ class ZoomPanSelection extends Toolbar {
       /** @type {any} */
       this.constraints
     );
-    let { x, y } = box;
-    if (x < constraints.x) {
-      x = constraints.x;
+    let { x: x2, y } = box;
+    if (x2 < constraints.x) {
+      x2 = constraints.x;
     }
     if (y < constraints.y) {
       y = constraints.y;
     }
     if (box.x2 > constraints.x2) {
-      x = constraints.x2 - box.w;
+      x2 = constraints.x2 - box.w;
     }
     if (box.y2 > constraints.y2) {
       y = constraints.y2 - box.h;
     }
-    handler.move(x, y);
+    handler.move(x2, y);
     const selRect = this.selectionRect;
     let timerInterval = 0;
     if (type === "resizing") {
@@ -3833,8 +4003,7 @@ class ZoomPanSelection extends Toolbar {
     if (typeof w.config.chart.events.selection !== "function" && !linkActive) {
       return;
     }
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim) return;
+    if (!this._hasPlot()) return;
     const selectionRect = this.selectionRect.node.getBoundingClientRect();
     const xyRatios = this.xyRatios;
     let minX, maxX, minY, maxY;
@@ -3844,8 +4013,8 @@ class ZoomPanSelection extends Toolbar {
       if (!w.globals.xAxisScale) return;
       minX = AxisMapping.pxToDataX(w, relLeft);
       maxX = AxisMapping.pxToDataX(w, relRight);
-      minY = w.globals.yAxisScale[0].niceMin + (gridRectDim.bottom - selectionRect.bottom) * xyRatios.yRatio[0];
-      maxY = w.globals.yAxisScale[0].niceMax - (selectionRect.top - gridRectDim.top) * xyRatios.yRatio[0];
+      minY = w.globals.yAxisScale[0].niceMin + (w.layout.gridHeight - this._screenYToPlotPx(selectionRect.bottom)) * xyRatios.yRatio[0];
+      maxY = w.globals.yAxisScale[0].niceMax - this._screenYToPlotPx(selectionRect.top) * xyRatios.yRatio[0];
     } else {
       minX = w.globals.yAxisScale[0].niceMin + relLeft * xyRatios.invertedYRatio;
       maxX = w.globals.yAxisScale[0].niceMin + relRight * xyRatios.invertedYRatio;
@@ -3872,12 +4041,11 @@ class ZoomPanSelection extends Toolbar {
     const xyRatios = this.xyRatios;
     const toolbar = this.ctx.toolbar;
     const selRect = w.interact.zoomEnabled ? me.zoomRect.node.getBoundingClientRect() : me.selectionRect.node.getBoundingClientRect();
-    const gridRectDim = me._gridRect();
-    if (!gridRectDim) return;
+    if (!me._hasPlot()) return;
     const localStartX = this._screenXToPlotPx(selRect.left);
     const localEndX = this._screenXToPlotPx(selRect.right);
-    const localStartY = selRect.top - gridRectDim.top;
-    const localEndY = selRect.bottom - gridRectDim.top;
+    const localStartY = this._screenYToPlotPx(selRect.top);
+    const localEndY = this._screenYToPlotPx(selRect.bottom);
     let xLowestValue, xHighestValue;
     if (!w.axisFlags.isRangeBar) {
       xLowestValue = AxisMapping.pxToDataX(w, localStartX);
@@ -3937,11 +4105,16 @@ class ZoomPanSelection extends Toolbar {
         if (!w.config.chart.group) {
           options.yaxis = yaxis;
         }
-        me.ctx.updateHelpers._updateOptions(
+        const applied = me.ctx.updateHelpers._updateOptions(
           options,
           false,
           me.w.config.chart.animations.dynamicAnimation.enabled
         );
+        if (applied && typeof applied.then === "function") {
+          applied.then(() => me._focusForKeyboard());
+        } else {
+          me._focusForKeyboard();
+        }
         if (typeof w.config.chart.events.zoomed === "function") {
           toolbar.zoomCallback(xaxis, yaxis);
         }
@@ -4129,15 +4302,25 @@ class ZoomPanSelection extends Toolbar {
     const w = this.w;
     return w.axisFlags.isRangeBar ? { min: w.globals.minY, max: w.globals.maxY } : { min: w.globals.minX, max: w.globals.maxX };
   }
-  /** Live grid rect from the current DOM. Never cache the grid node on the
-   * instance: a full render replaces this whole instance, but the fast update
-   * path (fastUpdate/_fastAxisChromeRefresh) keeps the instance while swapping
-   * the grid node, and a cached node would go stale (detached nodes report an
-   * all-zero bounding rect, silently corrupting selection geometry). */
-  _gridRect() {
+  /** Is there a chart on screen to measure the pointer against? */
+  _hasPlot() {
     const baseEl = this.w.dom.baseEl;
-    const grid = baseEl && baseEl.querySelector(".apexcharts-grid");
-    return grid ? grid.getBoundingClientRect() : null;
+    return !!(baseEl && baseEl.querySelector(".apexcharts-svg"));
+  }
+  /**
+   * Convert an absolute (client) y pixel to the plot-origin coordinate space,
+   * the y twin of {@link _screenXToPlotPx}. Measured per event from the svg
+   * (TooltipUtils.plotRect), never from the `.apexcharts-grid` box: unless
+   * gridlines reach the plot's top edge that box starts a pixel below it, so
+   * a drag rect stood a pixel above the pointer and the zoomed y range came
+   * back two pixels high. Dividing by the CSS zoom keeps a chart inside a
+   * zoomed container from reading screen pixels as plot pixels.
+   * @param {number} screenY
+   * @returns {number}
+   */
+  _screenYToPlotPx(screenY) {
+    const plot = TooltipUtils.plotRect(this.w);
+    return (screenY - plot.top) / plot.zoom;
   }
   /**
    * Convert an absolute (client) x pixel to the plot-origin coordinate space
@@ -4228,9 +4411,9 @@ class ZoomPanSelection extends Toolbar {
     this.ctx.events.fireEvent("scrolled", args);
   }
   /** @param {number} x @param {number} t */
-  _pushSample(x, t) {
+  _pushSample(x2, t) {
     const s = this._m().samples;
-    s.push({ x, t });
+    s.push({ x: x2, t });
     while (s.length > 6) s.shift();
   }
   /**
@@ -4244,19 +4427,19 @@ class ZoomPanSelection extends Toolbar {
     const type = e.type;
     if (type === "touchstart") {
       this._cancelInertia();
-      const gridRectDim = this._gridRect();
-      if (!gridRectDim) return;
+      if (!this._hasPlot()) return;
       if (e.touches.length >= 2 && this._pinchEnabled()) {
         e.preventDefault();
         m.busy = true;
         m.panState = null;
-        this._beginPinch(e, gridRectDim);
+        this._beginPinch(e);
       } else if (e.touches.length === 1 && this._panInertiaEnabled() && w.interact.panEnabled) {
         m.busy = true;
         m.pinch = null;
         const t = e.touches[0];
         const win = this._currentXWindow();
         const gw = w.layout.gridWidth || 1;
+        const zoom = TooltipUtils.plotRect(w).zoom;
         m.panState = {
           startX: t.clientX,
           startY: t.clientY,
@@ -4264,7 +4447,9 @@ class ZoomPanSelection extends Toolbar {
           // decided on first move (rails)
           minX0: win.min,
           maxX0: win.max,
-          ratio0: (win.max - win.min) / gw
+          zoom,
+          // data per screen px
+          ratio0: (win.max - win.min) / gw / zoom
         };
         m.samples = [{ x: t.clientX, t: e.timeStamp }];
       }
@@ -4292,13 +4477,22 @@ class ZoomPanSelection extends Toolbar {
       }
     }
   }
-  /** @param {any} e @param {DOMRect} gridRectDim */
-  _beginPinch(e, gridRectDim) {
+  /**
+   * The centroid is taken in plot px through the shared AxisMapping, the
+   * space `gridWidth` and the x window are in. It used to be the grid box's
+   * left edge less barPadForNumericAxis, which only lands on the plot's left
+   * edge while the gridlines happen to reach exactly barPad past it (with
+   * `grid.show: false` they do not, and the anchor slid a bar's width), and
+   * stayed in screen px, so a chart in a CSS-zoomed container drifted under
+   * the fingers.
+   * @param {any} e
+   */
+  _beginPinch(e) {
     const w = this.w;
     const t0 = e.touches[0];
     const t1 = e.touches[1];
     const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1;
-    const cx = (t0.clientX + t1.clientX) / 2 - gridRectDim.left - w.globals.barPadForNumericAxis;
+    const cx = this._screenXToPlotPx((t0.clientX + t1.clientX) / 2);
     const { min, max } = this._currentXWindow();
     this._m().pinch = {
       d0: dist,
@@ -4312,13 +4506,11 @@ class ZoomPanSelection extends Toolbar {
   _movePinch(e) {
     const w = this.w;
     const p = this._m().pinch;
-    if (!p) return;
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim) return;
+    if (!p || !this._hasPlot()) return;
     const t0 = e.touches[0];
     const t1 = e.touches[1];
     const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1;
-    const cx = (t0.clientX + t1.clientX) / 2 - gridRectDim.left - w.globals.barPadForNumericAxis;
+    const cx = this._screenXToPlotPx((t0.clientX + t1.clientX) / 2);
     const range0 = p.maxX0 - p.minX0;
     const newRange = range0 * (p.d0 / dist);
     const anchorData = p.minX0 + p.cx0 / p.gridWidth * range0;
@@ -4386,7 +4578,7 @@ class ZoomPanSelection extends Toolbar {
     }
     m.samples = [];
     if (s && s.axis === "x" && this._panInertiaEnabled() && Math.abs(vel) > INERTIA_MIN_RELEASE_VELOCITY) {
-      this._startInertia(vel);
+      this._startInertia(vel / s.zoom);
     } else {
       m.busy = false;
       this._fireScrolled();
@@ -4397,7 +4589,7 @@ class ZoomPanSelection extends Toolbar {
    * `friction` each frame and shift the window, stopping at the data edge
    * (clamp, not elastic overshoot). The loop is w-driven, so it keeps running
    * across the re-renders each frame triggers and stops only on a real destroy.
-   * @param {number} vel0 px/ms, sign is the finger direction
+   * @param {number} vel0 plot px/ms, sign is the finger direction
    */
   _startInertia(vel0) {
     const w = this.w;
@@ -4491,8 +4683,8 @@ class Helpers2 {
           "y",
           String(parseFloat((_b = xAnno.getAttribute("y")) != null ? _b : "0") + yOffset)
         );
-        const { x, y } = this.annoCtx.graphics.rotateAroundCenter(xAnno);
-        xAnno.setAttribute("transform", `rotate(-90 ${x} ${y})`);
+        const { x: x2, y } = this.annoCtx.graphics.rotateAroundCenter(xAnno);
+        xAnno.setAttribute("transform", `rotate(-90 ${x2} ${y})`);
       }
     }
   }
@@ -4693,26 +4885,26 @@ class Helpers2 {
    */
   getX1X2(type, anno) {
     const w = this.w;
-    const x = type === "x1" ? anno.x : anno.x2;
+    const x2 = type === "x1" ? anno.x : anno.x2;
     const min = this.annoCtx.invertAxis ? w.globals.minY : w.globals.minX;
     const max = this.annoCtx.invertAxis ? w.globals.maxY : w.globals.maxX;
     const range = this.annoCtx.invertAxis ? w.globals.yRange[0] : w.globals.xRange;
     let clipped = false;
-    const isPx = typeof x === "string" && x.includes("px");
-    const isEdgeMarker = (x === void 0 || x === null) && anno.marker;
+    const isPx = typeof x2 === "string" && x2.includes("px");
+    const isEdgeMarker = (x2 === void 0 || x2 === null) && anno.marker;
     if (!isPx && !isEdgeMarker && !this.hasXDomain()) {
       return { x: 0, clipped: true };
     }
-    let xP = this.annoCtx.inversedReversedAxis ? (max - x) / (range / w.layout.gridWidth) : (x - min) / (range / w.layout.gridWidth);
+    let xP = this.annoCtx.inversedReversedAxis ? (max - x2) / (range / w.layout.gridWidth) : (x2 - min) / (range / w.layout.gridWidth);
     if ((w.config.xaxis.type === "category" || w.config.xaxis.convertedCatToNumeric) && !this.annoCtx.invertAxis && !w.axisFlags.dataFormatXNumeric) {
       if (!w.config.chart.sparkline.enabled) {
-        xP = this.getStringX(x);
+        xP = this.getStringX(x2);
       }
     }
-    if (typeof x === "string" && x.includes("px")) {
-      xP = parseFloat(x);
+    if (typeof x2 === "string" && x2.includes("px")) {
+      xP = parseFloat(x2);
     }
-    if ((x === void 0 || x === null) && anno.marker) {
+    if ((x2 === void 0 || x2 === null) && anno.marker) {
       xP = w.layout.gridWidth;
     }
     if (anno.seriesIndex !== void 0 && w.globals.barWidth && !this.annoCtx.invertAxis) {
@@ -4734,19 +4926,19 @@ class Helpers2 {
   /**
    * @param {number} x
    */
-  getStringX(x) {
+  getStringX(x2) {
     var _a;
     const w = this.w;
-    let rX = x;
+    let rX = x2;
     if (w.config.xaxis.convertedCatToNumeric && w.labelData.categoryLabels.length) {
-      const strX = String(x);
-      x = w.labelData.categoryLabels.findIndex(
+      const strX = String(x2);
+      x2 = w.labelData.categoryLabels.findIndex(
         (l) => String(l) === strX
       ) + 1;
     }
     const catIndex = w.labelData.labels.map(
       (item) => Array.isArray(item) ? item.join(" ") : item
-    ).indexOf(x);
+    ).indexOf(x2);
     const xLabel = w.dom.baseEl.querySelector(
       `.apexcharts-xaxis-texts-g text:nth-child(${catIndex + 1})`
     );
@@ -5041,12 +5233,12 @@ class PointAnnotations {
       return;
     }
     const resultX = this.helpers.getX1X2("x1", anno);
-    const x = resultX.x;
+    const x2 = resultX.x;
     const clipX = resultX.clipped;
     const resultY = this.helpers.getY1Y2("y1", anno);
     const y = resultY.yP;
     const clipY = resultY.clipped;
-    if (!Utils.isNumber(x)) return;
+    if (!Utils.isNumber(x2)) return;
     if (!(clipY || clipX)) {
       const optsPoints = {
         pSize: anno.marker.size,
@@ -5058,16 +5250,21 @@ class PointAnnotations {
         class: `apexcharts-point-annotation-marker ${anno.marker.cssClass} ${anno.id ? anno.id : ""}`
       };
       let point = this.annoCtx.graphics.drawMarker(
-        x + anno.marker.offsetX,
+        x2 + anno.marker.offsetX,
         y + anno.marker.offsetY,
         optsPoints
       );
       parent.appendChild(point.node);
       const tooltipTargets = [point.node];
-      applyProgressiveReveal(point, x, w);
+      applyProgressiveReveal(point, x2, w);
       const text = anno.label.text ? anno.label.text : "";
+      const labelX = this.getConstrainedLabelX(
+        text,
+        x2 + anno.label.offsetX,
+        anno.label
+      );
       const elText = this.annoCtx.graphics.drawText({
-        x: x + anno.label.offsetX,
+        x: labelX,
         y: y + anno.label.offsetY - anno.marker.size - parseFloat(anno.label.style.fontSize) / 1.6,
         text,
         textAnchor: anno.label.textAnchor,
@@ -5081,13 +5278,13 @@ class PointAnnotations {
         rel: index
       });
       parent.appendChild(elText.node);
-      applyProgressiveReveal(elText, x, w);
+      applyProgressiveReveal(elText, x2, w);
       if (anno.customSVG.SVG) {
         const g = this.annoCtx.graphics.group({
           class: "apexcharts-point-annotations-custom-svg " + anno.customSVG.cssClass
         });
         g.attr({
-          transform: `translate(${x + anno.customSVG.offsetX}, ${y + anno.customSVG.offsetY})`
+          transform: `translate(${x2 + anno.customSVG.offsetX}, ${y + anno.customSVG.offsetY})`
         });
         g.node.innerHTML = anno.customSVG.SVG;
         parent.appendChild(g.node);
@@ -5097,7 +5294,7 @@ class PointAnnotations {
         const imgWidth = anno.image.width ? anno.image.width : 20;
         const imgHeight = anno.image.height ? anno.image.height : 20;
         point = this.annoCtx.addImage({
-          x: x + anno.image.offsetX - imgWidth / 2,
+          x: x2 + anno.image.offsetX - imgWidth / 2,
           y: y + anno.image.offsetY - imgHeight / 2,
           width: imgWidth,
           height: imgHeight,
@@ -5132,6 +5329,62 @@ class PointAnnotations {
         point.node.addEventListener("click", anno.click.bind(this, anno));
       }
     }
+  }
+  /**
+   * A point annotation's label is centered (or start/end anchored) on the
+   * point's x position, with no width limit. Near the left or right edge of
+   * the plot a long label then renders partly outside the chart's SVG
+   * viewport, which clips it (apexcharts/apexcharts.js#5106) instead of the
+   * "moved into the chart" behaviour users expect. Nudge the label's x
+   * inward just enough to keep its full rendered width inside the grid.
+   *
+   * What has to fit is the label's BOX, not its text node: `label.style.background`
+   * is set by default, and `Helpers.annotationsBackground` draws that background
+   * from the rendered text's bounds plus `label.style.padding`. Clamping the text
+   * alone leaves the drawn box overhanging by the padding, which still clips on a
+   * chart whose grid meets the SVG edge (a sparkline, or zero chart padding).
+   *
+   * @param {string} text
+   * @param {number} x anchor x, already including `label.offsetX`
+   * @param {Record<string, any>} label `anno.label`
+   * @returns {number}
+   */
+  getConstrainedLabelX(text, x2, label) {
+    const w = this.w;
+    if (!text) return x2;
+    const { width: labelWidth } = this.annoCtx.graphics.getTextRects(
+      text,
+      label.style.fontSize,
+      label.style.fontFamily,
+      void 0,
+      true,
+      label.style.fontWeight
+    );
+    let leftEdge;
+    let rightEdge;
+    switch (label.textAnchor) {
+      case "start":
+        leftEdge = x2;
+        rightEdge = x2 + labelWidth;
+        break;
+      case "end":
+        leftEdge = x2 - labelWidth;
+        rightEdge = x2;
+        break;
+      default:
+        leftEdge = x2 - labelWidth / 2;
+        rightEdge = x2 + labelWidth / 2;
+    }
+    const padding = label.style.padding || {};
+    leftEdge -= padding.left || 0;
+    rightEdge += padding.right || 0;
+    if (leftEdge < 0) {
+      return x2 - leftEdge;
+    }
+    if (rightEdge > w.layout.gridWidth) {
+      return x2 - (rightEdge - w.layout.gridWidth);
+    }
+    return x2;
   }
   /**
    * Lazily create (once per chart) and return the shared HTML element used to
@@ -5269,7 +5522,7 @@ class Annotations {
       const skipGroupHide = [progressiveAnnos, false, progressiveAnnos];
       for (let i = 0; i < 3; i++) {
         w.dom.elGraphical.add(annoArray[i]);
-        if (initialAnim && !w.globals.resized && !w.globals.dataChanged) {
+        if (initialAnim && !w.globals.resized && !w.globals.dataChanged && !w.globals.animationEnded) {
           if (w.config.chart.type !== "scatter" && w.config.chart.type !== "bubble" && w.globals.dataPoints > 1 && !skipGroupHide[i]) {
             annoElArray[i].classList.add("apexcharts-element-hidden");
           }
@@ -5320,7 +5573,7 @@ class Annotations {
    */
   addText(params) {
     const {
-      x,
+      x: x2,
       y,
       text,
       textAnchor,
@@ -5342,7 +5595,7 @@ class Annotations {
     } = params;
     const w = this.w;
     const elText = this.graphics.drawText({
-      x,
+      x: x2,
       y,
       text,
       textAnchor: textAnchor || "start",
@@ -5380,14 +5633,14 @@ class Annotations {
     const w = this.w;
     const {
       path,
-      x = 0,
+      x: x2 = 0,
       y = 0,
       width = 20,
       height = 20,
       appendTo = ".apexcharts-svg"
     } = params;
     const img = w.dom.Paper.image(path);
-    img.size(width, height).move(x, y);
+    img.size(width, height).move(x2, y);
     const parent = w.dom.baseEl.querySelector(appendTo);
     if (parent) {
       parent.appendChild(img.node);
@@ -5637,6 +5890,19 @@ class KeyboardNavigation {
     this._lastPointerDownAt = Date.now();
   }
   /**
+   * Note that a pointer gesture is about to move focus into the chart.
+   *
+   * The 100 ms window above catches the browser's own click-to-focus, which
+   * lands immediately. A drag-zoom moves focus deliberately, and only once its
+   * re-render is done (ZoomPanSelection#_focusForKeyboard), which is far
+   * outside that window. Without this it reads as a viewer asking to navigate
+   * by keyboard, which activates nav and flashes a tooltip at the first visible
+   * point after every zoom.
+   */
+  notePointerFocus() {
+    this._lastPointerDownAt = Date.now();
+  }
+  /**
    * Called from Events.js keydown handler. Navigation keys are already handled
    * by the direct SVG listener (which can call preventDefault). This entry
    * point is intentionally a no-op — Events.js still fires the public keyDown
@@ -5783,14 +6049,20 @@ class KeyboardNavigation {
    * @param {number} dPoint
    */
   _move(dSeries, dPoint) {
+    var _a;
     const w = this.w;
     const wrapAround = w.config.chart.accessibility.keyboard.navigation.wrapAround;
     if (dSeries !== 0) {
       const ttCtx = this.w.globals.tooltip;
-      if (ttCtx && ttCtx.tConfig && ttCtx.tConfig.shared) {
+      const type = w.config.chart.type;
+      const perCell = type === "heatmap" || type === "treemap";
+      if (!perCell && ttCtx && ttCtx.tConfig && ttCtx.tConfig.shared) {
         const j = this.dataPointIndex;
         const isActuallyShared = ttCtx.tooltipUtil && ttCtx.tooltipUtil.isXoverlap(j) && ttCtx.tooltipUtil.isInitialSeriesSameLen();
         if (isActuallyShared) return;
+      }
+      if (type === "heatmap" && !((_a = w.config.yaxis[0]) == null ? void 0 : _a.reversed)) {
+        dSeries = -dSeries;
       }
       const total = this._getSeriesCount();
       let si = this.seriesIndex + dSeries;
@@ -5870,6 +6142,7 @@ class KeyboardNavigation {
     );
   }
   _hideFocus() {
+    var _a;
     const w = this.w;
     const ttCtx = (
       /** @type {any} */
@@ -5878,6 +6151,7 @@ class KeyboardNavigation {
     this._removeFocusClass();
     this._leaveHoveredBar();
     if (!ttCtx) return;
+    (_a = ttCtx.tooltipPosition) == null ? void 0 : _a.resetPlacementCache();
     if (ttCtx.marker) {
       ttCtx.marker.resetPointsSize();
     }
@@ -5923,11 +6197,30 @@ class KeyboardNavigation {
       this._showTooltipRadialBar(i, j, ttCtx, tooltipEl);
     } else if (type === "heatmap" || type === "treemap") {
       this._showTooltipHeatTree(i, j, ttCtx, tooltipEl, type);
-    } else if (type === "bar" || type === "candlestick" || type === "boxPlot" || type === "violin" || type === "rangeBar") {
+    } else if (this._isBarLikeSeries(i)) {
       this._showTooltipBar(i, j, ttCtx);
     } else {
       this._showTooltipAxisLine(i, j, ttCtx);
     }
+    if (ttCtx.fixedTooltip) ttCtx.drawFixedTooltipRect();
+  }
+  /**
+   * Is series `i` drawn as a bar-like mark? Its own type decides in a combo,
+   * as it decides what the pointer hovers there: the columns beside a line,
+   * or the candles of a 'line' chart, are hovered as bars
+   * (Intersect.handleBarTooltip), not as points on a line.
+   * @param {number} i
+   * @returns {boolean}
+   */
+  _isBarLikeSeries(i) {
+    var _a;
+    const w = this.w;
+    const series = (
+      /** @type {any} */
+      w.config.series[i]
+    );
+    const type = w.globals.comboCharts ? (_a = series == null ? void 0 : series.type) != null ? _a : w.config.chart.type : w.config.chart.type;
+    return TooltipUtils.isBarLikeType(type);
   }
   /**
    * Set ttCtx.e to a synthetic mouse-event-like object whose clientX/Y point
@@ -5948,17 +6241,22 @@ class KeyboardNavigation {
     let clientX = 0;
     let clientY = 0;
     const el = this._getFocusableElement(i, j);
+    const painted = el ? null : this._canvasCell(i, j) || this._canvasMark(i, j);
     if (el) {
       const rect = el.getBoundingClientRect();
       clientX = rect.left + rect.width / 2;
       clientY = rect.top + rect.height / 2;
+    } else if (painted) {
+      const plot = TooltipUtils.plotRect(w);
+      clientX = plot.left + (painted.x + painted.width / 2) * plot.zoom;
+      clientY = plot.top + (painted.y + painted.height / 2) * plot.zoom;
     } else if (w.globals.pointsArray && w.globals.pointsArray[i] && w.globals.pointsArray[i][j]) {
       const pt = w.globals.pointsArray[i][j];
       const elGrid = ttCtx.getElGrid && ttCtx.getElGrid();
       if (elGrid) {
-        const gridRect = elGrid.getBoundingClientRect();
-        clientX = gridRect.left + (pt[0] || 0);
-        clientY = gridRect.top + (pt[1] || 0);
+        const plot = TooltipUtils.plotRect(w);
+        clientX = plot.left + (pt[0] || 0) * plot.zoom;
+        clientY = plot.top + (pt[1] || 0) * plot.zoom;
       }
     } else {
       const svgEl = w.dom.Paper && w.dom.Paper.node;
@@ -5968,18 +6266,20 @@ class KeyboardNavigation {
         clientY = svgRect.top + svgRect.height / 2;
       }
     }
-    if (type === "line" || type === "area" || type === "rangeArea" || type === "scatter" || type === "bubble" || type === "radar") {
+    if (!this._isBarLikeSeries(i) && (type === "line" || type === "area" || type === "rangeArea" || type === "scatter" || type === "bubble" || type === "radar")) {
       if (w.globals.pointsArray && w.globals.pointsArray[i] && w.globals.pointsArray[i][j]) {
         const pt = w.globals.pointsArray[i][j];
         const elGrid = ttCtx.getElGrid && ttCtx.getElGrid();
         if (elGrid) {
-          const gridRect = elGrid.getBoundingClientRect();
-          clientX = gridRect.left + (pt[0] || 0);
-          clientY = gridRect.top + (pt[1] || 0);
+          const plot = TooltipUtils.plotRect(w);
+          clientX = plot.left + (pt[0] || 0) * plot.zoom;
+          clientY = plot.top + (pt[1] || 0) * plot.zoom;
         }
       }
     }
     ttCtx.e = { type: "mousemove", clientX, clientY };
+    ttCtx.clientX = clientX;
+    ttCtx.clientY = clientY;
   }
   /**
    * bar / column / candlestick / boxPlot / rangeBar
@@ -5990,6 +6290,10 @@ class KeyboardNavigation {
   _showTooltipBar(i, j, ttCtx) {
     var _a, _b, _c, _d;
     const w = this.w;
+    if (w.globals.comboCharts) {
+      ttCtx.marker.resetPointsSize();
+      this._enlargedScatterMarker = null;
+    }
     const shared = ttCtx.tConfig.shared && (ttCtx.tooltipUtil.isXoverlap(j) || w.globals.isBarHorizontal) && ttCtx.tooltipUtil.isInitialSeriesSameLen();
     const rangeData = (
       /** @type {any} */
@@ -6003,7 +6307,7 @@ class KeyboardNavigation {
       shared
     }));
     const parent = `.apexcharts-series[data\\:realIndex='${i}']`;
-    const elPath = w.dom.Paper.findOne(
+    const elPath = this._canvasMark(i, j) ? null : w.dom.Paper.findOne(
       `${parent} path[j='${j}'], ${parent} circle[j='${j}'], ${parent} rect[j='${j}']`
     );
     if (elPath) {
@@ -6013,31 +6317,136 @@ class KeyboardNavigation {
       this._hoveredBarEl = elPath;
     }
     if (w.globals.isBarHorizontal) {
-      const barDomEl = elPath && elPath.node;
-      if (barDomEl) {
-        const wrapRect = w.dom.elWrap.getBoundingClientRect();
-        const barRect = barDomEl.getBoundingClientRect();
-        const barCx = barRect.left - wrapRect.left;
-        const barCy = barRect.top - wrapRect.top;
-        const bh = barRect.height;
-        const bw = barRect.width;
+      const fixed = ttCtx.fixedTooltip;
+      if (!fixed && !ttCtx.showOnIntersect && !TooltipUtils.isFollowCursor(w) && ttCtx.tooltipPosition.placeHorizontalSharedTooltip(j)) {
+        return;
+      }
+      const bar = this._focusedBarInWrap(i, j, elPath, ttCtx);
+      const tooltipEl = ttCtx.getElTooltip();
+      if (bar && tooltipEl && !fixed) {
         const ttWidth = ttCtx.tooltipRect.ttWidth || 0;
         const ttHeight = ttCtx.tooltipRect.ttHeight || 0;
-        const y = barCy + bh / 2 - ttHeight / 2;
-        let x = barCx + bw;
-        const baselineX = ttCtx.xyRatios && ttCtx.xyRatios.baseLineInvertedY != null ? ttCtx.xyRatios.baseLineInvertedY : wrapRect.width / 2;
-        if (barCx < baselineX) {
-          x = barCx - ttWidth;
-        }
-        const tooltipEl = ttCtx.getElTooltip();
-        if (tooltipEl) {
-          tooltipEl.style.left = x + "px";
-          tooltipEl.style.top = y + "px";
+        const origin = TooltipUtils.plotInWrap(w);
+        const plot = {
+          top: origin.top,
+          bottom: origin.top + w.layout.gridHeight,
+          left: origin.left,
+          right: origin.left + w.layout.gridWidth
+        };
+        const stacked = ttCtx.tooltipPosition.placeOnShortPlot(
+          (bar.left + bar.right) / 2,
+          bar.top,
+          bar.bottom
+        );
+        if (stacked) {
+          ttCtx.tooltipPosition.applyTooltipPosition(tooltipEl, stacked);
+        } else if (w.config.tooltip.arrow) {
+          ttCtx.tooltipPosition.applyTooltipPosition(
+            tooltipEl,
+            ttCtx.tooltipPosition.placeAroundBar(bar, plot, j, i)
+          );
+        } else {
+          const baseline = ttCtx.xyRatios && ttCtx.xyRatios.baseLineInvertedY != null ? plot.left + ttCtx.xyRatios.baseLineInvertedY : (plot.left + plot.right) / 2;
+          let x2 = (bar.left + bar.right) / 2 < baseline ? bar.left - ttWidth : bar.right;
+          if (TooltipUtils.isFollowCursor(w)) {
+            const px = (bar.left + bar.right) / 2 - plot.left + 15;
+            x2 = plot.left + (px + ttWidth > w.layout.gridWidth ? px - ttWidth : px);
+          }
+          const y = (bar.top + bar.bottom) / 2 - ttHeight / 2;
+          tooltipEl.style.left = Math.max(Math.min(x2, plot.right - ttWidth), plot.left) + "px";
+          tooltipEl.style.top = Math.max(Math.min(y, plot.bottom - ttHeight), plot.top) + "px";
+          delete tooltipEl.dataset.placement;
         }
       }
+    } else if (this._pointerHoversOneMark(ttCtx)) {
+      this._hoverFocusedMark(i, j, elPath, ttCtx);
     } else {
       ttCtx.tooltipPosition.moveStickyTooltipOverBars(j, i);
     }
+  }
+  /**
+   * Does the pointer caption a vertical bar-like one mark at a time, through
+   * Intersect.handleBarTooltip, rather than through the sticky path? As
+   * Tooltip.axisChartsTooltips decides: an intersect tooltip, unless the
+   * chart is synced to a group, whose members all take the sticky path.
+   * @param {import('../tooltip/Tooltip').default} ttCtx
+   * @returns {boolean}
+   */
+  _pointerHoversOneMark(ttCtx) {
+    if (!ttCtx.showOnIntersect) return false;
+    const w = this.w;
+    return !(w.config.chart.group && typeof this.ctx.getSyncedCharts === "function" && this.ctx.getSyncedCharts().length > 1);
+  }
+  /**
+   * Place the box for the focused vertical bar-like the way a pointer on it
+   * does, by handing the pointer's own placement (Intersect.handleBarTooltip)
+   * the synthetic pointer on the mark (`_setSyntheticEvent`) with the mark
+   * named, as a real hover names the node under it (TooltipUtils.hoverTarget)
+   * or, painted to canvas, the mark the renderer's hit test found: nothing
+   * else under that point (a neighbouring mark, a jitter dot) is taken for
+   * it. With nothing of the mark drawn, the sticky box stands in.
+   * @param {number} i
+   * @param {number} j
+   * @param {any} elPath  the SVG.js wrapper `_showTooltipBar` found
+   * @param {import('../tooltip/Tooltip').default} ttCtx
+   */
+  _hoverFocusedMark(i, j, elPath, ttCtx) {
+    const w = this.w;
+    const painted = this._canvasMark(i, j);
+    const node = !painted && (elPath == null ? void 0 : elPath.node) && [
+      "apexcharts-bar-area",
+      "apexcharts-candlestick-area",
+      "apexcharts-boxPlot-area",
+      "apexcharts-rangebar-area",
+      "apexcharts-violin-area"
+    ].some((c) => elPath.node.classList.contains(c)) ? elPath.node : null;
+    if (!painted && !node) {
+      ttCtx.tooltipPosition.moveStickyTooltipOverBars(j, i);
+      return;
+    }
+    const svg = w.dom.Paper.node;
+    ttCtx.intersect.handleBarTooltip({
+      e: __spreadProps(__spreadValues({}, ttCtx.e), {
+        type: "mousemove",
+        target: node || svg,
+        apexHoverTarget: node || svg,
+        apexPaintedHit: painted
+      }),
+      opt: {
+        paths: node || svg,
+        hoverArea: svg,
+        elGrid: ttCtx.getElGrid(),
+        tooltipEl: ttCtx.getElTooltip(),
+        ttItems: ttCtx.ttItems
+      }
+    });
+  }
+  /**
+   * The focused horizontal bar's box in elWrap px, measured. A violin is read
+   * as its whole glyph, as the pointer reads it (Intersect.getViolinMark):
+   * body, box lane and jitter or rain, so the box clears a raincloud's lanes
+   * as well as its cloud. Painted to canvas, a bar leaves no path, only the
+   * box it was painted in. Null when nothing of the bar is drawn.
+   * @param {number} i
+   * @param {number} j
+   * @param {any} elPath  the SVG.js wrapper `_showTooltipBar` found
+   * @param {import('../tooltip/Tooltip').default} ttCtx
+   * @returns {{ top: number, bottom: number, left: number, right: number } | null}
+   */
+  _focusedBarInWrap(i, j, elPath, ttCtx) {
+    var _a, _b, _c;
+    const w = this.w;
+    const isViolin = w.config.chart.type === "violin" || /** @type {any} */
+    ((_a = w.config.series[i]) == null ? void 0 : _a.type) === "violin";
+    const r = isViolin && ((_b = ttCtx.intersect) == null ? void 0 : _b.violinGlyphRect(i, j)) || ((_c = elPath == null ? void 0 : elPath.node) == null ? void 0 : _c.getBoundingClientRect()) || this._canvasMarkRect(i, j);
+    if (!r) return null;
+    const wrapRect = w.dom.elWrap.getBoundingClientRect();
+    return {
+      top: r.top - wrapRect.top,
+      bottom: r.bottom - wrapRect.top,
+      left: r.left - wrapRect.left,
+      right: r.right - wrapRect.left
+    };
   }
   /**
    * line / area / scatter / bubble / radar / rangeArea
@@ -6046,6 +6455,7 @@ class KeyboardNavigation {
    * @param {import('../tooltip/Tooltip').default} ttCtx
    */
   _showTooltipAxisLine(i, j, ttCtx) {
+    var _a;
     const w = this.w;
     const type = w.config.chart.type;
     const sharedConfigured = ttCtx.tConfig.shared;
@@ -6056,21 +6466,58 @@ class KeyboardNavigation {
       j,
       shared
     });
-    const isScatterLike = type === "scatter" || type === "bubble";
-    const hasVisibleMarkers = w.globals.markers.largestSize > 0 && !w.globals.markers.batched;
-    if (isScatterLike) {
-      this._showScatterBubblePoint(i, j, ttCtx);
-    } else if (hasVisibleMarkers) {
-      if (shared) {
-        ttCtx.marker.enlargePoints(j);
-      } else {
+    const isScatterLike = type === "scatter" || type === "bubble" || type === "radar";
+    const hasVisibleMarkers = w.globals.markers.largestSize > 0 && !w.globals.markers.batched && ((_a = this.ctx.renderer) == null ? void 0 : _a.kind) !== "canvas";
+    const painted = this._pointerHoversOneMark(ttCtx) ? this._canvasMarker(i, j) : null;
+    if (painted) {
+      this._hoverPaintedMarker(painted, ttCtx);
+    } else if (isScatterLike || hasVisibleMarkers && !shared) {
+      if (!this._showScatterBubblePoint(i, j, ttCtx)) {
         ttCtx.tooltipPosition.moveDynamicPointOnHover(j, i);
       }
+    } else if (hasVisibleMarkers) {
+      ttCtx.marker.enlargePoints(j);
     } else if (shared) {
       ttCtx.tooltipPosition.moveDynamicPointsOnHover(j);
     } else {
       ttCtx.tooltipPosition.moveDynamicPointOnHover(j, i);
     }
+  }
+  /**
+   * The marker the canvas renderer painted for this point
+   * (CanvasRenderer.findMarker), centre in plot px, when the markers are
+   * painted and have no node. Null otherwise.
+   * @param {number} i
+   * @param {number} j
+   * @returns {{ seriesIndex: number, dataPointIndex: number, x: number, y: number, size: number, d: string } | null}
+   */
+  _canvasMarker(i, j) {
+    const renderer = this.ctx.renderer;
+    if (!renderer || renderer.kind !== "canvas" || typeof renderer.findMarker !== "function") {
+      return null;
+    }
+    return renderer.findMarker(i, j);
+  }
+  /**
+   * Place the box for a focused marker painted to canvas the way a pointer
+   * on it does: the pointer's handler gets the synthetic pointer on the
+   * marker (`_setSyntheticEvent`) and the marker its hit test would have
+   * found there.
+   * @param {{ seriesIndex: number, dataPointIndex: number, x: number, y: number, size: number }} painted
+   * @param {import('../tooltip/Tooltip').default} ttCtx
+   */
+  _hoverPaintedMarker(painted, ttCtx) {
+    ttCtx.intersect.handlePaintedMarkerTooltip({
+      e: __spreadProps(__spreadValues({}, ttCtx.e), { type: "mousemove" }),
+      opt: { tooltipEl: ttCtx.getElTooltip(), ttItems: ttCtx.ttItems },
+      marker: {
+        i: painted.seriesIndex,
+        j: painted.dataPointIndex,
+        cx: painted.x,
+        cy: painted.y,
+        size: painted.size
+      }
+    });
   }
   /**
    * Scatter / bubble: find the specific marker element for (seriesIndex i,
@@ -6083,6 +6530,7 @@ class KeyboardNavigation {
    * @param {number} i
    * @param {number} j
    * @param {import('../tooltip/Tooltip').default} ttCtx
+   * @returns {boolean} whether a marker was found and the box placed by it
    */
   _showScatterBubblePoint(i, j, ttCtx) {
     const baseEl = this.w.dom.baseEl;
@@ -6093,11 +6541,12 @@ class KeyboardNavigation {
     const seriesEl = baseEl.querySelector(
       `.apexcharts-series[data\\:realIndex='${i}']`
     );
-    if (!seriesEl) return;
+    if (!seriesEl) return false;
     const markerEl = seriesEl.querySelector(`.apexcharts-marker[rel='${j}']`);
-    if (!markerEl) return;
+    if (!markerEl) return false;
     ttCtx.marker.enlargeCurrentPoint(j, markerEl);
     this._enlargedScatterMarker = markerEl;
+    return true;
   }
   /**
    * pie / donut / polarArea
@@ -6119,8 +6568,15 @@ class KeyboardNavigation {
     const sliceEl = w.dom.baseEl.querySelector(`.apexcharts-pie-area[j='${j}']`);
     const anchor = ttCtx.getSliceAnchor(sliceEl);
     if (anchor) {
-      tooltipEl.style.left = anchor.x - ttWidth / 2 + "px";
-      tooltipEl.style.top = anchor.y - ttHeight - 10 + "px";
+      const pos = ttCtx.tooltipPosition.placeOverAnchor(
+        anchor.x,
+        anchor.y,
+        ttWidth,
+        ttHeight,
+        10
+      );
+      tooltipEl.style.left = pos.x + "px";
+      tooltipEl.style.top = pos.y + "px";
     }
   }
   /**
@@ -6160,10 +6616,17 @@ class KeyboardNavigation {
         ringRadius,
         midAngle
       );
-      const x = centroid.x + (w.layout.translateX || 0);
+      const x2 = centroid.x + (w.layout.translateX || 0);
       const y = centroid.y + (w.layout.translateY || 0);
-      tooltipEl.style.left = x - ttWidth / 2 + "px";
-      tooltipEl.style.top = y - ttHeight - 10 + "px";
+      const pos = ttCtx.tooltipPosition.placeOverAnchor(
+        x2,
+        y,
+        ttWidth,
+        ttHeight,
+        10
+      );
+      tooltipEl.style.left = pos.x + "px";
+      tooltipEl.style.top = pos.y + "px";
     }
   }
   /**
@@ -6177,6 +6640,9 @@ class KeyboardNavigation {
   _showTooltipHeatTree(i, j, ttCtx, tooltipEl, type) {
     var _a, _b;
     const w = this.w;
+    if (TooltipUtils.isFollowCursor(w) && this._hoverFocusedCell(i, j, ttCtx)) {
+      return;
+    }
     ttCtx.tooltipLabels.drawSeriesTexts({
       ttItems: ttCtx.ttItems,
       i,
@@ -6188,24 +6654,161 @@ class KeyboardNavigation {
     const ttHeight = tooltipRect.height || ttCtx.tooltipRect.ttHeight || 0;
     const rectClass = type === "heatmap" ? "apexcharts-heatmap-rect" : "apexcharts-treemap-rect";
     const cell = w.dom.baseEl.querySelector(`.${rectClass}[i='${i}'][j='${j}']`);
-    if (cell) {
+    const painted = cell ? null : this._canvasCell(i, j);
+    if (cell || painted) {
       const wrapRect = w.dom.elWrap.getBoundingClientRect();
-      const cellRect = cell.getBoundingClientRect();
-      const cellCx = cellRect.left - wrapRect.left;
-      const cellCy = cellRect.top - wrapRect.top;
-      const cellWidth = cellRect.width;
-      const cellHeight = cellRect.height;
-      const cx = parseFloat((_a = cell.getAttribute("cx")) != null ? _a : "");
-      const cellWidthAttr = parseFloat((_b = cell.getAttribute("width")) != null ? _b : "");
-      ttCtx.tooltipPosition.moveXCrosshairs(cx + cellWidthAttr / 2);
-      let x = cellCx + cellWidth + ttWidth / 2;
+      let cellCx = 0;
+      let cellCy = 0;
+      let cellWidth = 0;
+      let cellHeight = 0;
+      if (cell) {
+        const cellRect = cell.getBoundingClientRect();
+        cellCx = cellRect.left - wrapRect.left;
+        cellCy = cellRect.top - wrapRect.top;
+        cellWidth = cellRect.width;
+        cellHeight = cellRect.height;
+        const cx = parseFloat((_a = cell.getAttribute("cx")) != null ? _a : "");
+        const cellWidthAttr = parseFloat((_b = cell.getAttribute("width")) != null ? _b : "");
+        ttCtx.tooltipPosition.moveXCrosshairs(cx + cellWidthAttr / 2);
+      } else if (painted) {
+        const plot = TooltipUtils.plotInWrap(w);
+        cellCx = plot.left + painted.x;
+        cellCy = plot.top + painted.y;
+        cellWidth = painted.width;
+        cellHeight = painted.height;
+        ttCtx.tooltipPosition.moveXCrosshairs(painted.x + painted.width / 2);
+      }
+      let x2 = cellCx + cellWidth + ttWidth / 2;
       const y = cellCy + cellHeight / 2 - ttHeight / 2;
       if (cellCx + cellWidth > w.layout.gridWidth / 2) {
-        x = cellCx - ttWidth / 2;
+        x2 = cellCx - ttWidth / 2;
       }
-      tooltipEl.style.left = x + "px";
+      const wasStacked = ttCtx.tooltipPosition.shortPlotPlacement;
+      const stacked = ttCtx.tooltipPosition.placeOnShortPlot(
+        cellCx + cellWidth / 2,
+        cellCy,
+        cellCy + cellHeight
+      );
+      if (stacked) {
+        ttCtx.tooltipPosition.applyTooltipPosition(tooltipEl, stacked);
+        return;
+      }
+      if (type === "heatmap" && w.config.tooltip.arrow && !TooltipUtils.isFollowCursor(w)) {
+        const { left: plotLeft, top: plotTop } = TooltipUtils.plotInWrap(w);
+        ttCtx.tooltipPosition.applyTooltipPosition(
+          tooltipEl,
+          ttCtx.tooltipPosition.placeAroundCell(
+            {
+              top: cellCy,
+              bottom: cellCy + cellHeight,
+              left: cellCx,
+              right: cellCx + cellWidth
+            },
+            {
+              top: plotTop,
+              bottom: plotTop + w.layout.gridHeight,
+              left: plotLeft,
+              right: plotLeft + w.layout.gridWidth
+            },
+            { el: cell, ttWidth, ttHeight }
+          )
+        );
+        return;
+      }
+      tooltipEl.style.left = x2 + "px";
       tooltipEl.style.top = y + "px";
+      if (wasStacked) delete tooltipEl.dataset.placement;
     }
+  }
+  /**
+   * Place the box for the focused heatmap or treemap cell the way a pointer
+   * resting on its centre does (Intersect.handleHeatTreeTooltip). False when
+   * nothing of the cell is drawn, or the pointer's placement found no cell
+   * there, so the caller places it itself.
+   * @param {number} i
+   * @param {number} j
+   * @param {import('../tooltip/Tooltip').default} ttCtx
+   * @returns {boolean}
+   */
+  _hoverFocusedCell(i, j, ttCtx) {
+    const w = this.w;
+    const type = w.config.chart.type;
+    const tooltipEl = ttCtx.getElTooltip();
+    const cell = w.dom.baseEl.querySelector(
+      `.apexcharts-${type}-rect[i='${i}'][j='${j}']`
+    );
+    if (!tooltipEl || !cell && !this._canvasCell(i, j)) return false;
+    const target = cell || w.dom.Paper.node;
+    w.interact.capturedSeriesIndex = -1;
+    w.interact.capturedDataPointIndex = -1;
+    const placed = ttCtx.intersect.handleHeatTreeTooltip({
+      e: __spreadProps(__spreadValues({}, ttCtx.e), { type: "mousemove", target, apexHoverTarget: target }),
+      opt: { ttItems: ttCtx.ttItems },
+      x: 0,
+      y: 0,
+      type
+    });
+    const found = !placed.noHit && w.interact.capturedSeriesIndex === i && w.interact.capturedDataPointIndex === j;
+    w.interact.capturedSeriesIndex = i;
+    w.interact.capturedDataPointIndex = j;
+    if (!found) return false;
+    ttCtx.placeCellTooltip(tooltipEl, placed);
+    return true;
+  }
+  /**
+   * The box a heatmap cell was painted in when the canvas renderer drew the
+   * cells, plot-local. Null for every other chart, and for a heatmap whose
+   * cells are SVG nodes (the SVG renderer, or a cell shape canvas leaves to
+   * SVG), which are found by their attributes instead.
+   * @param {number} i
+   * @param {number} j
+   * @returns {{ x: number, y: number, width: number, height: number, radius: number } | null}
+   */
+  _canvasCell(i, j) {
+    if (this.w.config.chart.type !== "heatmap") return null;
+    const renderer = this.ctx.renderer;
+    if (!renderer || renderer.kind !== "canvas" || typeof renderer.findCell !== "function") {
+      return null;
+    }
+    return renderer.findCell(i, j);
+  }
+  /**
+   * The bar-like mark (a bar, a candle, a box plot, a violin body) the
+   * canvas renderer painted for this point, plot-local, with the path it
+   * painted (CanvasRenderer.findMark): the first one, as the first `path[j]`
+   * is on SVG. Null for every other chart, and when the marks are SVG nodes.
+   * @param {number} i
+   * @param {number} j
+   * @returns {{ x: number, y: number, width: number, height: number, d: string } | null}
+   */
+  _canvasMark(i, j) {
+    if (!this._isBarLikeSeries(i)) return null;
+    const renderer = this.ctx.renderer;
+    if (!renderer || renderer.kind !== "canvas" || typeof renderer.findMark !== "function") {
+      return null;
+    }
+    return renderer.findMark(i, j);
+  }
+  /**
+   * Where `_canvasMark` puts the painted mark on screen, as a hovered SVG
+   * path's getBoundingClientRect() would: from the plot's corner, through
+   * any CSS zoom on the chart. Null when nothing was painted for the point.
+   * @param {number} i
+   * @param {number} j
+   * @returns {{ left: number, top: number, right: number, bottom: number } | null}
+   */
+  _canvasMarkRect(i, j) {
+    const mark = this._canvasMark(i, j);
+    if (!mark) return null;
+    const plot = TooltipUtils.plotRect(this.w);
+    const left = plot.left + mark.x * plot.zoom;
+    const top = plot.top + mark.y * plot.zoom;
+    return {
+      left,
+      top,
+      right: left + mark.width * plot.zoom,
+      bottom: top + mark.height * plot.zoom
+    };
   }
   // ─── Focus class management ───────────────────────────────────────────────
   /**
@@ -6214,7 +6817,7 @@ class KeyboardNavigation {
    */
   _applyFocusClass(i, j) {
     this._removeFocusClass();
-    const el = this._getFocusableElement(i, j) || this._getBatchedFocusEl(i);
+    const el = this._getFocusableElement(i, j) || this._getBatchedFocusEl(i) || this._drawCanvasFocusRing(i, j);
     if (el) {
       el.classList.add("apexcharts-keyboard-focused");
       el.setAttribute("role", "img");
@@ -6238,11 +6841,100 @@ class KeyboardNavigation {
       `.apexcharts-series[data\\:realIndex='${i}'] .apexcharts-series-markers path`
     );
   }
+  /**
+   * A heatmap or a bar-like painted to canvas has no node per cell or mark to
+   * carry the focus stroke and the accessible name, so an outline of the
+   * focused one stands in for it. It goes in the series' own group, over the
+   * canvas, where the SVG node would sit: plot-local, clipped to the plot as
+   * the painted marks are, and swept away with the group by an update, as an
+   * SVG node's focus stroke is. Otherwise it lives as long as the focus does
+   * (`_removeFocusClass`). Being there, it is also what the tooltip keeps
+   * clear of (Position.computeTooltipPosition), as it does a focused node.
+   * @param {number} i
+   * @param {number} j
+   * @returns {Element | null}
+   */
+  _drawCanvasFocusRing(i, j) {
+    const cell = this._canvasCell(i, j);
+    if (!cell) return this._drawCanvasMarkFocusRing(i, j);
+    const host = this.w.dom.baseEl.querySelector(
+      `.apexcharts-heatmap .apexcharts-series[rel='${i + 1}']`
+    );
+    if (!host) return null;
+    const ring = new Graphics(this.w, this.ctx).drawRect(
+      cell.x,
+      cell.y,
+      cell.width,
+      cell.height,
+      cell.radius,
+      "none"
+    );
+    ring.node.classList.add("apexcharts-keyboard-focus-ring");
+    ring.attr({ i, j });
+    host.insertBefore(ring.node, host.firstChild);
+    return ring.node;
+  }
+  /**
+   * The outline for a bar-like painted to canvas (`_drawCanvasFocusRing`):
+   * the very path that was painted, so it traces the bar, the candle and its
+   * wicks, or the box and its whisker the way the focus stroke traces an SVG
+   * one, under the same clip. It carries no `j`, so nothing that looks for
+   * the series' marks by index takes it for one.
+   * @param {number} i
+   * @param {number} j
+   * @returns {Element | null}
+   */
+  _drawCanvasMarkFocusRing(i, j) {
+    const mark = this._canvasMark(i, j);
+    if (!mark) return this._drawCanvasMarkerFocusRing(i, j);
+    const w = this.w;
+    const host = Array.from(
+      w.dom.baseEl.querySelectorAll(".apexcharts-series")
+    ).find((g) => g.getAttribute("data:realIndex") === String(i));
+    if (!host) return null;
+    const ring = new Graphics(w, this.ctx).drawPath({
+      d: mark.d,
+      fill: "none",
+      classes: "apexcharts-keyboard-focus-ring"
+    });
+    ring.attr("clip-path", `url(#gridRectBarMask${w.globals.cuid})`);
+    host.insertBefore(ring.node, host.firstChild);
+    return ring.node;
+  }
+  /**
+   * The outline for a marker painted to canvas (`_drawCanvasFocusRing`): its
+   * painted shape, in the series' own group under the markers' clip, as the
+   * focused SVG marker node would be. Like that node it is what the box
+   * keeps clear of, so the box sits where it does on SVG.
+   * @param {number} i
+   * @param {number} j
+   * @returns {Element | null}
+   */
+  _drawCanvasMarkerFocusRing(i, j) {
+    const marker = this._canvasMarker(i, j);
+    if (!marker) return null;
+    const w = this.w;
+    const host = Array.from(
+      w.dom.baseEl.querySelectorAll(".apexcharts-series")
+    ).find((g) => g.getAttribute("data:realIndex") === String(i));
+    if (!host) return null;
+    const ring = new Graphics(w, this.ctx).drawPath({
+      d: marker.d,
+      fill: "none",
+      classes: "apexcharts-keyboard-focus-ring"
+    });
+    ring.attr("clip-path", `url(#gridRectMarkerMask${w.globals.cuid})`);
+    host.appendChild(ring.node);
+    return ring.node;
+  }
   _removeFocusClass() {
     if (this._focusedEl) {
       this._focusedEl.classList.remove("apexcharts-keyboard-focused");
       this._focusedEl.removeAttribute("role");
       this._focusedEl.removeAttribute("aria-label");
+      if (this._focusedEl.classList.contains("apexcharts-keyboard-focus-ring")) {
+        this._focusedEl.remove();
+      }
       this._focusedEl = null;
     }
   }
@@ -6339,7 +7031,8 @@ class KeyboardNavigation {
         `.apexcharts-radialbar-series[data\\:realIndex='${i}'] path`
       );
     }
-    if (type === "bar" || type === "candlestick" || type === "boxPlot" || type === "violin" || type === "rangeBar") {
+    if (this._isBarLikeSeries(i)) {
+      if (this._canvasMark(i, j)) return null;
       return baseEl.querySelector(
         `.apexcharts-series[data\\:realIndex='${i}'] path[j='${j}']`
       );
@@ -6467,9 +7160,9 @@ class KeyboardNavigation {
     if (!w.interact.zoomed) return true;
     const seriesX = w.seriesData.seriesX && w.seriesData.seriesX[si];
     if (!seriesX) return true;
-    const x = seriesX[di];
-    if (x === void 0) return true;
-    return x >= gl.minX && x <= gl.maxX;
+    const x2 = seriesX[di];
+    if (x2 === void 0) return true;
+    return x2 >= gl.minX && x2 <= gl.maxX;
   }
   /**
    * Push a short status message to the visually-hidden aria-live region so
@@ -6571,8 +7264,8 @@ function gridDivideShape(bbox, count, intervalsAt) {
     const share = exact.map((v) => Math.floor(v));
     let used = share.reduce((a, b) => a + b, 0);
     const byFrac = exact.map((v, i) => ({ i, frac: v - Math.floor(v) })).sort((a, b) => b.frac - a.frac);
-    for (let k = 0; used < cols; k++, used++) {
-      share[byFrac[k % byFrac.length].i]++;
+    for (let k2 = 0; used < cols; k2++, used++) {
+      share[byFrac[k2 % byFrac.length].i]++;
     }
     for (let s = 0; s < spans.length; s++) {
       const n = share[s];
@@ -6589,8 +7282,8 @@ function gridDivideShape(bbox, count, intervalsAt) {
   }
   return cells;
 }
-function hilbertIndex(x, y, minX, minY, maxX, maxY) {
-  let ix = maxX === minX ? 0 : Math.round(32767 * ((x - minX) / (maxX - minX)));
+function hilbertIndex(x2, y, minX, minY, maxX, maxY) {
+  let ix = maxX === minX ? 0 : Math.round(32767 * ((x2 - minX) / (maxX - minX)));
   let iy = maxY === minY ? 0 : Math.round(32767 * ((y - minY) / (maxY - minY)));
   let d = 0;
   for (let s = 32768; s >= 1; s /= 2) {
@@ -6615,16 +7308,16 @@ function sortByHilbert(items, getXY) {
   let maxX = -Infinity;
   let maxY = -Infinity;
   const pts = items.map((it) => {
-    const [x, y] = getXY(it);
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
+    const [x2, y] = getXY(it);
+    if (x2 < minX) minX = x2;
+    if (x2 > maxX) maxX = x2;
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
-    return [x, y];
+    return [x2, y];
   });
-  return items.map((item, k) => ({
+  return items.map((item, k2) => ({
     item,
-    d: hilbertIndex(pts[k][0], pts[k][1], minX, minY, maxX, maxY)
+    d: hilbertIndex(pts[k2][0], pts[k2][1], minX, minY, maxX, maxY)
   })).sort((a, b) => a.d - b.d).map((e) => e.item);
 }
 function parseColor(str) {
@@ -6693,8 +7386,8 @@ function runPieceTween({ pieces, duration, onPieceDone, onAllDone }) {
     if (cancelled) return;
     const elapsed = Date.now() - start;
     let live = false;
-    for (let k = 0; k < pieces.length; k++) {
-      const p = pieces[k];
+    for (let k2 = 0; k2 < pieces.length; k2++) {
+      const p = pieces[k2];
       if (
         /** @type {any} */
         p._done
@@ -6742,6 +7435,7 @@ class MorphTypeChange {
     this.w = w;
     this.ctx = ctx;
     this._snapshot = null;
+    this._shown = false;
     this._ghost = null;
     this._pieceLayer = null;
     this._pieceCancel = null;
@@ -6803,7 +7497,9 @@ class MorphTypeChange {
    * @returns {boolean}
    */
   captureBeforeDestroy({ fromType, toType, newSeries }) {
+    var _a;
     this._snapshot = null;
+    this._shown = false;
     this._removeGhost();
     this._cancelPieces();
     if (!Environment.isBrowser()) return false;
@@ -6824,13 +7520,22 @@ class MorphTypeChange {
       branches
     );
     if (mapping.size === 0) return false;
+    const gl = this.w.globals;
+    const graphical = (_a = this.w.dom.elGraphical) == null ? void 0 : _a.node;
+    const plot = gl.layoutTween && !gl.layoutTween.done && gl.layoutTween.graphical === graphical ? gl.layoutTween.rect : null;
+    const ct = gl.circleTween;
+    const circle = ct && !ct.done && (graphical == null ? void 0 : graphical.contains(ct.node)) ? ct : null;
+    const scale = circle ? circle.circle.r / circle.target.r : 1;
     this._snapshot = {
       fromType,
       toType,
       mapping,
       oldLayout: {
-        translateX: this.w.layout.translateX || 0,
-        translateY: this.w.layout.translateY || 0
+        translateX: plot ? plot.x : this.w.layout.translateX || 0,
+        translateY: plot ? plot.y : this.w.layout.translateY || 0,
+        scale,
+        shiftX: circle ? circle.circle.cx - scale * circle.target.cx : 0,
+        shiftY: circle ? circle.circle.cy - scale * circle.target.cy : 0
       }
     };
     const ff = familyOf(fromType);
@@ -7147,8 +7852,8 @@ class MorphTypeChange {
       return null;
     }
     const pt = svg.createSVGPoint();
-    const hit = (x, y) => {
-      pt.x = x;
+    const hit = (x2, y) => {
+      pt.x = x2;
       pt.y = y;
       const p = (
         /** @type {any} */
@@ -7240,27 +7945,27 @@ class MorphTypeChange {
       const i = parseInt((_a2 = dot.getAttribute("i")) != null ? _a2 : "", 10);
       if (isNaN(i)) return;
       const cxAttr = dot.getAttribute("cx");
-      let x;
+      let x2;
       let y;
       let r = 3;
       if (cxAttr != null) {
-        x = parseFloat(cxAttr);
+        x2 = parseFloat(cxAttr);
         y = parseFloat((_b = dot.getAttribute("cy")) != null ? _b : "");
         r = parseFloat((_c = dot.getAttribute("r")) != null ? _c : "3") || 3;
       } else {
         const wAttr = parseFloat((_d = dot.getAttribute("width")) != null ? _d : "0") || 0;
         const hAttr = parseFloat((_e = dot.getAttribute("height")) != null ? _e : "0") || 0;
-        x = parseFloat((_f = dot.getAttribute("x")) != null ? _f : "") + wAttr / 2;
+        x2 = parseFloat((_f = dot.getAttribute("x")) != null ? _f : "") + wAttr / 2;
         y = parseFloat((_g = dot.getAttribute("y")) != null ? _g : "") + hAttr / 2;
         r = Math.max(wAttr, hAttr) / 2 || 3;
       }
-      if (!isFinite(x) || !isFinite(y)) return;
+      if (!isFinite(x2) || !isFinite(y)) return;
       let list = byCluster.get(i);
       if (!list) {
         list = [];
         byCluster.set(i, list);
       }
-      list.push({ el: dot, x, y, r, fill: dot.getAttribute("fill") });
+      list.push({ el: dot, x: x2, y, r, fill: dot.getAttribute("fill") });
       total++;
     });
     if (total === 0 || total > PIECE_BUDGET) return this._revealPieceHidden();
@@ -7298,9 +8003,9 @@ class MorphTypeChange {
         c.y + c.height / 2
       ]);
       const ordered = sortByHilbert(dots, (d) => [d.x, d.y]);
-      for (let k = 0; k < ordered.length; k++) {
-        const cell = cells[k];
-        const dot = ordered[k];
+      for (let k2 = 0; k2 < ordered.length; k2++) {
+        const cell = cells[k2];
+        const dot = ordered[k2];
         const el = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
         el.setAttribute("data-i", String(i));
         el.setAttribute("x", String(cell.x));
@@ -7351,8 +8056,7 @@ class MorphTypeChange {
     }
     const targets = this._collectTargetMarks(snap.toType);
     if (!targets.size) return this._revealPieceHidden();
-    const dx = snap.oldLayout.translateX - (this.w.layout.translateX || 0);
-    const dy = snap.oldLayout.translateY - (this.w.layout.translateY || 0);
+    const { dx, dy } = this._oldToNew();
     const clusterIdx = Array.from(snap.sourceDots.keys()).sort((a, b) => a - b);
     const layer = this._makePieceLayer();
     if (!layer) return this._revealPieceHidden();
@@ -7360,12 +8064,12 @@ class MorphTypeChange {
     const pieces = [];
     const targetFam = familyOf(snap.toType);
     const shapedTarget = targetFam === "summary" || targetFam === "radial";
-    for (let k = 0; k < clusterIdx.length; k++) {
+    for (let k2 = 0; k2 < clusterIdx.length; k2++) {
       const dots = (
         /** @type {any[]} */
-        snap.sourceDots.get(clusterIdx[k])
+        snap.sourceDots.get(clusterIdx[k2])
       );
-      const key = snap.keyOrder[k];
+      const key = snap.keyOrder[k2];
       const target = key ? targets.get(key) : null;
       if (!target || !dots || !dots.length) {
         if (target) {
@@ -7448,8 +8152,8 @@ class MorphTypeChange {
     const speed = this.getSpeed();
     const stagger = Math.min(PIECE_STAGGER_MAX, speed * 0.35);
     const flight = Math.max(180, speed - stagger);
-    for (let k = 0; k < pieces.length; k++) {
-      pieces[k].delay = pieces.length > 1 ? k / (pieces.length - 1) * stagger : 0;
+    for (let k2 = 0; k2 < pieces.length; k2++) {
+      pieces[k2].delay = pieces.length > 1 ? k2 / (pieces.length - 1) * stagger : 0;
     }
     this._pieceCancel = runPieceTween({
       pieces,
@@ -7503,7 +8207,7 @@ class MorphTypeChange {
       var _a2;
       const realIndex = parseInt((_a2 = group.getAttribute("data:realIndex")) != null ? _a2 : "0", 10) || 0;
       let order = 0;
-      group.querySelectorAll("path[pathTo]").forEach((p) => {
+      group.querySelectorAll("path[pathTo]:not(.apexcharts-highlight-part)").forEach((p) => {
         var _a3;
         const d = p.getAttribute("pathTo") || p.getAttribute("d");
         if (!d || !d.trim()) return;
@@ -7565,7 +8269,9 @@ class MorphTypeChange {
           (_a2 = seriesNode.getAttribute("data:realIndex")) != null ? _a2 : "0",
           10
         );
-        const paths = seriesNode.querySelectorAll("path[pathTo]");
+        const paths = seriesNode.querySelectorAll(
+          "path[pathTo]:not(.apexcharts-highlight-part)"
+        );
         paths.forEach((p, j) => {
           const d = p.getAttribute("pathTo") || p.getAttribute("d");
           if (!d) return;
@@ -7597,12 +8303,12 @@ class MorphTypeChange {
       if (fromType === "treemap") {
         const rectPath = (el) => {
           var _a2, _b, _c, _d;
-          const x = parseFloat((_a2 = el.getAttribute("x")) != null ? _a2 : "");
+          const x2 = parseFloat((_a2 = el.getAttribute("x")) != null ? _a2 : "");
           const y = parseFloat((_b = el.getAttribute("y")) != null ? _b : "");
           const width = parseFloat((_c = el.getAttribute("width")) != null ? _c : "");
           const height = parseFloat((_d = el.getAttribute("height")) != null ? _d : "");
-          if (![x, y, width, height].every((v) => isFinite(v))) return null;
-          return `M ${x} ${y} L ${x + width} ${y} L ${x + width} ${y + height} L ${x} ${y + height} Z`;
+          if (![x2, y, width, height].every((v) => isFinite(v))) return null;
+          return `M ${x2} ${y} L ${x2 + width} ${y} L ${x2 + width} ${y + height} L ${x2} ${y + height} Z`;
         };
         const tiles = baseEl.querySelectorAll(".apexcharts-treemap-rect");
         tiles.forEach((t) => {
@@ -7660,40 +8366,40 @@ class MorphTypeChange {
         const i = parseInt((_a2 = dot.getAttribute("i")) != null ? _a2 : "", 10);
         if (isNaN(i)) return;
         const cxAttr = dot.getAttribute("cx");
-        let x;
+        let x2;
         let y;
         let r = 3;
         if (cxAttr != null) {
-          x = parseFloat(cxAttr);
+          x2 = parseFloat(cxAttr);
           y = parseFloat((_b = dot.getAttribute("cy")) != null ? _b : "");
           r = parseFloat((_c = dot.getAttribute("r")) != null ? _c : "3") || 3;
         } else {
           const wAttr = parseFloat((_d = dot.getAttribute("width")) != null ? _d : "0") || 0;
           const hAttr = parseFloat((_e = dot.getAttribute("height")) != null ? _e : "0") || 0;
-          x = parseFloat((_f = dot.getAttribute("x")) != null ? _f : "") + wAttr / 2;
+          x2 = parseFloat((_f = dot.getAttribute("x")) != null ? _f : "") + wAttr / 2;
           y = parseFloat((_g = dot.getAttribute("y")) != null ? _g : "") + hAttr / 2;
           r = Math.max(wAttr, hAttr) / 2 || 3;
         }
-        if (!isFinite(x) || !isFinite(y)) return;
+        if (!isFinite(x2) || !isFinite(y)) return;
         let list = unitDots.get(i);
         if (!list) {
           list = [];
           unitDots.set(i, list);
         }
-        list.push({ x, y, r, fill: dot.getAttribute("fill") });
+        list.push({ x: x2, y, r, fill: dot.getAttribute("fill") });
         const box = boxes.get(i);
         if (!box) {
           boxes.set(i, {
-            minX: x,
+            minX: x2,
             minY: y,
-            maxX: x,
+            maxX: x2,
             maxY: y,
             fill: dot.getAttribute("fill")
           });
           return;
         }
-        if (x < box.minX) box.minX = x;
-        if (x > box.maxX) box.maxX = x;
+        if (x2 < box.minX) box.minX = x2;
+        if (x2 > box.maxX) box.maxX = x2;
         if (y < box.minY) box.minY = y;
         if (y > box.maxY) box.maxY = y;
       });
@@ -7801,8 +8507,8 @@ class MorphTypeChange {
       const dy = py - centerY;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist === 0) return { x: centerX, y: centerY };
-      const k = newR / dist;
-      return { x: centerX + dx * k, y: centerY + dy * k };
+      const k2 = newR / dist;
+      return { x: centerX + dx * k2, y: centerY + dy * k2 };
     };
     const o1 = proj(x1, y1, rOuter);
     const o2 = proj(x2, y2, rOuter);
@@ -7937,9 +8643,27 @@ class MorphTypeChange {
     if (!this._snapshot) return null;
     const entry = this._snapshot.mapping.get(`${realIndex}:${j}`);
     if (!entry) return null;
-    const dx = this._snapshot.oldLayout.translateX - (this.w.layout.translateX || 0);
-    const dy = this._snapshot.oldLayout.translateY - (this.w.layout.translateY || 0);
-    return dx === 0 && dy === 0 ? entry.d : this._translatePathD(entry.d, dx, dy);
+    const { k: k2, dx, dy } = this._oldToNew();
+    return k2 === 1 && dx === 0 && dy === 0 ? entry.d : this._translatePathD(entry.d, dx, dy, k2);
+  }
+  /**
+   * The map from the captured marks' space to the new chart's plot space:
+   * scaled by `k`, then shifted by (dx, dy). The shift is the plot-origin
+   * move; `k` and the rest of the shift are a circle still being re-centred
+   * and scaled when the morph began (see captureBeforeDestroy).
+   * @returns {{k: number, dx: number, dy: number}}
+   */
+  _oldToNew() {
+    var _a, _b, _c;
+    const o = (
+      /** @type {NonNullable<typeof this._snapshot>} */
+      this._snapshot.oldLayout
+    );
+    return {
+      k: (_a = o.scale) != null ? _a : 1,
+      dx: o.translateX + ((_b = o.shiftX) != null ? _b : 0) - (this.w.layout.translateX || 0),
+      dy: o.translateY + ((_c = o.shiftY) != null ? _c : 0) - (this.w.layout.translateY || 0)
+    };
   }
   /**
    * Offset every absolute coordinate in an SVG path `d` by (dx, dy).
@@ -7952,29 +8676,32 @@ class MorphTypeChange {
    * @param {string} d
    * @param {number} dx
    * @param {number} dy
+   * @param {number} [k] scale every coordinate (and arc radius) by this first
    * @returns {string}
    */
-  _translatePathD(d, dx, dy) {
-    if (dx === 0 && dy === 0) return d;
+  _translatePathD(d, dx, dy, k2 = 1) {
+    if (dx === 0 && dy === 0 && k2 === 1) return d;
     const commands = parsePath(d);
+    const x2 = (v) => v * k2 + dx;
+    const y = (v) => v * k2 + dy;
     return commands.map(
       /** @param {any[]} c */
       (c) => {
         const cmd = c[0];
         if (cmd === "Z") return "Z";
         if (cmd === "M" || cmd === "L" || cmd === "T") {
-          return `${cmd} ${c[1] + dx} ${c[2] + dy}`;
+          return `${cmd} ${x2(c[1])} ${y(c[2])}`;
         }
-        if (cmd === "H") return `${cmd} ${c[1] + dx}`;
-        if (cmd === "V") return `${cmd} ${c[1] + dy}`;
+        if (cmd === "H") return `${cmd} ${x2(c[1])}`;
+        if (cmd === "V") return `${cmd} ${y(c[1])}`;
         if (cmd === "C") {
-          return `${cmd} ${c[1] + dx} ${c[2] + dy} ${c[3] + dx} ${c[4] + dy} ${c[5] + dx} ${c[6] + dy}`;
+          return `${cmd} ${x2(c[1])} ${y(c[2])} ${x2(c[3])} ${y(c[4])} ${x2(c[5])} ${y(c[6])}`;
         }
         if (cmd === "S" || cmd === "Q") {
-          return `${cmd} ${c[1] + dx} ${c[2] + dy} ${c[3] + dx} ${c[4] + dy}`;
+          return `${cmd} ${x2(c[1])} ${y(c[2])} ${x2(c[3])} ${y(c[4])}`;
         }
         if (cmd === "A") {
-          return `${cmd} ${c[1]} ${c[2]} ${c[3]} ${c[4]} ${c[5]} ${c[6] + dx} ${c[7] + dy}`;
+          return `${cmd} ${c[1] * k2} ${c[2] * k2} ${c[3]} ${c[4]} ${c[5]} ${x2(c[6])} ${y(c[7])}`;
         }
         return c.join(" ");
       }
@@ -8005,8 +8732,8 @@ class MorphTypeChange {
    * @param {number} k
    * @returns {string | null}
    */
-  getInitialPathAt(k) {
-    return this.getInitialPathFor(k, 0);
+  getInitialPathAt(k2) {
+    return this.getInitialPathFor(k2, 0);
   }
   /**
    * The captured shape for a branch identity (charts/common/Hierarchy.morphKey),
@@ -8026,8 +8753,8 @@ class MorphTypeChange {
   /** True when the active snapshot can pair by branch key. */
   hasKeyedMarks() {
     if (!this._snapshot) return false;
-    for (const k of this._snapshot.mapping.keys()) {
-      if (typeof k === "string" && k.startsWith("key:")) return true;
+    for (const k2 of this._snapshot.mapping.keys()) {
+      if (typeof k2 === "string" && k2.startsWith("key:")) return true;
     }
     return false;
   }
@@ -8078,13 +8805,12 @@ class MorphTypeChange {
     if (!entry) return null;
     const box = this._pathBBox(entry.d);
     if (!box) return null;
-    const dx = this._snapshot.oldLayout.translateX - (this.w.layout.translateX || 0);
-    const dy = this._snapshot.oldLayout.translateY - (this.w.layout.translateY || 0);
+    const { k: k2, dx, dy } = this._oldToNew();
     return {
-      x: box.minX + dx,
-      y: box.minY + dy,
-      width: box.maxX - box.minX,
-      height: box.maxY - box.minY
+      x: box.minX * k2 + dx,
+      y: box.minY * k2 + dy,
+      width: (box.maxX - box.minX) * k2,
+      height: (box.maxY - box.minY) * k2
     };
   }
   /**
@@ -8110,13 +8836,13 @@ class MorphTypeChange {
         else if (cmd === "V") pairs = [[(minX + maxX) / 2 || c[1], c[1]]];
         else if (cmd === "A") pairs = [[c[6], c[7]]];
         else {
-          for (let k = 1; k + 1 < c.length; k += 2) pairs.push([c[k], c[k + 1]]);
+          for (let k2 = 1; k2 + 1 < c.length; k2 += 2) pairs.push([c[k2], c[k2 + 1]]);
         }
-        pairs.forEach(([x, y]) => {
-          if (!isFinite(x) || !isFinite(y)) return;
+        pairs.forEach(([x2, y]) => {
+          if (!isFinite(x2) || !isFinite(y)) return;
           seen = true;
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
+          if (x2 < minX) minX = x2;
+          if (x2 > maxX) maxX = x2;
           if (y < minY) minY = y;
           if (y > maxY) maxY = y;
         });
@@ -8149,6 +8875,7 @@ class MorphTypeChange {
   applyChromeFade() {
     var _a;
     if (!this._snapshot || !Environment.isBrowser()) return;
+    this._shown = true;
     const baseEl = (_a = this.w.globals.dom) == null ? void 0 : _a.baseEl;
     if (!baseEl) return;
     if (this._snapshot.pieceOut) this._separatePieces();
@@ -8179,1043 +8906,30 @@ class MorphTypeChange {
         }, speed + 80);
       });
     });
-    setTimeout(() => this.cleanup(), speed + 100);
+    const snap = this._snapshot;
+    setTimeout(() => {
+      if (!this._snapshot || this._snapshot === snap) this.cleanup();
+    }, speed + 100);
+  }
+  /**
+   * A render after the one a morph was captured for (an update while the
+   * morph is still finishing, or just after) must not start its marks from
+   * the old chart's shapes again: it starts from the screen, as any update
+   * does. The morph's ghost and pieces go with it, as the new render
+   * replaces what they were leaving over. A no-op until that render has
+   * mounted, so a second update in the same tick still morphs.
+   */
+  retire() {
+    if (this._snapshot && this._shown) this.cleanup();
   }
   cleanup() {
     this._snapshot = null;
+    this._shown = false;
     this._removeGhost();
     this._cancelPieces();
   }
 }
 _core__default.registerFeatures({ morphTypeChange: MorphTypeChange });
-const BREADCRUMB_HEIGHT = 18;
-function breadcrumbCeiling(w, nav) {
-  const gridTop = w.layout.translateY || 0;
-  const elWrap = w.dom.elWrap;
-  if (!elWrap) return gridTop;
-  const labels = w.dom.baseEl.querySelectorAll(".apexcharts-yaxis-label");
-  if (!labels.length) return gridTop;
-  const wrapTop = elWrap.getBoundingClientRect().top;
-  const navRect = nav.getBoundingClientRect();
-  let ceiling = gridTop;
-  for (let i = 0; i < labels.length; i++) {
-    const r = labels[i].getBoundingClientRect();
-    if (!r.height) continue;
-    if (r.left >= navRect.right || r.right <= navRect.left) continue;
-    ceiling = Math.min(ceiling, r.top - wrapTop);
-  }
-  return ceiling;
-}
-function placeInReservedBand(w, ctx, nav, cfg) {
-  var _a;
-  const dimHelpers = (_a = ctx == null ? void 0 : ctx.dimensions) == null ? void 0 : _a.dimHelpers;
-  const titleArea = dimHelpers ? dimHelpers.getTitleSubtitleCoords("title").height + dimHelpers.getTitleSubtitleCoords("subtitle").height : 0;
-  const navH = nav.getBoundingClientRect().height || BREADCRUMB_HEIGHT;
-  const offsetY = cfg && cfg.offsetY || 0;
-  const ceiling = breadcrumbCeiling(w, nav);
-  if (ceiling - titleArea >= navH + 1) {
-    nav.style.top = `${ceiling - navH - 1 + offsetY}px`;
-    return true;
-  }
-  nav.style.top = `${titleArea + offsetY}px`;
-  const dark = w.config.theme.mode === "dark";
-  nav.style.background = dark ? "rgba(20,24,30,0.82)" : "rgba(255,255,255,0.86)";
-  nav.style.borderRadius = "4px";
-  return false;
-}
-const XHTML$1 = "http://www.w3.org/1999/xhtml";
-class Breadcrumb {
-  /**
-   * @param {import('../../types/internal').ChartStateW} w
-   * @param {import('../../types/internal').ChartContext} ctx
-   * @param {import('./Drilldown').default} drilldown
-   */
-  constructor(w, ctx, drilldown) {
-    this.w = w;
-    this.ctx = ctx;
-    this.drilldown = drilldown;
-  }
-  /**
-   * @param {Array<string|number>} path - ['root', id, id, ...]
-   */
-  render(path) {
-    if (!Environment.isBrowser()) return;
-    const w = this.w;
-    const elWrap = w.dom.elWrap;
-    if (!elWrap) return;
-    const existing = elWrap.querySelector(".apexcharts-breadcrumb");
-    if (existing && existing.parentNode) {
-      existing.parentNode.removeChild(existing);
-    }
-    const cfg = w.config.drilldown && w.config.drilldown.breadcrumb;
-    if (!cfg || cfg.show === false) return;
-    if (this.drilldown.depth === 0) return;
-    const nav = BrowserAPIs.createElementNS(XHTML$1, "nav");
-    nav.setAttribute("class", "apexcharts-breadcrumb");
-    nav.setAttribute("aria-label", "Drilldown breadcrumb");
-    this._position(nav, cfg);
-    const separator = cfg.separator != null ? cfg.separator : " / ";
-    path.forEach((id, i) => {
-      if (i > 0) {
-        const sep = BrowserAPIs.createElementNS(XHTML$1, "span");
-        sep.setAttribute("class", "apexcharts-breadcrumb-separator");
-        sep.setAttribute("aria-hidden", "true");
-        sep.textContent = separator;
-        nav.appendChild(sep);
-      }
-      const label = this._label(id, i);
-      const isCurrent = i === path.length - 1;
-      if (isCurrent) {
-        const cur = BrowserAPIs.createElementNS(XHTML$1, "span");
-        cur.setAttribute(
-          "class",
-          "apexcharts-breadcrumb-item apexcharts-breadcrumb-current"
-        );
-        cur.setAttribute("aria-current", "page");
-        cur.textContent = label;
-        nav.appendChild(cur);
-      } else {
-        const btn = (
-          /** @type {HTMLButtonElement} */
-          BrowserAPIs.createElementNS(XHTML$1, "button")
-        );
-        btn.setAttribute("type", "button");
-        btn.setAttribute("class", "apexcharts-breadcrumb-item");
-        if (i === 0) {
-          const arrow = BrowserAPIs.createElementNS(XHTML$1, "span");
-          arrow.setAttribute("class", "apexcharts-breadcrumb-arrow");
-          arrow.setAttribute("aria-hidden", "true");
-          arrow.textContent = "←";
-          btn.appendChild(arrow);
-        }
-        const text = BrowserAPIs.createElementNS(XHTML$1, "span");
-        text.setAttribute("class", "apexcharts-breadcrumb-label");
-        text.textContent = label;
-        btn.appendChild(text);
-        btn.addEventListener("click", () => this.drilldown.drillToLevel(i));
-        nav.appendChild(btn);
-      }
-    });
-    elWrap.appendChild(nav);
-    if (this.w.globals.axisCharts) {
-      placeInReservedBand(this.w, this.ctx, nav, cfg);
-    }
-    this._avoidChromeOverlap(nav);
-  }
-  /**
-   * The breadcrumb is an absolute overlay, so at its default top-left it can
-   * sit on top of a left-aligned title (or subtitle). After mounting, push it
-   * below any chart chrome it intersects. (Sunburst's self-contained
-   * breadcrumb applies the same rule.)
-   * @param {HTMLElement} nav
-   */
-  _avoidChromeOverlap(nav) {
-    const w = this.w;
-    const chrome = (
-      /** @type {Element[]} */
-      [".apexcharts-title-text", ".apexcharts-subtitle-text"].map((s) => w.dom.baseEl.querySelector(s)).filter((el) => el !== null)
-    );
-    if (!chrome.length) return;
-    const wrapTop = w.dom.elWrap.getBoundingClientRect().top;
-    for (let pass = 0; pass < chrome.length + 1; pass++) {
-      const nr = nav.getBoundingClientRect();
-      const hit = chrome.find((el) => {
-        const r = el.getBoundingClientRect();
-        return nr.left < r.right && nr.right > r.left && nr.top < r.bottom && nr.bottom > r.top;
-      });
-      if (!hit) break;
-      nav.style.top = `${hit.getBoundingClientRect().bottom - wrapTop + 4}px`;
-    }
-  }
-  /**
-   * @param {string|number} id
-   * @param {number} index
-   * @returns {string}
-   */
-  _label(id, index) {
-    const cfg = this.w.config.drilldown.breadcrumb;
-    let label;
-    if (index === 0) {
-      label = cfg.rootLabel != null ? cfg.rootLabel : "All";
-    } else {
-      const list = (this.w.config.drilldown.series || []).find(
-        (s) => s && s.id === id
-      );
-      label = list && list.name || String(id);
-    }
-    if (typeof cfg.formatter === "function") {
-      return cfg.formatter(label, { index, depth: this.drilldown.depth });
-    }
-    return label;
-  }
-  /**
-   * @param {HTMLElement} nav
-   * @param {Record<string, any>} cfg
-   */
-  _position(nav, cfg) {
-    const ox = cfg.offsetX || 0;
-    const oy = cfg.offsetY || 0;
-    nav.style.position = "absolute";
-    nav.style.top = oy + "px";
-    if (cfg.position === "top-right") {
-      nav.style.right = -ox + 3 + "px";
-    } else {
-      nav.style.left = ox + "px";
-    }
-  }
-}
-const XHTML = "http://www.w3.org/1999/xhtml";
-const CLASS = "apexcharts-drilldown-loading";
-class DrilldownLoading {
-  /**
-   * @param {import('../../types/internal').ChartStateW} w
-   */
-  constructor(w) {
-    this.w = w;
-    this.el = null;
-  }
-  /** @returns {any} the drilldown.loading config, normalised. */
-  _cfg() {
-    const d = this.w.config.drilldown;
-    const l = d && d.loading;
-    if (l === false) return { show: false };
-    return l || {};
-  }
-  /**
-   * Mount the overlay. No-op when disabled, outside a browser, or already up.
-   */
-  show() {
-    if (!Environment.isBrowser()) return;
-    const cfg = this._cfg();
-    if (cfg.show === false) return;
-    const elWrap = this.w.dom.elWrap;
-    if (!elWrap) return;
-    this.hide();
-    const box = BrowserAPIs.createElementNS(XHTML, "div");
-    box.setAttribute("class", CLASS);
-    box.setAttribute("role", "status");
-    box.setAttribute("aria-live", "polite");
-    box.setAttribute("aria-label", cfg.text || "Loading");
-    const spinner = BrowserAPIs.createElementNS(XHTML, "div");
-    spinner.setAttribute("class", `${CLASS}-spinner`);
-    spinner.setAttribute("aria-hidden", "true");
-    box.appendChild(spinner);
-    if (cfg.text) {
-      const label = BrowserAPIs.createElementNS(XHTML, "span");
-      label.setAttribute("class", `${CLASS}-text`);
-      label.textContent = cfg.text;
-      box.appendChild(label);
-    }
-    elWrap.appendChild(box);
-    this.el = box;
-  }
-  /** Remove the overlay. Safe to call when it is not mounted. */
-  hide() {
-    const elWrap = this.w.dom.elWrap;
-    if (elWrap) {
-      const nodes = elWrap.querySelectorAll(`.${CLASS}`);
-      for (let i = 0; i < nodes.length; i++) {
-        const n = nodes[i];
-        if (n.parentNode) n.parentNode.removeChild(n);
-      }
-    } else if (this.el && this.el.parentNode) {
-      this.el.parentNode.removeChild(this.el);
-    }
-    this.el = null;
-  }
-}
-const MAX_DEPTH = 32;
-const DRILL_MARKER = "__apexDrilldownMarker";
-class Drilldown {
-  /**
-   * @param {import('../../types/internal').ChartStateW} w
-   * @param {import('../../types/internal').ChartContext} ctx
-   */
-  constructor(w, ctx) {
-    this.w = w;
-    this.ctx = ctx;
-    this.stack = [];
-    this.rootSnapshot = null;
-    this._wired = false;
-    this._asyncCache = /* @__PURE__ */ new Map();
-    this._pending = null;
-    this._warnedUnreachable = false;
-    this._warnedNoSliceOffset = false;
-    this.breadcrumb = new Breadcrumb(w, ctx, this);
-    this.loading = new DrilldownLoading(w);
-    this._onPointSelect = this._onPointSelect.bind(this);
-    this._afterRender = this._afterRender.bind(this);
-    this._onPlotDown = this._onPlotDown.bind(this);
-    this._onPlotClick = this._onPlotClick.bind(this);
-    this._downAt = null;
-    this._plotClickWired = null;
-    this.init();
-  }
-  init() {
-    const w = this.w;
-    if (!w.config.drilldown || !w.config.drilldown.enabled) return;
-    if (this._wired) return;
-    this._wired = true;
-    this.ctx.addEventListener("dataPointSelection", this._onPointSelect);
-    this.ctx.addEventListener("mounted", this._afterRender);
-    this.ctx.addEventListener("updated", this._afterRender);
-    if (w.config.markers) {
-      w.config.markers.discrete = this._drillMarkers(w.config.series);
-    }
-  }
-  // ─── Observable state ──────────────────────────────────────────────────────
-  /** @returns {Array<string|number>} e.g. ['root', '2024-quarters'] */
-  get path() {
-    return ["root", ...this.stack.map((f) => f.id)];
-  }
-  /** @returns {number} 0 at root */
-  get depth() {
-    return this.stack.length;
-  }
-  // ─── Navigation API ────────────────────────────────────────────────────────
-  /**
-   * Drill into the child level with the given id.
-   * @param {string|number} id
-   * @param {any} [triggerPoint] - the clicked data point (for events / async ctx)
-   * @param {{ seriesIndex?: number, dataPointIndex?: number }} [meta]
-   * @returns {Promise<any>}
-   */
-  drillDown(id, triggerPoint, meta) {
-    const child = this._resolveChild(id);
-    if (child) return this._drillInto(child, triggerPoint, meta);
-    if (typeof this.w.config.drilldown.onDrillDown === "function") {
-      return this._drillDownAsync(id, triggerPoint, meta);
-    }
-    console.warn(
-      `ApexCharts: drilldown id "${id}" not found in chart.drilldown.series, and no onDrillDown resolver is set.`
-    );
-    return Promise.resolve(this.ctx);
-  }
-  /**
-   * Navigate back one level.
-   * @returns {Promise<any>}
-   */
-  drillUp() {
-    return this.drillToLevel(this.stack.length - 1);
-  }
-  /**
-   * Navigate back to the root view.
-   * @returns {Promise<any>}
-   */
-  drillToRoot() {
-    return this.drillToLevel(0);
-  }
-  /**
-   * Navigate to an arbitrary depth (0 = root). Used by breadcrumb clicks.
-   * @param {number} targetDepth
-   * @returns {Promise<any>}
-   */
-  drillToLevel(targetDepth) {
-    const cur = this.stack.length;
-    if (targetDepth < 0 || targetDepth >= cur) return Promise.resolve(this.ctx);
-    const from = this.path[this.path.length - 1];
-    const restore = targetDepth === 0 ? this.rootSnapshot : this.stack[targetDepth].restore;
-    this.stack = this.stack.slice(0, targetDepth);
-    const to = this.path[this.path.length - 1];
-    return this._apply(this._viewFromSnapshot(restore), "up", { from, to });
-  }
-  // ─── Internals ─────────────────────────────────────────────────────────────
-  /**
-   * @param {string|number} id
-   * @returns {any|null}
-   */
-  _resolveChild(id) {
-    const list = this.w.config.drilldown && this.w.config.drilldown.series;
-    if (!Array.isArray(list)) return null;
-    return list.find((s) => s && s.id === id) || null;
-  }
-  /**
-   * @param {any} child
-   * @param {any} [triggerPoint]
-   * @param {{ seriesIndex?: number, dataPointIndex?: number }} [meta]
-   * @returns {Promise<any>}
-   */
-  _drillInto(child, triggerPoint, meta) {
-    if (this.stack.length >= MAX_DEPTH) {
-      console.warn(`ApexCharts: drilldown max depth (${MAX_DEPTH}) reached.`);
-      return Promise.resolve(this.ctx);
-    }
-    if (!this.rootSnapshot) this.rootSnapshot = this._snapshot();
-    const from = this.path[this.path.length - 1];
-    this.stack.push({ id: child.id, name: child.name, restore: this._snapshot() });
-    return this._apply(this._viewFromChild(child), "down", {
-      from,
-      to: child.id,
-      point: triggerPoint,
-      seriesIndex: meta && meta.seriesIndex,
-      dataPointIndex: meta && meta.dataPointIndex
-    });
-  }
-  /**
-   * Resolve a level through `onDrillDown` and drill into it.
-   *
-   * Failure never changes state: on a throw, a rejection, or a resolver that
-   * hands back something undrillable, the chart stays exactly where it was and
-   * `drillDownError` fires. That is what makes this usable against a real
-   * backend, where a fetch failing is ordinary rather than exceptional.
-   *
-   * @param {string|number|null} id
-   * @param {any} point
-   * @param {{ seriesIndex?: number, dataPointIndex?: number }} [meta]
-   * @returns {Promise<any>}
-   */
-  _drillDownAsync(id, point, meta) {
-    const cfg = this.w.config.drilldown;
-    const fn = cfg.onDrillDown;
-    const cached = this._cacheGet(id);
-    if (cached) return this._drillInto(cached, point, meta);
-    if (this._pending) return this._pending;
-    let result;
-    this.loading.show();
-    try {
-      result = fn({
-        // `id` was missing here, so a resolver could not tell WHICH level was
-        // asked for without re-deriving it from the point. It is the first
-        // thing a real implementation needs (`fetch('/levels/' + id)`).
-        id,
-        point,
-        seriesIndex: meta && meta.seriesIndex,
-        dataPointIndex: meta && meta.dataPointIndex
-      });
-    } catch (error) {
-      this.loading.hide();
-      this._fire("drillDownError", { id, error });
-      return Promise.resolve(this.ctx);
-    }
-    const settle = () => {
-      this._pending = null;
-      this.loading.hide();
-    };
-    const p = Promise.resolve(result).then(
-      (child) => {
-        settle();
-        if (this._isDead()) return this.ctx;
-        if (!child || !child.data) {
-          this._fire("drillDownError", {
-            id,
-            error: new Error(
-              `drilldown: onDrillDown resolved without a drillable level for id "${id}" (expected an object with a \`data\` array).`
-            )
-          });
-          return this.ctx;
-        }
-        const level = child.id != null ? child : __spreadProps(__spreadValues({}, child), { id });
-        this._cacheSet(id, level);
-        return this._drillInto(level, point, meta);
-      },
-      (error) => {
-        settle();
-        if (this._isDead()) return this.ctx;
-        this._fire("drillDownError", { id, error });
-        return this.ctx;
-      }
-    );
-    this._pending = p;
-    return p;
-  }
-  /**
-   * Whether the chart was torn down while a resolver was in flight.
-   *
-   * Clicking to drill and then navigating away is ordinary, not exceptional: a
-   * component unmounts, `destroy()` runs, and the fetch settles afterwards.
-   * Without this the resolved level would be applied to a destroyed chart,
-   * which throws out of `updateOptions` and surfaces in the host app as an
-   * unhandled rejection from a click the user has already forgotten about.
-   *
-   * @returns {boolean}
-   */
-  _isDead() {
-    const w = this.w;
-    return !w || !w.globals || w.globals.isDestroyed === true;
-  }
-  /** @returns {boolean} whether resolved async levels are cached. */
-  _cacheEnabled() {
-    const cfg = this.w.config.drilldown;
-    return !!(cfg && cfg.cache !== false);
-  }
-  /**
-   * @param {string|number|null} id
-   * @returns {any|null}
-   */
-  _cacheGet(id) {
-    if (!this._cacheEnabled() || id == null) return null;
-    return this._asyncCache.get(id) || null;
-  }
-  /**
-   * @param {string|number|null} id
-   * @param {any} level
-   */
-  _cacheSet(id, level) {
-    if (!this._cacheEnabled() || id == null) return;
-    this._asyncCache.set(id, level);
-  }
-  /**
-   * Drop cached async levels, so the next drill re-runs `onDrillDown`. Call it
-   * when the underlying data changes behind a chart that has already drilled.
-   * @param {string|number} [id] a single level, or every level when omitted
-   * @returns {any} the chart, for chaining
-   */
-  clearCache(id) {
-    if (id == null) this._asyncCache.clear();
-    else this._asyncCache.delete(id);
-    return this.ctx;
-  }
-  /**
-   * Capture the overridable surface of the current view so it can be restored.
-   * Only fields that some drilldown.series entry can change are cloned; series
-   * and chart.type/stacked are always captured.
-   * @returns {object}
-   */
-  _snapshot() {
-    const c = this.w.config;
-    const fields = this._overrideFields();
-    const snap = { series: this._uncollapseSeries(Utils.clone(c.series)) };
-    if (Array.isArray(c.labels) && c.labels.length) {
-      snap.labels = Utils.clone(c.labels);
-    }
-    snap.chart = { type: c.chart.type, stacked: c.chart.stacked };
-    if (fields.has("xaxis")) snap.xaxis = Utils.clone(c.xaxis);
-    if (fields.has("yaxis")) snap.yaxis = Utils.clone(c.yaxis);
-    if (fields.has("colors")) snap.colors = c.colors ? Utils.clone(c.colors) : void 0;
-    if (fields.has("plotOptions")) snap.plotOptions = Utils.clone(c.plotOptions);
-    if (fields.has("fill")) snap.fill = Utils.clone(c.fill);
-    if (fields.has("legend")) snap.legend = Utils.clone(c.legend);
-    return snap;
-  }
-  /**
-   * Restore any legend-collapsed slices/series to their original values in a
-   * cloned series array, so a drill snapshot captures the pre-collapse data.
-   * Mirrors legend Helpers' collapse addressing: object-form pie/donut packs
-   * every slice as a data point inside `series[0].data`; numeric pie stores a
-   * slice per top-level element; axis series carry a `data` array. No-op when
-   * nothing is collapsed.
-   * @param {any[]} series
-   * @returns {any[]}
-   */
-  _uncollapseSeries(series) {
-    const w = this.w;
-    const gl = w.globals;
-    const entries = [
-      ...gl.collapsedSeries || [],
-      ...gl.ancillaryCollapsedSeries || []
-    ];
-    if (!entries.length) return series;
-    const type = w.config.chart.type;
-    const objectFormPie = (type === "pie" || type === "donut" || type === "polarArea") && series.length === 1 && series[0] && typeof series[0] === "object" && Array.isArray(series[0].data);
-    const container = objectFormPie ? series[0].data : series;
-    for (const entry of entries) {
-      const i = entry.index;
-      if (gl.axisCharts) {
-        if (series[i]) {
-          series[i].data = Array.isArray(entry.data) ? entry.data.slice() : entry.data;
-        }
-      } else if (container[i] && typeof container[i] === "object") {
-        container[i].y = entry.data;
-      } else if (container[i] !== void 0) {
-        container[i] = entry.data;
-      }
-    }
-    return series;
-  }
-  /**
-   * Union of overridable fields across all declared drilldown levels. Ensures a
-   * deep drillToRoot restores everything any intermediate level may have changed.
-   * @returns {Set<string>}
-   */
-  _overrideFields() {
-    const fields = /* @__PURE__ */ new Set();
-    const list = this.w.config.drilldown && this.w.config.drilldown.series || [];
-    for (const s of list) {
-      if (!s) continue;
-      if (s.xaxis) fields.add("xaxis");
-      if (s.yaxis) fields.add("yaxis");
-      if (s.colors) fields.add("colors");
-      if (s.plotOptions) fields.add("plotOptions");
-      if (s.fill) fields.add("fill");
-      if (s.legend) fields.add("legend");
-    }
-    return fields;
-  }
-  /**
-   * Copy the optional view fields shared by a drilldown child level and a
-   * restore snapshot (`xaxis`, `yaxis`, `colors`, `plotOptions`, `fill`,
-   * `legend`) from `src` onto `view`, only when present.
-   * @param {Record<string, any>} view @param {Record<string, any>} src
-   */
-  _copyOptionalViewFields(view, src) {
-    if (src.xaxis) view.xaxis = src.xaxis;
-    if (src.yaxis) view.yaxis = src.yaxis;
-    if (src.colors) view.colors = src.colors;
-    if (src.plotOptions) view.plotOptions = src.plotOptions;
-    if (src.fill) view.fill = src.fill;
-    if (src.legend) view.legend = src.legend;
-  }
-  /**
-   * Build an updateOptions/updateSeries payload for drilling INTO a child level.
-   * Works for axis charts and pie/donut alike: both accept series objects with a
-   * `data` array of `{ x, y }` points (pie derives slice labels from `x`).
-   * @param {any} child
-   * @returns {Record<string, any>}
-   */
-  _viewFromChild(child) {
-    const view = {};
-    if (Array.isArray(child.series)) {
-      view.series = child.series;
-    } else {
-      view.series = [{ name: child.name || "", data: child.data }];
-    }
-    const chart = {};
-    if (child.chart && child.chart.type) chart.type = child.chart.type;
-    if (child.chart && child.chart.stacked != null) chart.stacked = child.chart.stacked;
-    if (Object.keys(chart).length) view.chart = chart;
-    this._copyOptionalViewFields(view, child);
-    return view;
-  }
-  /**
-   * Build an updateOptions payload from a restore-snapshot.
-   * @param {Record<string, any>} snap
-   * @returns {Record<string, any>}
-   */
-  _viewFromSnapshot(snap) {
-    const view = { series: snap.series, chart: snap.chart };
-    if (snap.labels && snap.labels.length) view.labels = snap.labels;
-    this._copyOptionalViewFields(view, snap);
-    return view;
-  }
-  /**
-   * Apply a view by delegating to the right update path, firing drill events
-   * around it.
-   * @param {Record<string, any>} view
-   * @param {'down'|'up'} direction
-   * @param {object} meta
-   * @returns {Promise<any>}
-   */
-  _apply(view, direction, meta) {
-    const w = this.w;
-    w.interact.selectedDataPoints = [];
-    w.globals.collapsedSeries = [];
-    w.globals.collapsedSeriesIndices = [];
-    w.globals.ancillaryCollapsedSeries = [];
-    w.globals.ancillaryCollapsedSeriesIndices = [];
-    w.globals.allSeriesCollapsed = false;
-    w.globals.risingSeries = [];
-    view.markers = __spreadProps(__spreadValues({}, view.markers || {}), {
-      discrete: this._drillMarkers(view.series)
-    });
-    const animate = (!w.config.drilldown.animation || w.config.drilldown.animation.enabled !== false) && w.config.chart.animations.enabled !== false;
-    if (direction === "down") this._fire("drillDownStart", meta);
-    const runUpdate = (anim) => this.ctx.updateOptions(view, false, anim, false, false);
-    const done = () => {
-      this._fire(direction === "down" ? "drillDownEnd" : "drillUp", meta);
-      return this.ctx;
-    };
-    if (animate && this._zoomEnabled()) {
-      const origin = this._triggerOrigin(meta);
-      if (origin) {
-        return this._zoomDrill(origin, direction, () => runUpdate(false)).then(done);
-      }
-    }
-    return runUpdate(animate).then(done);
-  }
-  /** @returns {boolean} whether trigger-point zoom is configured on. */
-  _zoomEnabled() {
-    const a = this.w.config.drilldown && this.w.config.drilldown.animation;
-    return !!(a && a.zoomFromPoint);
-  }
-  /** @returns {SVGSVGElement|null} the chart's root <svg> node, if present. */
-  _svgNode() {
-    const paper = this.w.dom && this.w.dom.Paper;
-    return paper && paper.node ? paper.node : null;
-  }
-  /**
-   * The group wrapping ONLY the data marks (bars/cells/tiles) — not the axes,
-   * grid, or titles. Animating this keeps the chart frame still while the marks
-   * move. Covers bar/line/area (`.apexcharts-plot-series`), heatmap, and treemap.
-   * @returns {SVGElement|null}
-   */
-  _markGroup() {
-    const svg = this._svgNode();
-    if (!svg || typeof svg.querySelector !== "function") return null;
-    return svg.querySelector(
-      ".apexcharts-plot-series, .apexcharts-heatmap, .apexcharts-treemap"
-    );
-  }
-  /**
-   * Centre of the clicked point in the SVG's view-box pixel space, used as the
-   * transform-origin for the mark-group scale (which uses `transform-box:
-   * view-box`, so the origin is resolved in SVG coordinates and stays stable
-   * across the parent and child renders). Falls back to the mark group's centre
-   * when there is no trigger point (e.g. drillUp / imperative drill). Returns
-   * null when the marks / SVG / WAAPI are unavailable (SSR / old browsers).
-   * @param {object} meta
-   * @returns {{ x: number, y: number }|null}
-   */
-  _triggerOrigin(meta) {
-    if (!Environment.isBrowser()) return null;
-    const svg = this._svgNode();
-    const group = this._markGroup();
-    if (!svg || !group || typeof group.animate !== "function" || typeof svg.getBoundingClientRect !== "function") {
-      return null;
-    }
-    const svgRect = svg.getBoundingClientRect();
-    let el = null;
-    if (meta && meta.seriesIndex != null && meta.dataPointIndex != null && this.w.dom.baseEl) {
-      el = this.w.dom.baseEl.querySelector(
-        `[index="${meta.seriesIndex}"][j="${meta.dataPointIndex}"]`
-      );
-    }
-    if (el && typeof el.getBoundingClientRect === "function") {
-      const r = el.getBoundingClientRect();
-      return {
-        x: r.left + r.width / 2 - svgRect.left,
-        y: r.top + r.height / 2 - svgRect.top
-      };
-    }
-    const gRect = group.getBoundingClientRect();
-    return {
-      x: gRect.left + gRect.width / 2 - svgRect.left,
-      y: gRect.top + gRect.height / 2 - svgRect.top
-    };
-  }
-  /**
-   * Run the "expand from the clicked point" choreography around an instant
-   * (un-animated) update. Only the data-mark group is animated — the axes, grid,
-   * and titles stay fixed, so the effect doesn't drag the whole chart frame. The
-   * current marks fade out near-in-place (a quick fade, not a balloon), the child
-   * renders invisibly underneath, then the child marks unfold outward from the
-   * clicked point: a horizontal-biased scale anchored there, so the bars read as
-   * emerging from the column you clicked. Drilling up has no trigger column, so
-   * it settles gently from the marks' centre.
-   *
-   * `transform-box: view-box` resolves the origin in SVG coordinates, so the same
-   * origin applies cleanly to the parent and the freshly-rendered child group.
-   * @param {{ x: number, y: number }} origin
-   * @param {'down'|'up'} direction
-   * @param {() => Promise<any>} runUpdate
-   * @returns {Promise<void>}
-   */
-  _zoomDrill(origin, direction, runUpdate) {
-    return __async(this, null, function* () {
-      const dur = this._zoomDuration();
-      const down = direction === "down";
-      const outDur = Math.round(dur * 0.55);
-      const outTo = down ? "scale(1.03)" : "scale(0.97)";
-      const inFrom = down ? "scaleX(0.55) scaleY(0.85)" : "scale(1.04)";
-      const anchor = (el) => {
-        el.style.transformBox = "view-box";
-        el.style.transformOrigin = `${origin.x}px ${origin.y}px`;
-      };
-      const clear = (el) => {
-        el.style.transform = "";
-        el.style.opacity = "";
-        el.style.transformOrigin = "";
-        el.style.transformBox = "";
-      };
-      const outGroup = this._markGroup();
-      let outAnim = null;
-      if (outGroup) {
-        anchor(outGroup);
-        outAnim = outGroup.animate(
-          [
-            { transform: "scale(1)", opacity: 1 },
-            { transform: outTo, opacity: 0 }
-          ],
-          { duration: outDur, easing: "ease-in", fill: "forwards" }
-        );
-        try {
-          yield outAnim.finished;
-        } catch (e) {
-        }
-      }
-      yield runUpdate();
-      const inGroup = this._markGroup();
-      if (inGroup) {
-        anchor(inGroup);
-        inGroup.style.opacity = "0";
-        inGroup.style.transform = inFrom;
-        if (outAnim && outGroup === inGroup) outAnim.cancel();
-        const inAnim = inGroup.animate(
-          [
-            { transform: inFrom, opacity: 0 },
-            { transform: "scale(1)", opacity: 1 }
-          ],
-          // Decelerating ease so the unfold settles softly into place.
-          { duration: dur, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" }
-        );
-        try {
-          yield inAnim.finished;
-        } catch (e) {
-        }
-        clear(inGroup);
-        inAnim.cancel();
-      }
-    });
-  }
-  /** @returns {number} per-phase zoom duration in ms. */
-  _zoomDuration() {
-    const a = this.w.config.drilldown && this.w.config.drilldown.animation;
-    const speed = a && typeof a.speed === "number" ? a.speed : 260;
-    return Math.max(80, speed);
-  }
-  /**
-   * Fire a drill event through both the config callback and the listener registry.
-   * @param {string} name
-   * @param {object} payload
-   */
-  _fire(name, payload) {
-    const cb = this.w.config.chart.events && this.w.config.chart.events[name];
-    if (typeof cb === "function") cb(payload, this.ctx, this.w);
-    this.ctx.events.fireEvent(name, [payload, this.ctx, this.w]);
-  }
-  // ─── Click + post-render hooks ───────────────────────────────────────────────
-  /**
-   * @param {Event} _event
-   * @param {any} _ctx
-   * @param {{ seriesIndex?: number, dataPointIndex?: number }} opts
-   */
-  _onPointSelect(_event, _ctx, opts) {
-    if (!opts) return void 0;
-    const point = this._pointAt(opts.seriesIndex, opts.dataPointIndex);
-    if (point && typeof point === "object" && point.drilldown != null) {
-      return this.drillDown(point.drilldown, point, opts);
-    }
-    if (typeof this.w.config.drilldown.onDrillDown === "function") {
-      return this._drillDownAsync(null, point, opts);
-    }
-    return void 0;
-  }
-  /**
-   * @param {number|undefined} seriesIndex
-   * @param {number|undefined} dataPointIndex
-   * @returns {any|null}
-   */
-  _pointAt(seriesIndex, dataPointIndex) {
-    const series = this.w.config.series;
-    if (!Array.isArray(series) || seriesIndex == null || dataPointIndex == null) {
-      return null;
-    }
-    const s = series[seriesIndex];
-    if (!s || !Array.isArray(s.data)) return null;
-    return s.data[dataPointIndex] != null ? s.data[dataPointIndex] : null;
-  }
-  _afterRender() {
-    const w = this.w;
-    if (!w.config.drilldown || !w.config.drilldown.enabled) return;
-    this._markDrillableTargets();
-    this._wirePlotClick();
-    this.breadcrumb.render(this.path);
-    if (w.config.markers) {
-      w.config.markers.discrete = this._drillMarkers(w.config.series);
-    }
-  }
-  /**
-   * Mark every point that carries a `drilldown` field as an openable target.
-   *
-   * Two things have to be true for a point to be drillable, and on line/area
-   * neither holds by default. It needs a mark to click (with `markers.size: 0`
-   * there is no element at all), and that mark has to accept the click: core
-   * gives line/area markers `no-pointer-events` so the shared tooltip can track
-   * the whole plot, which silently swallows it. `_drillMarkers()` supplies the
-   * missing dots; this re-enables pointer events on them.
-   *
-   * The cursor class only goes on marks that can actually take the click, so we
-   * never promise an interaction that cannot happen.
-   */
-  _markDrillableTargets() {
-    if (!Environment.isBrowser()) return;
-    const w = this.w;
-    const baseEl = w.dom.baseEl;
-    const series = w.config.series;
-    if (!baseEl || !Array.isArray(series)) return;
-    let unreachable = 0;
-    series.forEach((s, i) => {
-      const data = s && Array.isArray(s.data) ? s.data : null;
-      if (!data) return;
-      data.forEach((point, j) => {
-        if (!point || typeof point !== "object" || point.drilldown == null) return;
-        const nodes = baseEl.querySelectorAll(`[index="${i}"][j="${j}"]`);
-        if (!nodes.length) unreachable++;
-        nodes.forEach((node) => {
-          if (this._isClickThroughMark(node)) {
-            node.classList.remove("no-pointer-events");
-          }
-          node.classList.add("apexcharts-drilldown-target");
-        });
-      });
-    });
-    if (unreachable && !this._warnedUnreachable) {
-      this._warnedUnreachable = true;
-      console.warn(
-        `ApexCharts: ${unreachable} drillable point(s) have no clickable mark, so clicking them cannot do anything. Leave \`drilldown.marker\` on, or give the series markers of its own (\`markers.size > 0\`).`
-      );
-    }
-  }
-  /**
-   * Called by Pie when it declines to wire the slice pull-out because this
-   * chart drills. Warned once per chart (a drill re-renders, and the same
-   * notice on every navigation is just noise), and from here rather than from
-   * Pie because this module is the reason it is unavailable.
-   */
-  warnSliceOffsetDisabled() {
-    if (this._warnedNoSliceOffset) return;
-    this._warnedNoSliceOffset = true;
-    console.warn(
-      "ApexCharts: `plotOptions.pie.expandOnClick` is not available in a drilldown pie/donut, so it was ignored. A slice click navigates, and a slice that slid out would be discarded by the drill it just triggered."
-    );
-  }
-  /**
-   * Make the whole band a drillable point owns clickable, not just its dot.
-   *
-   * A dot is ~6px across, so hitting it takes pixel-precise aim, it is far under
-   * the ~44px a finger needs, and the tooltip's arrow points AT the point by
-   * design, which puts a triangle over the very thing you are aiming at. Rather
-   * than move the tooltip, widen the target: a click anywhere in the plot drills
-   * whichever point the tooltip is currently reading. The hit area then matches
-   * the feedback already on screen, so "the tooltip says 2024, I click, I get
-   * 2024" holds, and the dot goes back to being an affordance rather than a
-   * target you have to chase.
-   *
-   * Only for the point-based types, since a bar, slice or tile is already a
-   * comfortably large mark and drilling one by clicking the background near it
-   * would be surprising.
-   */
-  _wirePlotClick() {
-    if (!Environment.isBrowser()) return;
-    const baseEl = this.w.dom.baseEl;
-    if (!baseEl || this._plotClickWired === baseEl) return;
-    if (this._plotClickWired) {
-      this._plotClickWired.removeEventListener("mousedown", this._onPlotDown);
-      this._plotClickWired.removeEventListener("click", this._onPlotClick);
-    }
-    baseEl.addEventListener("mousedown", this._onPlotDown);
-    baseEl.addEventListener("click", this._onPlotClick);
-    this._plotClickWired = baseEl;
-  }
-  /** @param {any} e */
-  _onPlotDown(e) {
-    this._downAt = { x: e.clientX, y: e.clientY };
-  }
-  /**
-   * @param {any} e
-   * @returns {any}
-   */
-  _onPlotClick(e) {
-    const w = this.w;
-    if (!w.config.drilldown || !w.config.drilldown.enabled) return void 0;
-    const down = this._downAt;
-    this._downAt = null;
-    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) {
-      return void 0;
-    }
-    const target = (
-      /** @type {Element} */
-      e.target
-    );
-    if (!target || typeof target.closest !== "function") return void 0;
-    if (target.closest(".apexcharts-drilldown-target")) return void 0;
-    if (target.closest(
-      ".apexcharts-legend, .apexcharts-toolbar, .apexcharts-breadcrumb, .apexcharts-menu, .apexcharts-tooltip"
-    )) {
-      return void 0;
-    }
-    const i = w.interact.capturedSeriesIndex;
-    const j = w.interact.capturedDataPointIndex;
-    if (i == null || j == null || i < 0 || j < 0) return void 0;
-    if (!this._isPointBasedSeries(w.config.series[i])) return void 0;
-    const point = this._pointAt(i, j);
-    if (!point || typeof point !== "object" || point.drilldown == null) {
-      return void 0;
-    }
-    return this.drillDown(point.drilldown, point, {
-      seriesIndex: i,
-      dataPointIndex: j
-    });
-  }
-  /**
-   * A series mark that is deliberately click-through. Restricted to markers
-   * inside the plot: the tooltip draws its own `no-pointer-events` marker, and
-   * that one must stay click-through or it would sit under the cursor and eat
-   * the hover it exists to follow.
-   * @param {Element} node
-   * @returns {boolean}
-   */
-  _isClickThroughMark(node) {
-    if (!node.classList || !node.classList.contains("no-pointer-events")) {
-      return false;
-    }
-    if (!node.classList.contains("apexcharts-marker")) return false;
-    return !(typeof node.closest === "function" && node.closest(".apexcharts-tooltip"));
-  }
-  /**
-   * Discrete-marker entries that give each drillable point a visible dot.
-   *
-   * Only series drawn WITHOUT markers get them, so an author who already shows
-   * markers keeps their styling untouched, and only drillable points get one, so
-   * the dots read as "these are the ones you can open" rather than turning every
-   * point into a dot. Core renders discrete markers even when `markers.size` is
-   * 0, which is what makes the affordance possible without a core change.
-   *
-   * Entries are tagged so a resync replaces ours and leaves the author's alone.
-   * @param {any[]} series - the series being rendered (a drill applies its
-   *   level's series, which are not yet on `w.config` when this runs)
-   * @returns {any[]}
-   */
-  _drillMarkers(series) {
-    const w = this.w;
-    const cfg = w.config.drilldown;
-    const authored = Array.isArray(w.config.markers && w.config.markers.discrete) ? w.config.markers.discrete.filter(
-      (d) => !d || !d[DRILL_MARKER]
-    ) : [];
-    const mk = cfg && cfg.marker || {};
-    if (mk.show === false || !Array.isArray(series)) return authored;
-    const own = [];
-    series.forEach((s, i) => {
-      if (!this._seriesNeedsDrillMarker(i, s)) return;
-      const data = s && Array.isArray(s.data) ? s.data : null;
-      if (!data) return;
-      data.forEach((point, j) => {
-        if (!point || typeof point !== "object" || point.drilldown == null) return;
-        const entry = { seriesIndex: i, dataPointIndex: j, [DRILL_MARKER]: true };
-        if (mk.size !== void 0) entry.size = mk.size;
-        if (mk.shape !== void 0) entry.shape = mk.shape;
-        if (mk.fillColor !== void 0) entry.fillColor = mk.fillColor;
-        if (mk.strokeColor !== void 0) entry.strokeColor = mk.strokeColor;
-        own.push(entry);
-      });
-    });
-    return authored.concat(own);
-  }
-  /**
-   * Whether a series needs drill dots supplied for it: a point-based type whose
-   * marks are the markers, drawn with markers off. Bar, pie, treemap and heatmap
-   * marks are already real clickable elements, and a series that already shows
-   * markers already has its affordance.
-   * @param {number} i @param {any} s
-   * @returns {boolean}
-   */
-  _seriesNeedsDrillMarker(i, s) {
-    if (!this._isPointBasedSeries(s)) return false;
-    const size = this.w.config.markers && this.w.config.markers.size;
-    const effective = Array.isArray(size) ? size[i] : size;
-    return !(Number(effective) > 0);
-  }
-  /**
-   * A series whose marks are markers (a point), rather than a shape big enough
-   * to aim at on its own.
-   * @param {any} s
-   * @returns {boolean}
-   */
-  _isPointBasedSeries(s) {
-    const type = s && s.type || this.w.config.chart.type;
-    return type === "line" || type === "area";
-  }
-}
-_core__default.registerFeatures({ drilldown: Drilldown });
 const REGISTRY_KEY = "__apexcharts_plugins__";
 function getRegistry() {
   const g = (
@@ -9228,7 +8942,162 @@ function getRegistry() {
 function getPlugin(name) {
   return getRegistry()[name] || null;
 }
-const WEAVE_API_VERSION = 1;
+const CLAIMABLE = Object.freeze({
+  "stroke.dashArray": Object.freeze({ type: "number" }),
+  "dataLabels.enabledOnSeries": Object.freeze({ type: "boolean" })
+});
+function store(w) {
+  if (!w.weaveClaims) w.weaveClaims = { byOption: /* @__PURE__ */ new Map() };
+  return w.weaveClaims;
+}
+function claimsFor(w, option) {
+  const s = store(w);
+  if (!s.byOption.has(option)) s.byOption.set(option, []);
+  return s.byOption.get(option);
+}
+function normaliseEntries(option, entries) {
+  const spec = (
+    /** @type {Record<string, {type: string}>} */
+    CLAIMABLE[option]
+  );
+  const out = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || typeof entry.series !== "string" && typeof entry.series !== "number") {
+      console.warn(
+        `[apexcharts] claim on "${option}": each entry needs a series name or index.`
+      );
+      continue;
+    }
+    if (typeof entry.value !== spec.type) {
+      console.warn(
+        `[apexcharts] claim on "${option}": expected a ${spec.type} for series ${String(
+          entry.series
+        )}, got ${typeof entry.value}.`
+      );
+      continue;
+    }
+    out.push({ series: entry.series, value: entry.value });
+  }
+  return out;
+}
+function addClaim(w, owner, option, entries) {
+  if (!Object.prototype.hasOwnProperty.call(CLAIMABLE, option)) {
+    console.warn(
+      `[apexcharts] "${option}" is not a claimable option. Claimable: ${Object.keys(
+        CLAIMABLE
+      ).join(", ")}.`
+    );
+    return null;
+  }
+  const record = { owner, option, entries: normaliseEntries(option, entries) };
+  claimsFor(w, option).push(record);
+  return record;
+}
+function releaseClaim(w, record) {
+  if (!w.weaveClaims || !record) return;
+  const list = w.weaveClaims.byOption.get(record.option);
+  if (!list) return;
+  const at = list.indexOf(record);
+  if (at > -1) list.splice(at, 1);
+}
+function releaseOwner(w, owner) {
+  if (!w.weaveClaims) return;
+  for (const [option, list] of w.weaveClaims.byOption) {
+    const kept = list.filter((c) => c.owner !== owner);
+    if (kept.length !== list.length) w.weaveClaims.byOption.set(option, kept);
+  }
+}
+const ANNOTATION_TYPES = ["xaxis", "yaxis", "points", "texts", "images"];
+function seriesVisible(w, index) {
+  const gl = w.globals;
+  return (gl.collapsedSeriesIndices || []).indexOf(index) < 0 && (gl.ancillaryCollapsedSeriesIndices || []).indexOf(index) < 0;
+}
+function seriesItems(w, host) {
+  const derived = host && host._derived;
+  const ownerOf = (name) => {
+    if (!derived) return "core";
+    for (const [plugin, names] of derived) {
+      if (names.indexOf(name) > -1) return plugin;
+    }
+    return "core";
+  };
+  return (w.config.series || []).map((s, i) => {
+    const label = s && s.name ? String(s.name) : `Series ${i + 1}`;
+    return {
+      id: `series:${i}`,
+      kind: (
+        /** @type {const} */
+        "series"
+      ),
+      label,
+      owner: ownerOf(label),
+      visible: seriesVisible(w, i)
+    };
+  });
+}
+function annotationItems(w) {
+  const config = w.config.annotations || {};
+  const out = [];
+  for (const type of ANNOTATION_TYPES) {
+    const list = Array.isArray(config[type]) ? config[type] : [];
+    list.forEach((anno, i) => {
+      if (!anno) return;
+      out.push({
+        // An annotation carries an id only when someone gave it one, so the
+        // synthesised form is what most config-declared annotations get. It is
+        // stable for as long as the list is, which is what a reader needs.
+        id: anno.id ? String(anno.id) : `annotation:${type}:${i}`,
+        kind: (
+          /** @type {const} */
+          "annotation"
+        ),
+        label: labelOfAnnotation(anno, type, i),
+        owner: anno.owner ? String(anno.owner) : "core",
+        // An annotation is drawn whenever it is in the config: there is no
+        // hidden state for one, unlike a series.
+        visible: true
+      });
+    });
+  }
+  return out;
+}
+function labelOfAnnotation(anno, type, i) {
+  const text = anno.label && anno.label.text;
+  if (text) return String(text);
+  if (anno.text) return String(anno.text);
+  if (anno.id) return String(anno.id);
+  return `${type} annotation ${i + 1}`;
+}
+function collectDrawn(w, host) {
+  const declared = [];
+  if (host && host._declared) {
+    for (const [plugin, items] of host._declared) {
+      for (const item of items) {
+        declared.push({
+          id: `overlay:${plugin}:${item.id}`,
+          kind: (
+            /** @type {const} */
+            "overlay"
+          ),
+          label: item.label,
+          owner: plugin,
+          visible: item.visible !== false
+        });
+      }
+    }
+  }
+  return [...seriesItems(w, host), ...annotationItems(w), ...declared];
+}
+const WEAVE_API_VERSION = 6;
+const WEAVE_CAPABILITIES = Object.freeze([
+  "layer",
+  "derived",
+  "reserve",
+  "pointer",
+  "stroke-info",
+  "claim",
+  "drawn"
+]);
 const PLUGIN_CHART_METHODS = [
   "updateOptions",
   "updateSeries",
@@ -9255,7 +9124,7 @@ function buildBoundPublicMethods(ctx) {
   });
   return Object.freeze(out);
 }
-function makeLayerHandle(g, graphics) {
+function makeLayerHandle(g, graphics, onClear) {
   const add = (el) => {
     if (el) g.add(el);
     return el;
@@ -9296,7 +9165,7 @@ function makeLayerHandle(g, graphics) {
     /** @param {any} opts */
     rect(opts = {}) {
       const {
-        x = 0,
+        x: x2 = 0,
         y = 0,
         w = 0,
         h = 0,
@@ -9307,7 +9176,7 @@ function makeLayerHandle(g, graphics) {
       } = opts;
       return add(
         graphics.drawRect(
-          x,
+          x2,
           y,
           w,
           h,
@@ -9329,7 +9198,7 @@ function makeLayerHandle(g, graphics) {
     /** @param {any} opts */
     text(opts = {}) {
       const {
-        x = 0,
+        x: x2 = 0,
         y = 0,
         text = "",
         color,
@@ -9339,7 +9208,7 @@ function makeLayerHandle(g, graphics) {
       } = opts;
       return add(
         graphics.drawText({
-          x,
+          x: x2,
           y,
           text,
           textAnchor: anchor,
@@ -9352,6 +9221,7 @@ function makeLayerHandle(g, graphics) {
     clear() {
       const node = g.node;
       while (node.firstChild) node.removeChild(node.firstChild);
+      if (onClear) onClear();
       return handle;
     }
   };
@@ -9431,6 +9301,238 @@ function buildPluginAPI(host, record) {
     }),
     // ── curated actions (bound public methods only; NEVER raw w) ──
     chart: buildBoundPublicMethods(ctx),
+    // ── chart shape (v2) ──
+    // What kind of chart this is, for a plugin that has to decide whether it
+    // applies at all. An analysis or derived-series plugin cannot work on every
+    // type, and the alternative to asking is adding a series and letting the
+    // core warn at the user.
+    get info() {
+      return Object.freeze({
+        // The type the caller ASKED for: `requestedType` survives the aliasing
+        // that rewrites e.g. raincloud to violin.
+        type: String(
+          w.config.chart && (w.config.chart.requestedType || w.config.chart.type) || "line"
+        ),
+        // false for pie / donut / radialBar, where `data` is one value per slice.
+        axisChart: w.globals.axisCharts === true,
+        datetimeX: !!(w.config.xaxis && w.config.xaxis.type === "datetime"),
+        // The core refuses to draw a horizontal bar in a combo, so a plugin must
+        // not add a derived series to one.
+        horizontalBars: !!(w.config.plotOptions && w.config.plotOptions.bar && w.config.plotOptions.bar.horizontal),
+        // Whether the chart prints a value on each point, and which series it
+        // prints them for. A plugin that ADDS a series needs both: there is no
+        // per-series dataLabels flag, so `dataLabels.enabledOnSeries` is the
+        // only way to keep labels off a computed series, and narrowing it
+        // without knowing the caller's own value would silently discard it.
+        dataLabels: Object.freeze({
+          enabled: !!(w.config.dataLabels && w.config.dataLabels.enabled),
+          enabledOnSeries: Array.isArray(
+            w.config.dataLabels && w.config.dataLabels.enabledOnSeries
+          ) ? w.config.dataLabels.enabledOnSeries.slice() : null
+        }),
+        // The caller's own dashing, reported for the same reason and against
+        // the same trap (v5). `stroke.dashArray` is indexed by series position
+        // with no per-series escape hatch, so a plugin that wants ITS OWN
+        // computed series dashed has to write the whole array, and writing one
+        // without knowing what was there discards the caller's dashed lines
+        // with nothing to restore them from.
+        //
+        // A scalar applies to every series and an array is per series. There is
+        // no "unset" to report: the option defaults to 0, and 0 already means
+        // no dashing, so restoring it restores exactly what was there.
+        stroke: Object.freeze({
+          dashArray: Array.isArray(w.config.stroke && w.config.stroke.dashArray) ? w.config.stroke.dashArray.slice() : w.config.stroke && w.config.stroke.dashArray || 0
+        }),
+        // What the chart calls itself, where the caller titled it (v6).
+        //
+        // For a plugin that has to NAME this chart to somebody: a page-level
+        // readout listing several charts otherwise has only the container's id
+        // to head each row with, which is a string written for a stylesheet.
+        // The title is the name the page already chose and put on screen.
+        //
+        // Empty string rather than undefined for an untitled chart, so a
+        // caller can use it directly in a template; falsy either way.
+        title: String(w.config.title && w.config.title.text || "")
+      });
+    },
+    // Display labels per x position (v2).
+    //
+    // Resolved config-first on purpose. `globals.categoryLabels` and
+    // `globals.labels` are populated after a mount and EMPTY after an
+    // updateSeries(), so a plugin reading either directly would render real
+    // labels on first paint and ordinals after any update.
+    get categories() {
+      return host._categories();
+    },
+    /**
+     * Declare which series on this chart belong to the plugin rather than to
+     * the caller (v2).
+     *
+     * A plugin that adds computed series has to say so, because the core cannot
+     * tell them apart and several behaviours depend on the distinction. Today
+     * the host uses it to keep them out of the initial-series snapshot, so
+     * `resetSeries()` and the toolbar's reset restore the caller's own data
+     * instead of the plugin's output.
+     *
+     * Idempotent; pass an empty array when the plugin's series are gone.
+     *
+     * @param {string[]} names series names the plugin owns
+     */
+    markDerived(names) {
+      host._markDerived(record.def.name, names);
+      return api;
+    },
+    /**
+     * Reserve space inside the chart's container for the plugin's own UI (v3).
+     *
+     * A plugin that renders HTML beside the chart (a docked panel, a toolbar of
+     * its own) cannot make room for it. The chart sizes itself from the element
+     * the caller handed it, so a sibling inserted into that element does not
+     * narrow the chart: the chart is drawn at full width underneath. Every
+     * route a plugin has to fix that on its own is worse. Writing `chart.width`
+     * means owning config the caller owns and losing it on their next
+     * `updateOptions`. Positioning the UI absolutely over the chart means
+     * guessing a size it cannot know, and being clipped by any ancestor with
+     * `overflow: hidden`. Narrowing the container means writing to the caller's
+     * own element and changing the page's layout around it.
+     *
+     * So the host does the arithmetic, in the one place that already does it.
+     * The container keeps its size; the chart draws inside what is left.
+     *
+     * Reservations are per plugin and summed, so two plugins each asking for a
+     * right-hand gutter get one each instead of overlapping. Call it again to
+     * change the amount, and pass `null` (or all zeros) to give the space back.
+     * Nothing happens when the box is unchanged, so calling it on every render
+     * with the same numbers is free.
+     *
+     * The total is clamped so the chart keeps at least half the container on
+     * each axis: a plugin may not reduce the chart it is annotating to nothing.
+     * A plugin whose UI needs more room than that should render below the chart
+     * instead, which it can do without asking.
+     *
+     * Changing a reservation re-renders the chart, one task later so that
+     * calling it from inside a draw handler cannot re-enter the render.
+     *
+     * @param {{left?: number, right?: number, top?: number, bottom?: number}|null} [box]
+     */
+    reserve(box) {
+      host._reserve(record.def.name, box);
+      return api;
+    },
+    /**
+     * Set a positional option for your own series, without writing the
+     * caller's config.
+     *
+     * Some options are indexed by series position with no per-series escape
+     * hatch, so setting one for a single series has always meant writing the
+     * array that covers all of them, then putting the caller's value back. A
+     * claim says what this plugin wants instead, and the host answers with it
+     * where the option is READ. Nothing is written, so releasing is a deletion
+     * rather than a restore, and a caller's own `updateOptions` composes with
+     * the claim instead of being reverted by it.
+     *
+     *     const claim = api.claim('stroke.dashArray', [
+     *       { series: 'Revenue (forecast)', value: 6 },
+     *     ])
+     *     claim.release()
+     *
+     * Name the series rather than its position where you can: a name is
+     * resolved each time the option is read, so the claim follows the series
+     * through the caller adding, removing or reordering others.
+     *
+     * Claimable options are an allowlist (see `CLAIMABLE`). An option that is
+     * not on it returns null rather than throwing, so a plugin written against
+     * a newer host degrades. Every claim is released on teardown, on destroy,
+     * and if the host disables this plugin after repeated failures.
+     *
+     * @param {string} option
+     * @param {Array<{series: string|number, value: any}>} entries
+     * @returns {{release: () => void, update: (entries: Array<{series: string|number, value: any}>) => void}|null}
+     * @since Weave v6
+     */
+    claim(option, entries) {
+      const claim = addClaim(w, record.def.name, option, entries);
+      if (!claim) return null;
+      return Object.freeze({
+        release() {
+          releaseClaim(w, claim);
+        },
+        update(next) {
+          claim.entries = normaliseEntries(option, next);
+        }
+      });
+    },
+    /**
+     * Everything drawn on this chart, including what other features drew.
+     *
+     * The chart's series, the caller's annotations (ink strokes among them,
+     * since an ink stroke is an annotation), and whatever plugins have
+     * declared. Each entry names its `owner`, because the list is only as
+     * complete as the features that opted into it: a reader can say what it
+     * covers instead of assuming it is everything.
+     *
+     * Read only. Removing or hiding another feature's output is a much larger
+     * promise than this platform makes, and is deliberately not here.
+     *
+     * Rebuilt per call: it is a projection of live state, and a remembered
+     * inventory is a list of what WAS drawn.
+     *
+     * @returns {ReadonlyArray<{id: string, kind: 'series'|'annotation'|'overlay', label: string, owner: string, visible: boolean}>}
+     * @since Weave v6
+     */
+    drawn() {
+      return Object.freeze(collectDrawn(w, host).map((i) => Object.freeze(i)));
+    },
+    /**
+     * Say what this plugin has drawn, so it appears in `api.drawn()`.
+     *
+     * Declare from your draw handler, on the same terms as the drawing itself:
+     * declarations are cleared with the layers at the start of every draw, so
+     * an inventory cannot outlive what it describes. Declaring the same id
+     * twice replaces it rather than adding a second row.
+     *
+     * @param {{id: string, label?: string, visible?: boolean}} item
+     * @since Weave v6
+     */
+    declare(item) {
+      host._declare(record.def.name, item);
+      return api;
+    },
+    /**
+     * Subscribe to the data point a viewer is pointing at.
+     *
+     * The chart already knows this: it resolves the series and point under the
+     * pointer for its own tooltip and fires `dataPointMouseEnter`,
+     * `dataPointMouseLeave` and `dataPointSelection` for the caller. This
+     * forwards the same three, so a plugin gets the host's answer rather than
+     * hit-testing the SVG itself and disagreeing with the tooltip.
+     *
+     * The payload is normalised rather than the chart's own argument list,
+     * which passes `w`. A plugin must not receive `w`, and the three things a
+     * plugin actually wants (which series, which point, what the point is
+     * called) are exactly what the chart has already resolved.
+     *
+     * `category` is the resolved display label, the same string `api.categories`
+     * carries, because a plugin coordinating two charts keys on the label
+     * rather than on an index that means something different on each chart.
+     *
+     * Nothing here gives a plugin the ability to intercept or cancel: the
+     * chart's own tooltip, selection state and caller events are unaffected,
+     * and a handler that throws is contained rather than allowed to break the
+     * interaction it was watching.
+     *
+     * `modifiers` (v6) reports the keys held during the interaction, for the
+     * gestures that need them: shift-click to add to a selection is the one
+     * page-level coordination wants. All four are false when the interaction
+     * came from somewhere with no DOM event, such as the keyboard.
+     *
+     * @param {(e: {type: 'enter'|'leave'|'select', seriesIndex: number, dataPointIndex: number, category: string|undefined, seriesName: string|undefined, selected: boolean|undefined, modifiers: {shift: boolean, ctrl: boolean, alt: boolean, meta: boolean}}) => void} fn
+     * @returns {() => void} unsubscribe
+     * @since Weave v4
+     */
+    pointer(fn) {
+      return host._onPointer(record.def.name, fn);
+    },
     // ── custom events out to the host app ──
     /**
      * Fires as `plugin:<pluginName>:<name>` on the chart's event bus. The
@@ -9449,9 +9551,30 @@ function buildPluginAPI(host, record) {
       return w.dom.baseEl;
     }
   };
+  const probes = (
+    /** @type {Record<string, (a: any) => boolean>} */
+    WIRED
+  );
+  const granted = WEAVE_CAPABILITIES.filter((name) => probes[name](api));
+  const grantedSet = new Set(granted);
+  const extras = (
+    /** @type {any} */
+    api
+  );
+  extras.capabilities = Object.freeze(granted);
+  extras.can = (name) => grantedSet.has(name);
   return Object.freeze(api);
 }
-class WeaveHost {
+const WIRED = {
+  layer: (a) => typeof a.layer === "function",
+  derived: (a) => typeof a.markDerived === "function",
+  reserve: (a) => typeof a.reserve === "function",
+  pointer: (a) => typeof a.pointer === "function",
+  "stroke-info": (a) => !!(a.info && a.info.stroke),
+  claim: (a) => typeof a.claim === "function",
+  drawn: (a) => typeof a.drawn === "function" && typeof a.declare === "function"
+};
+const _WeaveHost = class _WeaveHost {
   /**
    * @param {import('../../types/internal').ChartStateW} w
    * @param {import('../../types/internal').ChartContext} ctx
@@ -9465,6 +9588,12 @@ class WeaveHost {
     this._lastPluginsRef = null;
     this._lastData = null;
     this._updatedWired = false;
+    this._derived = null;
+    this._reserved = null;
+    this._reserveTimer = null;
+    this._pointerSubs = null;
+    this._declared = null;
+    this._pointerWired = null;
     this._onUpdated = this._onUpdated.bind(this);
     this._init();
   }
@@ -9483,6 +9612,7 @@ class WeaveHost {
     this._updatedWired = true;
   }
   _onUpdated() {
+    this._repairInitialSeries();
     this.dispatch("afterUpdate", { pass: "update" });
   }
   /**
@@ -9494,10 +9624,10 @@ class WeaveHost {
       console.error(`[apexcharts] plugin "${entry.name}" is not registered.`);
       return;
     }
-    const v = def.apiVersion != null ? def.apiVersion : 1;
-    if (Math.trunc(v) !== WEAVE_API_VERSION) {
+    const v = def.apiVersion != null ? Math.trunc(def.apiVersion) : 1;
+    if (!(v >= 1) || v > WEAVE_API_VERSION) {
       console.error(
-        `[apexcharts] plugin "${def.name}" targets Weave API v${v}, host is v${WEAVE_API_VERSION}; skipped.`
+        `[apexcharts] plugin "${def.name}" targets Weave API v${def.apiVersion}, host is v${WEAVE_API_VERSION}; skipped.`
       );
       return;
     }
@@ -9568,6 +9698,7 @@ class WeaveHost {
       record.failures = (record.failures || 0) + 1;
       if (record.failures >= 3) {
         record.disabled = true;
+        releaseOwner(this.w, record.def.name);
         console.error(
           `[apexcharts] plugin "${record.def.name}" disabled after repeated errors.`
         );
@@ -9578,12 +9709,20 @@ class WeaveHost {
   /**
    * Build api.scales from the SAME xyRatios the series were drawn with, so
    * plugin pixels align with series pixels by construction.
+   *
+   * The pixels are LAYER-LOCAL: the plugin layer `<g>` lives inside
+   * elGraphical, which already carries translate(translateX, translateY), so
+   * the domain edges map to 0 and gridWidth/gridHeight here, exactly like the
+   * positions the series hand to drawMarker. These scales used to add the
+   * layout translate as well, which shifted everything a plugin drew by
+   * exactly the grid offset; a consumer of the old behaviour can rebase by
+   * subtracting x(domainX[0]) and y(domainY(axis)[1]), which is a no-op now.
    * @param {any} xyRatios
    */
   _setScales(xyRatios) {
     const w = this.w;
     const gl = w.globals;
-    const L = w.layout;
+    const L2 = w.layout;
     if (!xyRatios || !gl.axisCharts) {
       this._currentScales = null;
       return;
@@ -9593,19 +9732,20 @@ class WeaveHost {
     const yr = (axis) => yRatio[axis] != null ? yRatio[axis] : yRatio[0];
     const maxY = (axis) => gl.maxYArr[axis] != null ? gl.maxYArr[axis] : gl.maxY;
     const minY = (axis) => gl.minYArr[axis] != null ? gl.minYArr[axis] : gl.minY;
+    const banded = !w.axisFlags.isXNumeric && !gl.isBarHorizontal && gl.dataPoints > 0;
+    const band = banded ? L2.gridWidth / gl.dataPoints : 0;
     this._currentScales = {
-      /** @param {number} v */
-      x: (v) => L.translateX + (v - gl.minX) / xRatio,
+      x: banded ? (v) => band * (v + 0.5) : (v) => (v - gl.minX) / xRatio,
       /**
        * @param {number} v
        * @param {number} [axis]
        */
-      y: (v, axis = 0) => L.translateY + (maxY(axis) - v) / yr(axis),
-      domainX: [gl.minX, gl.maxX],
+      y: (v, axis = 0) => (maxY(axis) - v) / yr(axis),
+      domainX: banded ? [-0.5, gl.dataPoints - 0.5] : [gl.minX, gl.maxX],
       /** @param {number} [axis] */
       domainY: (axis = 0) => [minY(axis), maxY(axis)],
-      gridWidth: L.gridWidth,
-      gridHeight: L.gridHeight,
+      gridWidth: L2.gridWidth,
+      gridHeight: L2.gridHeight,
       ratios: xyRatios
     };
   }
@@ -9618,19 +9758,355 @@ class WeaveHost {
     const gl = w.globals;
     const series = w.seriesData.series || [];
     const seriesX = w.seriesData.seriesX || [];
+    const cfgSeries = Array.isArray(w.config.series) ? w.config.series : [];
     return series.map((sData, i) => {
+      const row = Array.isArray(sData) ? sData : [sData];
       const xs = seriesX[i] || [];
-      const points = (sData || []).map((y, j) => ({
+      const points = row.map((y, j) => ({
         x: xs[j] != null ? xs[j] : j,
         y
       }));
+      const cfg = cfgSeries[i];
+      const raw = cfg && typeof cfg === "object" && Array.isArray(cfg.data) ? cfg.data : [];
       return {
         name: gl.seriesNames ? gl.seriesNames[i] : void 0,
         hidden: (gl.collapsedSeriesIndices || []).includes(i),
         color: gl.colors ? gl.colors[i] : void 0,
-        points
+        points,
+        raw
       };
     });
+  }
+  /**
+   * Display labels per x position, resolved so they survive every render path.
+   *
+   * `config.xaxis.categories` leads because it is the caller's own input;
+   * `globals.categoryLabels` covers labels that came from string-x data, and
+   * `globals.labels` is the last resort. Both globals are populated after a
+   * mount and empty after an updateSeries(), so a consumer reading either alone
+   * gets real labels on first paint and ordinals afterwards.
+   *
+   * @returns {string[]}
+   */
+  _categories() {
+    const w = this.w;
+    const gl = w.globals;
+    const cfgCats = w.config.xaxis && Array.isArray(w.config.xaxis.categories) ? w.config.xaxis.categories : [];
+    const glCats = Array.isArray(gl.categoryLabels) ? gl.categoryLabels : [];
+    const glLabels = Array.isArray(gl.labels) ? gl.labels : [];
+    const src = cfgCats.length ? cfgCats : glCats.length ? glCats : glLabels;
+    const series = w.seriesData.series || [];
+    let length = 0;
+    for (let i = 0; i < series.length; i++) {
+      const row = series[i];
+      if (Array.isArray(row) && row.length > length) length = row.length;
+    }
+    if (!length) length = src.length;
+    const out = [];
+    for (let i = 0; i < length; i++) {
+      const v = src[i];
+      out.push(v === void 0 || v === null ? String(i + 1) : String(v));
+    }
+    return out;
+  }
+  /**
+   * Record the series a plugin owns, and repair the initial-series snapshot.
+   *
+   * `Data.parseData()` assigns `globals.initialSeries` on every parse
+   * unconditionally, so `updateSeries(..., overwriteInitialSeries: false)` does
+   * NOT keep a plugin's computed series out of it. That assignment is
+   * deliberate (it is what keeps resetSeries() correct for the reducer,
+   * histogram, dumbbell, streamgraph, waterfall and treemap raw-series paths),
+   * so the fix is to put the caller's own series back afterwards rather than to
+   * make the assignment conditional.
+   *
+   * Without this, a plugin that adds a computed series poisons resetSeries():
+   * pressing the toolbar's reset hands the user the plugin's output as if it
+   * were their own data, and it survives switching the plugin off.
+   *
+   * @param {string} pluginName
+   * @param {string[]} names
+   */
+  _markDerived(pluginName, names) {
+    if (!this._derived) this._derived = /* @__PURE__ */ new Map();
+    const list = Array.isArray(names) ? names.map((n) => String(n)) : [];
+    if (list.length) {
+      this._derived.set(pluginName, list);
+    } else {
+      this._derived.delete(pluginName);
+    }
+    this._repairInitialSeries();
+  }
+  /**
+   * Subscribe a plugin to the data point the viewer is pointing at.
+   *
+   * Wired lazily: a chart whose plugins never ask pays nothing, and the chart
+   * fires these three events whether or not anyone is listening, so there is no
+   * cost to the chart either way.
+   *
+   * The chart's own handler signature is `(e, ctx, {seriesIndex,
+   * dataPointIndex, w})`. `w` stops here: what reaches a plugin is the
+   * normalised payload documented on `api.pointer`.
+   *
+   * @param {string} pluginName
+   * @param {Function} fn
+   * @returns {() => void} unsubscribe
+   */
+  _onPointer(pluginName, fn) {
+    if (typeof fn !== "function") return () => {
+    };
+    if (!this._pointerSubs) this._pointerSubs = /* @__PURE__ */ new Map();
+    const list = this._pointerSubs.get(pluginName) || [];
+    list.push(fn);
+    this._pointerSubs.set(pluginName, list);
+    this._wirePointer();
+    return () => {
+      const current = this._pointerSubs && this._pointerSubs.get(pluginName);
+      if (!current) return;
+      const i = current.indexOf(fn);
+      if (i > -1) current.splice(i, 1);
+    };
+  }
+  /** Attach to the chart's own data point events, once. */
+  _wirePointer() {
+    if (this._pointerWired) return;
+    if (!this.ctx || typeof this.ctx.addEventListener !== "function") return;
+    const map = [
+      ["enter", "dataPointMouseEnter"],
+      ["leave", "dataPointMouseLeave"],
+      ["select", "dataPointSelection"]
+    ];
+    this._pointerWired = [];
+    for (const [type, name] of map) {
+      const handler = (e, _ctx, opts) => {
+        this._emitPointer(type, opts, e);
+      };
+      this.ctx.addEventListener(name, handler);
+      this._pointerWired.push([name, handler]);
+    }
+  }
+  /**
+   * Hand one pointer event to every subscribed plugin.
+   *
+   * A handler that throws is contained per plugin, on the same terms as every
+   * other plugin callback here: this runs inside the viewer's own hover, and a
+   * plugin breaking the chart's interaction would be the worst failure mode
+   * this facade has.
+   *
+   * @param {'enter'|'leave'|'select'} type
+   * @param {any} opts
+   * @param {any} [e] the DOM event, where the interaction came from one
+   */
+  _emitPointer(type, opts, e) {
+    if (!this._pointerSubs || !this._pointerSubs.size) return;
+    const seriesIndex = opts && typeof opts.seriesIndex === "number" ? opts.seriesIndex : -1;
+    const dataPointIndex = opts && typeof opts.dataPointIndex === "number" ? opts.dataPointIndex : -1;
+    const labels = this._categories() || [];
+    const w = this.w;
+    const config = w && w.config && w.config.series || [];
+    const payload = {
+      type,
+      seriesIndex,
+      dataPointIndex,
+      category: dataPointIndex > -1 ? labels[dataPointIndex] : void 0,
+      // A pie/donut carries bare numbers in `series`, so there is no name to
+      // read: undefined rather than a guess, on the same terms as `category`.
+      seriesName: _WeaveHost._seriesName(config, seriesIndex),
+      // Only meaningful on a select: the chart hands back its whole selection
+      // set, and what a plugin wants to know is whether THIS point is now in
+      // it, so a second click reads as a deselect rather than another select.
+      selected: type === "select" ? _WeaveHost._isSelected(opts, seriesIndex, dataPointIndex) : void 0,
+      // The modifier keys held during the interaction (v6), for the gestures
+      // that need them: shift-click to add to a selection is the one page mode
+      // wants, and a plugin cannot invent it from anything else here.
+      //
+      // All false when the interaction came from somewhere with no DOM event
+      // (the keyboard, a programmatic selection), which is the honest answer:
+      // no key was held.
+      modifiers: _WeaveHost._modifiers(e)
+    };
+    for (const [name, handlers] of this._pointerSubs) {
+      for (const fn of handlers.slice()) {
+        try {
+          fn(payload);
+        } catch (e2) {
+          console.warn(
+            '[apexcharts] plugin "' + name + '" threw in a pointer handler',
+            e2
+          );
+        }
+      }
+    }
+  }
+  /**
+   * The configured name of series `i`, where there is one.
+   *
+   * @param {any[]} config
+   * @param {number} i
+   * @returns {string|undefined}
+   */
+  static _seriesName(config, i) {
+    if (i < 0) return void 0;
+    const entry = config[i];
+    if (!entry || typeof entry !== "object") return void 0;
+    return typeof entry.name === "string" ? entry.name : void 0;
+  }
+  /**
+   * Whether the chart now counts this point as selected.
+   *
+   * `selectedDataPoints` is an array per series of the indexes selected in it.
+   * Absent on a chart type that does not carry point selection, in which case
+   * the answer is undefined rather than false: "not selected" and "selection
+   * does not apply here" are different, and a plugin keying on it should be
+   * able to tell.
+   *
+   * @param {any} opts
+   * @param {number} seriesIndex
+   * @param {number} dataPointIndex
+   * @returns {boolean|undefined}
+   */
+  static _isSelected(opts, seriesIndex, dataPointIndex) {
+    const all = opts && opts.selectedDataPoints;
+    if (!Array.isArray(all) || seriesIndex < 0) return void 0;
+    const mine = all[seriesIndex];
+    if (!Array.isArray(mine)) return false;
+    return mine.indexOf(dataPointIndex) > -1;
+  }
+  /**
+   * Which modifier keys were held, read off the DOM event.
+   *
+   * Always the same four booleans, never undefined and never a partial object:
+   * a plugin writes `if (e.modifiers.shift)` without a guard, and a shape that
+   * sometimes lacks a key is how that becomes a crash inside a viewer's click.
+   *
+   * @param {any} e
+   */
+  static _modifiers(e) {
+    return Object.freeze({
+      shift: !!(e && e.shiftKey),
+      ctrl: !!(e && e.ctrlKey),
+      alt: !!(e && e.altKey),
+      meta: !!(e && e.metaKey)
+    });
+  }
+  /**
+   * Record a plugin's container reservation and re-render if it changed.
+   *
+   * See `api.reserve` in PluginAPI for why this lives in the host rather than
+   * in the plugin. Reservations are kept here rather than on `globals` on
+   * purpose: the host instance survives updates, so a plugin reserves once
+   * instead of re-reserving on every render, and the whole thing dies with the
+   * chart.
+   *
+   * @param {string} pluginName
+   * @param {{left?: number, right?: number, top?: number, bottom?: number}|null} [box]
+   */
+  _reserve(pluginName, box) {
+    const next = _WeaveHost._normaliseBox(box);
+    const prev = this._reserved ? this._reserved.get(pluginName) : void 0;
+    if (!next) {
+      if (!prev || !this._reserved) return;
+      this._reserved.delete(pluginName);
+    } else {
+      if (prev && prev.left === next.left && prev.right === next.right && prev.top === next.top && prev.bottom === next.bottom) {
+        return;
+      }
+      if (!this._reserved) this._reserved = /* @__PURE__ */ new Map();
+      this._reserved.set(pluginName, next);
+    }
+    this._resizeForReservation();
+  }
+  /**
+   * A box of four non-negative finite pixel counts, or null for "nothing".
+   *
+   * Anything unusable is dropped to 0 rather than throwing: this is called from
+   * out-of-tree code, and a NaN reaching `svgWidth` makes the chart disappear
+   * with no error to trace it back from.
+   *
+   * @param {any} box
+   */
+  static _normaliseBox(box) {
+    if (!box || typeof box !== "object") return null;
+    const px = (v) => Number.isFinite(v) && v > 0 ? Math.round(v) : 0;
+    const out = {
+      left: px(box.left),
+      right: px(box.right),
+      top: px(box.top),
+      bottom: px(box.bottom)
+    };
+    return out.left || out.right || out.top || out.bottom ? out : null;
+  }
+  /**
+   * The space every plugin has reserved, summed. Read by Core on each render.
+   *
+   * Returns the shared zero box when nothing is reserved, which is the case on
+   * effectively every chart, so the common path allocates nothing.
+   */
+  reservedBox() {
+    if (!this._reserved || this._reserved.size === 0) return _WeaveHost.NO_RESERVATION;
+    const out = { left: 0, right: 0, top: 0, bottom: 0 };
+    for (const b of this._reserved.values()) {
+      out.left += b.left;
+      out.right += b.right;
+      out.top += b.top;
+      out.bottom += b.bottom;
+    }
+    return out;
+  }
+  /**
+   * Re-render at the new drawing box.
+   *
+   * Deferred by a task rather than run inline. `reserve()` is normally called
+   * from a click handler in the plugin's own UI, where an inline re-render
+   * would be fine, but nothing stops a `draw` handler from calling it, and
+   * re-entering a render from inside one is how a plugin takes the chart down.
+   * One task later, whatever dispatch was in flight has finished.
+   *
+   * Coalesced, so a plugin toggling several reservations in one turn costs one
+   * render.
+   */
+  _resizeForReservation() {
+    if (this._reserveTimer != null) return;
+    this._reserveTimer = setTimeout(() => {
+      this._reserveTimer = null;
+      const gl = this.w.globals;
+      if (gl.isDestroyed) return;
+      gl.resized = true;
+      gl.dataChanged = false;
+      try {
+        this.ctx.update();
+      } catch (e) {
+      }
+    }, 0);
+  }
+  /** All series names currently claimed by plugins. */
+  _derivedNames() {
+    const out = /* @__PURE__ */ new Set();
+    if (!this._derived) return out;
+    for (const list of this._derived.values()) {
+      for (const n of list) out.add(n);
+    }
+    return out;
+  }
+  _repairInitialSeries() {
+    const drop = this._derivedNames();
+    if (!drop.size) return;
+    const w = this.w;
+    const series = (
+      /** @type {any[]} */
+      Array.isArray(w.config.series) ? w.config.series : []
+    );
+    const own = series.filter(
+      (s) => !drop.has(String(s && s.name))
+    );
+    if (!own.length) return;
+    try {
+      w.globals.initialSeries = own;
+      if (w.globals.initialConfig && Array.isArray(w.globals.initialConfig.series)) {
+        w.globals.initialConfig.series = own;
+      }
+    } catch (e) {
+    }
   }
   // ─── Theme tokens ───────────────────────────────────────────────────────
   /**
@@ -9672,7 +10148,19 @@ class WeaveHost {
       g.node.setAttribute("aria-hidden", "true");
       this._layers.set(name, g);
     }
-    return makeLayerHandle(g, this.ctx.graphics);
+    return makeLayerHandle(g, this.ctx.graphics, () => this._undeclare(name));
+  }
+  /**
+   * Forget what one plugin declared it drew.
+   *
+   * Called when that plugin empties its layer, which is it saying it is drawing
+   * nothing. Scoped to the one plugin: another's declarations are none of its
+   * business, and its own next draw declares again.
+   *
+   * @param {string} name plugin
+   */
+  _undeclare(name) {
+    if (this._declared) this._declared.delete(name);
   }
   /**
    * Remove all plugin layers. Run at the start of every `draw` because
@@ -9687,6 +10175,35 @@ class WeaveHost {
       Array.prototype.forEach.call(groups, (n) => n.remove());
     }
     this._layers.clear();
+    this._declared = null;
+  }
+  /**
+   * Record one thing a plugin has drawn, for `api.drawn()`.
+   *
+   * Replaced by id rather than appended, so a plugin declaring the same overlay
+   * on every draw (which is the pattern this expects) produces one entry.
+   *
+   * @param {string} name plugin
+   * @param {{id: string, label?: string, visible?: boolean}} item
+   */
+  _declare(name, item) {
+    if (!item || typeof item.id !== "string" || !item.id) {
+      console.warn(
+        `[apexcharts] plugin "${name}" declared something with no id; ignored.`
+      );
+      return;
+    }
+    if (!this._declared) this._declared = /* @__PURE__ */ new Map();
+    const mine = this._declared.get(name) || [];
+    const entry = {
+      id: item.id,
+      label: item.label ? String(item.label) : item.id,
+      visible: item.visible !== false
+    };
+    const at = mine.findIndex((d) => d.id === entry.id);
+    if (at > -1) mine[at] = entry;
+    else mine.push(entry);
+    this._declared.set(name, mine);
   }
   // ─── Config-change reconciliation ───────────────────────────────────────
   /**
@@ -9713,6 +10230,7 @@ class WeaveHost {
       if (!want) {
         this._guard(r, "destroy", () => r.def.destroy && r.def.destroy(r.api));
         this.active.splice(i, 1);
+        this._reserve(r.def.name, null);
       } else {
         r.options = Object.freeze(__spreadValues({}, want.entry.options || {}));
       }
@@ -9733,7 +10251,22 @@ class WeaveHost {
       for (const record of this.active) {
         this._guard(record, "destroy", () => record.def.destroy && record.def.destroy(record.api));
       }
+      for (const record of this.active) releaseOwner(this.w, record.def.name);
       this.active = [];
+      this._derived = null;
+      this._reserved = null;
+      this._pointerSubs = null;
+      this._declared = null;
+      if (this._pointerWired) {
+        for (const [name, handler] of this._pointerWired) {
+          this.ctx.removeEventListener && this.ctx.removeEventListener(name, handler);
+        }
+        this._pointerWired = null;
+      }
+      if (this._reserveTimer != null) {
+        clearTimeout(this._reserveTimer);
+        this._reserveTimer = null;
+      }
       if (this._updatedWired) {
         this.ctx.removeEventListener && this.ctx.removeEventListener("updated", this._onUpdated);
         this._updatedWired = false;
@@ -9741,7 +10274,14 @@ class WeaveHost {
     }
     this._layers.clear();
   }
-}
+};
+/**
+ * The answer `reservedBox()` gives when no plugin has reserved anything,
+ * which is every chart that does not run a UI plugin. Frozen and shared so
+ * the common path allocates nothing on a per-render read.
+ */
+__publicField(_WeaveHost, "NO_RESERVATION", Object.freeze({ left: 0, right: 0, top: 0, bottom: 0 }));
+let WeaveHost = _WeaveHost;
 _core__default.registerFeatures({ weave: WeaveHost });
 function seriesEmitter(ctx, graphics) {
   const r = ctx && ctx.renderer;
@@ -9858,17 +10398,17 @@ function makeCustomSeriesClass(name, def) {
       const n = nPts || gl.dataPoints || 1;
       const bandW = n > 0 ? gridWidth / n : gridWidth;
       const tickOn = cnf.xaxis.tickPlacement === "on";
-      const x = (v) => xRatio ? (v - gl.minX) / xRatio : gridWidth / 2;
+      const x2 = (v) => xRatio ? (v - gl.minX) / xRatio : gridWidth / 2;
       const y = (v) => (maxY - v) / yr;
       const xAt = (index, v) => {
-        if (!catMode) return x(v);
+        if (!catMode) return x2(v);
         if (tickOn && n > 1) return index / (n - 1) * gridWidth;
         return (index + 0.5) * bandW;
       };
       const step = gl.minXDiff || 1;
       const band = catMode ? bandW : xRatio ? step / xRatio : gridWidth;
       return {
-        x,
+        x: x2,
         xAt,
         y,
         gridWidth,
@@ -10134,16 +10674,108 @@ function registerRowSource(name, fn) {
   }
   getSources()[name] = fn;
 }
-const MAX_BINS = 1e3;
-function quantileSorted(sorted, q) {
-  const n = sorted.length;
-  if (n === 0) return NaN;
-  if (n === 1) return sorted[0];
-  const pos = (n - 1) * q;
-  const lo = Math.floor(pos);
-  const hi = Math.ceil(pos);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+const M = 1e3;
+function A(e, t) {
+  const s = e.length;
+  if (0 === s) return NaN;
+  if (1 === s) return e[0];
+  const i = (s - 1) * t, n = Math.floor(i), r = Math.ceil(i);
+  return n === r ? e[n] : e[n] + (e[r] - e[n]) * (i - n);
+}
+function x(e, t, s) {
+  const i = e.length, n = (e2) => t / Math.max(1, Math.ceil(e2)), r = () => n(Math.log2(i) + 1);
+  switch (s) {
+    case "sqrt":
+      return { width: n(Math.sqrt(i)), rule: "sqrt" };
+    case "rice":
+      return { width: n(2 * Math.cbrt(i)), rule: "rice" };
+    case "scott": {
+      const t2 = (function(e2) {
+        const t3 = e2.length;
+        if (t3 < 2) return 0;
+        let s2 = 0;
+        for (let i3 = 0; i3 < t3; i3++) s2 += e2[i3];
+        const i2 = s2 / t3;
+        let n2 = 0;
+        for (let s3 = 0; s3 < t3; s3++) {
+          const t4 = e2[s3] - i2;
+          n2 += t4 * t4;
+        }
+        return Math.sqrt(n2 / t3);
+      })(e);
+      return t2 > 0 ? { width: 3.49 * t2 * Math.pow(i, -1 / 3), rule: "scott" } : { width: r(), rule: "sturges" };
+    }
+    case "fd": {
+      const t2 = A(e, 0.75) - A(e, 0.25);
+      return t2 > 0 ? { width: 2 * t2 * Math.pow(i, -1 / 3), rule: "fd" } : { width: r(), rule: "sturges" };
+    }
+    case "auto": {
+      const t2 = r(), s2 = A(e, 0.75) - A(e, 0.25);
+      if (s2 <= 0) return { width: t2, rule: "sturges" };
+      const n2 = 2 * s2 * Math.pow(i, -1 / 3);
+      return n2 < t2 ? { width: n2, rule: "fd" } : { width: t2, rule: "sturges" };
+    }
+    default:
+      return { width: r(), rule: "sturges" };
+  }
+}
+function S(e, t = {}) {
+  if (!Array.isArray(e) || 0 === e.length) return null;
+  const s = e.slice().sort(((e2, t2) => e2 - t2));
+  let i = s[0], n = s[s.length - 1];
+  const r = t.range;
+  if (Array.isArray(r) && 2 === r.length) {
+    const e2 = Number(r[0]), t2 = Number(r[1]);
+    Number.isFinite(e2) && Number.isFinite(t2) && t2 > e2 && (i = e2, n = t2);
+  }
+  if (!(n > i)) {
+    const e2 = Math.abs(i) > 0 ? 0.05 * Math.abs(i) : 0.5;
+    return { edges: [i - e2, i + e2], binWidth: 2 * e2, rule: "single", capped: false };
+  }
+  const a = n - i;
+  let l, o;
+  if ("number" == typeof t.binWidth && t.binWidth > 0) l = t.binWidth, o = "binWidth";
+  else if ("number" == typeof t.bins && t.bins >= 1) l = a / Math.floor(t.bins), o = "count";
+  else {
+    const e2 = x(s, a, "string" == typeof t.bins ? t.bins : "auto");
+    l = e2.width, o = e2.rule;
+  }
+  (!Number.isFinite(l) || l <= 0) && (l = a);
+  let c = Math.ceil(a / l);
+  (!Number.isFinite(c) || c < 1) && (c = 1);
+  let u = false;
+  c > M && (c = M, u = true), l = a / c;
+  const h = new Array(c + 1);
+  for (let e2 = 0; e2 <= c; e2++) h[e2] = i + e2 * l;
+  return h[c] = Math.max(h[c], n), { edges: h, binWidth: l, rule: o, capped: u };
+}
+function k(e, t) {
+  const s = t.length - 1;
+  if (!(e >= t[0]) || e > t[s]) return -1;
+  if (e === t[s]) return s - 1;
+  const i = (t[s] - t[0]) / s;
+  if (i > 0) {
+    let n2 = Math.floor((e - t[0]) / i);
+    return n2 < 0 && (n2 = 0), n2 > s - 1 && (n2 = s - 1), e < t[n2] ? n2-- : e >= t[n2 + 1] && n2++, n2 < 0 || n2 > s - 1 ? -1 : n2;
+  }
+  let n = 0, r = s - 1;
+  for (; n <= r; ) {
+    const s2 = n + r >> 1;
+    if (e < t[s2]) r = s2 - 1;
+    else {
+      if (!(e >= t[s2 + 1])) return s2;
+      n = s2 + 1;
+    }
+  }
+  return -1;
+}
+function L(e, t) {
+  const s = new Array(Math.max(0, t.length - 1)).fill(0);
+  for (let i = 0; i < e.length; i++) {
+    const n = k(e[i], t);
+    n >= 0 && s[n]++;
+  }
+  return s;
 }
 function stdDev(values) {
   const n = values.length;
@@ -10158,140 +10790,22 @@ function stdDev(values) {
   }
   return Math.sqrt(acc / n);
 }
-function widthForRule(sorted, span, rule) {
-  const n = sorted.length;
-  const byCount = (count) => span / Math.max(1, Math.ceil(count));
-  switch (rule) {
-    case "sqrt":
-      return { width: byCount(Math.sqrt(n)), rule: "sqrt" };
-    case "rice":
-      return { width: byCount(2 * Math.cbrt(n)), rule: "rice" };
-    case "scott": {
-      const sd = stdDev(sorted);
-      if (sd > 0) return { width: 3.49 * sd * Math.pow(n, -1 / 3), rule: "scott" };
-      return { width: byCount(Math.log2(n) + 1), rule: "sturges" };
-    }
-    case "fd": {
-      const iqr = quantileSorted(sorted, 0.75) - quantileSorted(sorted, 0.25);
-      if (iqr > 0) return { width: 2 * iqr * Math.pow(n, -1 / 3), rule: "fd" };
-      return { width: byCount(Math.log2(n) + 1), rule: "sturges" };
-    }
-    case "auto": {
-      const sturges = byCount(Math.log2(n) + 1);
-      const iqr = quantileSorted(sorted, 0.75) - quantileSorted(sorted, 0.25);
-      if (iqr <= 0) return { width: sturges, rule: "sturges" };
-      const fd = 2 * iqr * Math.pow(n, -1 / 3);
-      return fd < sturges ? { width: fd, rule: "fd" } : { width: sturges, rule: "sturges" };
-    }
-    case "sturges":
-    default:
-      return { width: byCount(Math.log2(n) + 1), rule: "sturges" };
-  }
-}
-function computeBinning(values, opts = {}) {
-  if (!Array.isArray(values) || values.length === 0) return null;
-  const sorted = values.slice().sort((a, b) => a - b);
-  let lo = sorted[0];
-  let hi = sorted[sorted.length - 1];
-  const range = opts.range;
-  if (Array.isArray(range) && range.length === 2) {
-    const rLo = Number(range[0]);
-    const rHi = Number(range[1]);
-    if (isFinite(rLo) && isFinite(rHi) && rHi > rLo) {
-      lo = rLo;
-      hi = rHi;
-    }
-  }
-  if (!(hi > lo)) {
-    const pad = Math.abs(lo) > 0 ? Math.abs(lo) * 0.05 : 0.5;
-    return {
-      edges: [lo - pad, lo + pad],
-      binWidth: pad * 2,
-      rule: "single",
-      capped: false
-    };
-  }
-  const span = hi - lo;
-  let width;
-  let rule;
-  if (typeof opts.binWidth === "number" && opts.binWidth > 0) {
-    width = opts.binWidth;
-    rule = "binWidth";
-  } else if (typeof opts.bins === "number" && opts.bins >= 1) {
-    width = span / Math.floor(opts.bins);
-    rule = "count";
-  } else {
-    const chosen = widthForRule(
-      sorted,
-      span,
-      typeof opts.bins === "string" ? opts.bins : "auto"
-    );
-    width = chosen.width;
-    rule = chosen.rule;
-  }
-  if (!isFinite(width) || width <= 0) width = span;
-  let count = Math.ceil(span / width);
-  if (!isFinite(count) || count < 1) count = 1;
-  let capped = false;
-  if (count > MAX_BINS) {
-    count = MAX_BINS;
-    width = span / count;
-    capped = true;
-  }
-  width = span / count;
-  const edges = new Array(count + 1);
-  for (let k = 0; k <= count; k++) edges[k] = lo + k * width;
-  edges[count] = Math.max(edges[count], hi);
-  return { edges, binWidth: width, rule, capped };
-}
-function binIndexOf(v, edges) {
-  const last = edges.length - 1;
-  if (!(v >= edges[0]) || v > edges[last]) return -1;
-  if (v === edges[last]) return last - 1;
-  const width = (edges[last] - edges[0]) / last;
-  if (width > 0) {
-    let k = Math.floor((v - edges[0]) / width);
-    if (k < 0) k = 0;
-    if (k > last - 1) k = last - 1;
-    if (v < edges[k]) k--;
-    else if (v >= edges[k + 1]) k++;
-    if (k < 0 || k > last - 1) return -1;
-    return k;
-  }
-  let lo = 0;
-  let hi = last - 1;
-  while (lo <= hi) {
-    const mid = lo + hi >> 1;
-    if (v < edges[mid]) hi = mid - 1;
-    else if (v >= edges[mid + 1]) lo = mid + 1;
-    else return mid;
-  }
-  return -1;
-}
-function binCounts(values, edges) {
-  const counts = new Array(Math.max(0, edges.length - 1)).fill(0);
-  for (let i = 0; i < values.length; i++) {
-    const k = binIndexOf(values[i], edges);
-    if (k >= 0) counts[k]++;
-  }
-  return counts;
-}
 function rowsByBin(values, edges) {
   const n = Math.max(0, edges.length - 1);
   const buckets = new Array(n);
-  for (let k = 0; k < n; k++) buckets[k] = [];
+  for (let k2 = 0; k2 < n; k2++) buckets[k2] = [];
   for (let i = 0; i < values.length; i++) {
-    const k = binIndexOf(values[i], edges);
-    if (k >= 0) buckets[k].push(values[i]);
+    const k$1 = k(values[i], edges);
+    if (k$1 >= 0) buckets[k$1].push(values[i]);
   }
   return buckets;
 }
 function fiveNumberSummary(values, opts = {}) {
   if (!Array.isArray(values) || values.length === 0) return null;
   const sorted = values.slice().sort((a, b) => a - b);
-  const q1 = quantileSorted(sorted, 0.25);
-  const median = quantileSorted(sorted, 0.5);
-  const q3 = quantileSorted(sorted, 0.75);
+  const q1 = A(sorted, 0.25);
+  const median = A(sorted, 0.5);
+  const q3 = A(sorted, 0.75);
   const iqr = q3 - q1;
   let lo = sorted[0];
   let hi = sorted[sorted.length - 1];
@@ -10318,7 +10832,7 @@ function kernelDensity(values, opts = {}) {
   let h = opts.bandwidth;
   if (!(typeof h === "number" && h > 0)) {
     const sd = stdDev(sorted);
-    const iqr = quantileSorted(sorted, 0.75) - quantileSorted(sorted, 0.25);
+    const iqr = A(sorted, 0.75) - A(sorted, 0.25);
     const spread = iqr > 0 ? Math.min(sd, iqr / 1.349) : sd;
     h = 0.9 * spread * Math.pow(n, -1 / 5);
   }
@@ -10341,13 +10855,13 @@ function kernelDensity(values, opts = {}) {
   const norm = 1 / (n * h * Math.sqrt(2 * Math.PI));
   const density = [];
   for (let g = 0; g < steps; g++) {
-    const x = lo + g * step;
+    const x2 = lo + g * step;
     let sum = 0;
     for (let i = 0; i < n; i++) {
-      const z = (x - sorted[i]) / h;
+      const z = (x2 - sorted[i]) / h;
       sum += Math.exp(-0.5 * z * z);
     }
-    density.push([x, sum * norm]);
+    density.push([x2, sum * norm]);
   }
   return { density, bandwidth: h };
 }
@@ -10417,7 +10931,7 @@ function histogramTransform(ser, w) {
   } else {
     for (const vals of perSeries) all = all.concat(vals);
   }
-  const binning = computeBinning(all, {
+  const binning = S(all, {
     bins: hcfg.bins,
     binWidth: hcfg.binWidth,
     range: hcfg.range
@@ -10434,7 +10948,7 @@ function histogramTransform(ser, w) {
   }
   const { edges, binWidth } = binning;
   const counts = perSeries.map(
-    (vals) => binCounts(vals, edges)
+    (vals) => L(vals, edges)
   );
   w.histogramData = {
     edges,
@@ -10452,8 +10966,8 @@ function histogramTransform(ser, w) {
       binWidth
     });
     const data = [];
-    for (let k = 0; k < ys.length; k++) {
-      data.push({ x: (edges[k] + edges[k + 1]) / 2, y: ys[k] });
+    for (let k2 = 0; k2 < ys.length; k2++) {
+      data.push({ x: (edges[k2] + edges[k2 + 1]) / 2, y: ys[k2] });
     }
     return __spreadProps(__spreadValues({}, s), { data });
   });
@@ -10464,7 +10978,7 @@ function boxPlotTransform(ser, w) {
   if (!Array.isArray(ser)) return ser;
   const whiskers = ((_b = (_a = w.config.plotOptions) == null ? void 0 : _a.boxPlot) == null ? void 0 : _b.whiskers) || "minmax";
   return ser.map((s) => {
-    if (!Array.isArray(s == null ? void 0 : s.data)) return s;
+    if (!Array.isArray(s == null ? void 0 : s.data) || s.type && s.type !== "boxPlot") return s;
     let touched = false;
     const data = s.data.map((d) => {
       if (Array.isArray(d == null ? void 0 : d.y) && d.y.length === 5 && !derivedData.has(d)) {
@@ -10487,7 +11001,7 @@ function violinTransform(ser, w) {
   if (!Array.isArray(ser)) return ser;
   const kde = ((_b = (_a = w.config.plotOptions) == null ? void 0 : _a.violin) == null ? void 0 : _b.kde) || {};
   return ser.map((s) => {
-    if (!Array.isArray(s == null ? void 0 : s.data)) return s;
+    if (!Array.isArray(s == null ? void 0 : s.data) || s.type && s.type !== "violin") return s;
     let touched = false;
     const data = s.data.map((d) => {
       var _a2;
@@ -10502,7 +11016,10 @@ function violinTransform(ser, w) {
       });
       if (!est) return d;
       touched = true;
-      const next = __spreadProps(__spreadValues({}, d), { y: { density: est.density, points: values } });
+      const rest = d.y && typeof d.y === "object" && !Array.isArray(d.y) ? d.y : {};
+      const next = __spreadProps(__spreadValues({}, d), {
+        y: __spreadProps(__spreadValues({}, rest), { density: est.density, points: values })
+      });
       derivedData.add(next);
       return next;
     });
@@ -10572,8 +11089,8 @@ function histogramRows(w, opts) {
     if (collapsed.indexOf(i) !== -1) return;
     const buckets = rowsByBin(histogramValues(s && s.data), edges);
     const seriesName = w.seriesData && ((_a = w.seriesData.seriesNames) == null ? void 0 : _a[i]) || (s == null ? void 0 : s.name);
-    buckets.forEach((rows, k) => {
-      const range = `${formatEdge(edges[k])}-${formatEdge(edges[k + 1])}`;
+    buckets.forEach((rows, k2) => {
+      const range = `${formatEdge(edges[k2])}-${formatEdge(edges[k2 + 1])}`;
       clusters.push({
         // Only qualify by series when there is more than one to tell apart.
         name: raw.length > 1 && seriesName ? `${seriesName} ${range}` : range,
@@ -10628,1198 +11145,3 @@ registerSeriesTransform("violin", violinTransform);
 registerRowSource("histogram", histogramRows);
 registerRowSource("boxPlot", boxPlotRows);
 registerRowSource("violin", violinRows);
-class Waterfall {
-  /**
-   * @param {any} w
-   * @param {any} ctx
-   */
-  constructor(w, ctx) {
-    this.w = w;
-    this.ctx = ctx;
-  }
-  /** @returns {boolean} */
-  isActive() {
-    return this.w.config.chart.requestedType === "waterfall";
-  }
-  /**
-   * Draw (or redraw) the connector layer into the graphical group.
-   *
-   * Called from both render paths and safe to call on a chart that is not a
-   * waterfall, has connectors switched off, or drew no columns.
-   */
-  drawConnectors() {
-    var _a, _b;
-    const w = this.w;
-    if (!this.isActive()) return;
-    const cfg = (_b = (_a = w.config.plotOptions) == null ? void 0 : _a.waterfall) == null ? void 0 : _b.connectors;
-    if (!cfg || cfg.show === false) return;
-    const host = w.dom.elGraphical;
-    const geo = w.waterfallData && w.waterfallData.geometry;
-    if (!host || !geo) return;
-    this.removeConnectors();
-    const graphics = new Graphics(w, this.ctx);
-    const group = graphics.group({ class: "apexcharts-waterfall-connectors" });
-    const color = cfg.color || w.config.grid.borderColor;
-    const strokeWidth = cfg.strokeWidth == null ? 1 : cfg.strokeWidth;
-    const dashArray = cfg.strokeDashArray == null ? 3 : cfg.strokeDashArray;
-    let drawn = 0;
-    for (let i = 0; i < geo.length; i++) {
-      const bars = geo[i];
-      if (!Array.isArray(bars)) continue;
-      for (let j = 0; j < bars.length - 1; j++) {
-        const a = bars[j];
-        const b = bars[j + 1];
-        if (!a || !b) continue;
-        const gap = b.slotStart - a.slotEnd;
-        if (!(gap > 0.5)) continue;
-        const line = a.horizontal ? graphics.drawLine(
-          a.levelEnd,
-          a.slotEnd,
-          a.levelEnd,
-          b.slotStart,
-          color,
-          dashArray,
-          strokeWidth
-        ) : graphics.drawLine(
-          a.slotEnd,
-          a.levelEnd,
-          b.slotStart,
-          a.levelEnd,
-          color,
-          dashArray,
-          strokeWidth
-        );
-        line.node.classList.add("apexcharts-waterfall-connector");
-        group.add(line);
-        drawn++;
-      }
-    }
-    if (!drawn) return;
-    group.attr("clip-path", `url(#gridRectBarMask${w.globals.cuid})`);
-    const xaxisEl = host.node.querySelector(".apexcharts-xaxis");
-    if (xaxisEl) {
-      host.node.insertBefore(group.node, xaxisEl);
-    } else {
-      host.add(group);
-    }
-    this.holdUntilBarsLand(group);
-  }
-  /** Drop the connector layer, if one is present. */
-  removeConnectors() {
-    const host = this.w.dom.elGraphical;
-    const prev = host && host.node.querySelector(".apexcharts-waterfall-connectors");
-    if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
-  }
-  /**
-   * Connectors describe where the bars END UP, so drawn at full opacity while
-   * the bars are still growing they hang in mid-air over nothing. Held hidden
-   * and faded in with the rest of the delayed chrome once the bars land.
-   *
-   * When there is no animation to wait for, `showDelayedElements` has already
-   * run for this render, so registering would leave the layer hidden for good.
-   *
-   * @param {any} group
-   */
-  holdUntilBarsLand(group) {
-    const w = this.w;
-    const animate = Environment.isBrowser() && w.globals.shouldAnimate && !w.globals.animationEnded;
-    if (!animate) return;
-    group.node.classList.add("apexcharts-element-hidden");
-    w.globals.delayedElements.push({ el: group.node, holdUntilComplete: true });
-  }
-}
-function readDatum$2(d, j, categories) {
-  const fallbackX = categories && categories[j] !== void 0 ? categories[j] : j + 1;
-  if (d == null) {
-    return {
-      x: fallbackX,
-      y: null,
-      isSubtotal: false,
-      isTotal: false,
-      rest: {}
-    };
-  }
-  if (Array.isArray(d)) {
-    return {
-      x: d[0] !== void 0 ? d[0] : fallbackX,
-      y: d[1],
-      isSubtotal: false,
-      isTotal: false,
-      rest: {}
-    };
-  }
-  if (typeof d === "object") {
-    return {
-      x: d.x !== void 0 ? d.x : fallbackX,
-      y: d.y,
-      isSubtotal: d.isSubtotal === true,
-      isTotal: d.isTotal === true,
-      rest: d
-    };
-  }
-  return { x: fallbackX, y: d, isSubtotal: false, isTotal: false, rest: {} };
-}
-function isPrecomputed(data) {
-  for (let j = 0; j < data.length; j++) {
-    const d = data[j];
-    const y = Array.isArray(d) ? d[1] : d && typeof d === "object" ? d.y : d;
-    if (Array.isArray(y) && y.length === 2) return true;
-  }
-  return false;
-}
-function fillFor(datum, kind, colors) {
-  if (datum && datum.fillColor) return datum.fillColor;
-  const c = colors[kind];
-  return typeof c === "string" && c ? c : void 0;
-}
-function accumulate(data, categories, colors) {
-  const rows = [];
-  const values = [];
-  const cumulative = [];
-  const kinds = [];
-  let running = 0;
-  let cut = 0;
-  for (let j = 0; j < data.length; j++) {
-    const { x, y, isSubtotal, isTotal, rest } = readDatum$2(
-      data[j],
-      j,
-      categories
-    );
-    let start;
-    let end;
-    let kind;
-    if (isTotal || isSubtotal) {
-      start = isTotal ? 0 : cut;
-      end = running;
-      kind = isTotal ? "total" : "subtotal";
-      cut = running;
-    } else {
-      const delta = Utils.parseNumber(y);
-      if (delta === null || !isFinite(delta)) {
-        rows.push(__spreadProps(__spreadValues({}, rest), { x, y: null }));
-        values.push(null);
-        cumulative.push(running);
-        kinds.push(null);
-        continue;
-      }
-      start = running;
-      end = running + delta;
-      running = end;
-      kind = delta < 0 ? "negative" : "positive";
-    }
-    const fill = fillFor(rest, kind, colors);
-    rows.push(__spreadValues(__spreadProps(__spreadValues({}, rest), {
-      x,
-      y: [start, end]
-    }), fill ? { fillColor: fill } : {}));
-    values.push(end - start);
-    cumulative.push(running);
-    kinds.push(kind);
-  }
-  return { data: rows, values, cumulative, kinds };
-}
-function waterfallTransform(ser, w) {
-  var _a, _b, _c;
-  const cnf = w.config;
-  const gl = w.globals;
-  if (!Array.isArray(ser)) return ser;
-  if (!gl.waterfallRawSeries) {
-    gl.waterfallRawSeries = ser.map((s) => __spreadProps(__spreadValues({}, s), {
-      data: Array.isArray(s == null ? void 0 : s.data) ? s.data.slice() : s == null ? void 0 : s.data
-    }));
-  }
-  const raw = gl.waterfallRawSeries;
-  const colors = ((_b = (_a = cnf.plotOptions) == null ? void 0 : _a.waterfall) == null ? void 0 : _b.colors) || {};
-  const categories = (_c = cnf.xaxis) == null ? void 0 : _c.categories;
-  const collapsed = gl.collapsedSeriesIndices || [];
-  const values = [];
-  const cumulative = [];
-  const kinds = [];
-  const out = raw.map((s, i) => {
-    const data = Array.isArray(s == null ? void 0 : s.data) ? s.data : [];
-    if (collapsed.indexOf(i) !== -1) {
-      values[i] = [];
-      cumulative[i] = [];
-      kinds[i] = [];
-      return __spreadProps(__spreadValues({}, s), { data: [] });
-    }
-    if (isPrecomputed(data)) {
-      values[i] = data.map((d) => {
-        const y = Array.isArray(d) ? d[1] : d && typeof d === "object" ? d.y : d;
-        if (!Array.isArray(y)) return null;
-        const lo = Utils.parseNumber(y[0]);
-        const hi = Utils.parseNumber(y[1]);
-        return lo === null || hi === null ? null : hi - lo;
-      });
-      cumulative[i] = data.map((d) => {
-        const y = Array.isArray(d) ? d[1] : d && typeof d === "object" ? d.y : d;
-        const hi = Array.isArray(y) ? Utils.parseNumber(y[1]) : null;
-        return hi === null ? 0 : hi;
-      });
-      kinds[i] = data.map(() => null);
-      return s;
-    }
-    const acc = accumulate(data, categories, colors);
-    values[i] = acc.values;
-    cumulative[i] = acc.cumulative;
-    kinds[i] = acc.kinds;
-    return __spreadProps(__spreadValues({}, s), { data: acc.data });
-  });
-  w.waterfallData = {
-    values,
-    cumulative,
-    kinds,
-    // A non-null sink is what tells RangeBar to record the px box it drew each
-    // column in, which the connector layer joins up. Fresh every parse.
-    geometry: []
-  };
-  return out;
-}
-registerSeriesTransform("waterfall", waterfallTransform);
-_core__default.registerFeatures({ waterfall: Waterfall });
-function readDatum$1(d, j, categories) {
-  const fallbackX = categories && categories[j] !== void 0 ? categories[j] : j + 1;
-  if (d == null) return { x: fallbackX, y: null, rest: {} };
-  if (Array.isArray(d)) {
-    return { x: d[0] !== void 0 ? d[0] : fallbackX, y: d[1], rest: {} };
-  }
-  if (typeof d === "object") {
-    return { x: d.x !== void 0 ? d.x : fallbackX, y: d.y, rest: d };
-  }
-  return { x: fallbackX, y: d, rest: {} };
-}
-function isPairShaped$1(data) {
-  for (let j = 0; j < data.length; j++) {
-    const d = data[j];
-    const y = Array.isArray(d) ? d[1] : d && typeof d === "object" ? d.y : d;
-    if (Array.isArray(y) && y.length === 2) return true;
-  }
-  return false;
-}
-function joinOnX$1(raw, categories) {
-  var _a;
-  const xs = [];
-  const rows = [];
-  const seen = /* @__PURE__ */ new Map();
-  const byX = [];
-  for (let i = 0; i < raw.length; i++) {
-    const data = Array.isArray((_a = raw[i]) == null ? void 0 : _a.data) ? raw[i].data : [];
-    const map = /* @__PURE__ */ new Map();
-    for (let j = 0; j < data.length; j++) {
-      const { x, y, rest } = readDatum$1(data[j], j, categories);
-      const key = x instanceof Date ? x.getTime() : x;
-      if (!seen.has(key)) {
-        seen.set(key, xs.length);
-        xs.push(x);
-        rows.push(__spreadValues({}, rest));
-      }
-      const rowIndex = (
-        /** @type {number} */
-        seen.get(key)
-      );
-      map.set(rowIndex, Utils.parseNumber(y));
-    }
-    byX.push(map);
-  }
-  return { xs, rows, byX };
-}
-function dumbbellTransform(ser, w) {
-  var _a;
-  const cnf = w.config;
-  const gl = w.globals;
-  if (!Array.isArray(ser)) return ser;
-  if (!gl.dumbbellRawSeries) {
-    gl.dumbbellRawSeries = ser.map((s) => __spreadProps(__spreadValues({}, s), {
-      data: Array.isArray(s == null ? void 0 : s.data) ? s.data.slice() : s == null ? void 0 : s.data
-    }));
-  }
-  const raw = gl.dumbbellRawSeries;
-  const alreadyPaired = raw.some(
-    (s) => isPairShaped$1(Array.isArray(s == null ? void 0 : s.data) ? s.data : [])
-  );
-  if (alreadyPaired) {
-    w.dumbbellData = {
-      form: "pairs",
-      names: [],
-      values: [],
-      order: [],
-      carrier: 0,
-      hidden: []
-    };
-    return ser;
-  }
-  const categories = (_a = cnf.xaxis) == null ? void 0 : _a.categories;
-  const collapsed = gl.collapsedSeriesIndices || [];
-  const { xs, rows, byX } = joinOnX$1(raw, categories);
-  const values = [];
-  const order = [];
-  const visible = [];
-  for (let k = 0; k < raw.length; k++) {
-    if (collapsed.indexOf(k) === -1) visible.push(k);
-  }
-  const data = [];
-  for (let j = 0; j < xs.length; j++) {
-    const rowValues = [];
-    for (let k = 0; k < raw.length; k++) {
-      const v = byX[k].has(j) ? byX[k].get(j) : null;
-      rowValues.push(
-        v === null || v === void 0 || !isFinite(v) ? null : v
-      );
-    }
-    values.push(rowValues);
-    let lo = null;
-    let hi = null;
-    let kLo = -1;
-    let kHi = -1;
-    for (let vi = 0; vi < visible.length; vi++) {
-      const k = visible[vi];
-      const v = rowValues[k];
-      if (v === null) continue;
-      if (lo === null || v < lo) {
-        lo = v;
-        kLo = k;
-      }
-      if (hi === null || v > hi) {
-        hi = v;
-        kHi = k;
-      }
-    }
-    if (lo === null || hi === null) {
-      order.push(null);
-      data.push(__spreadProps(__spreadValues({}, rows[j]), { x: xs[j], y: null }));
-      continue;
-    }
-    order.push([kLo, kHi]);
-    data.push(__spreadProps(__spreadValues({}, rows[j]), { x: xs[j], y: [lo, hi] }));
-  }
-  w.dumbbellData = {
-    form: "series",
-    names: raw.map(
-      (s, k) => {
-        var _a2;
-        return (_a2 = s == null ? void 0 : s.name) != null ? _a2 : `Series ${k + 1}`;
-      }
-    ),
-    values,
-    order,
-    carrier: visible.length ? visible[0] : 0,
-    hidden: raw.map((_, k) => k).filter((k) => collapsed.indexOf(k) !== -1)
-  };
-  const carrier = w.dumbbellData.carrier;
-  return raw.map((s, k) => __spreadProps(__spreadValues({}, s), {
-    // Every endpoint stays a series so the legend keeps its name, its colour
-    // and its click. Only one of them carries the merged rows: drawing the
-    // same rows N times would stack N identical connectors.
-    data: k === carrier && visible.length ? data : []
-  }));
-}
-registerSeriesTransform("dumbbell", dumbbellTransform);
-const VPAD = 3;
-class StreamLabels {
-  /**
-   * @param {any} w
-   * @param {any} ctx
-   */
-  constructor(w, ctx) {
-    this.w = w;
-    this.ctx = ctx;
-    this._hovered = -1;
-  }
-  /** @returns {boolean} */
-  isActive() {
-    return this.w.config.chart.requestedType === "streamgraph";
-  }
-  /**
-   * Data value -> pixel, the same mapping the line renderer uses
-   * (`Line._initSerieVariables`: `zeroY - v / yRatio`, with baseLineY placing
-   * the zero line). Written out in terms of the domain rather than read off
-   * `xyRatios` so the layer stays independent of the renderer's internals.
-   *
-   * @param {number} v
-   * @returns {number}
-   */
-  _yPx(v) {
-    var _a;
-    const w = this.w;
-    const gl = w.globals;
-    const h = w.layout.gridHeight;
-    const span = gl.maxY - gl.minY;
-    if (!span || !isFinite(span)) return h / 2;
-    const frac = (v - gl.minY) / span;
-    return ((_a = w.config.yaxis[0]) == null ? void 0 : _a.reversed) ? frac * h : h - frac * h;
-  }
-  /**
-   * Draw (or redraw) everything this layer owns.
-   *
-   * Called from both render paths and safe to call on a chart that is not a
-   * streamgraph, has labels switched off, or drew no bands.
-   */
-  draw() {
-    if (!this.isActive()) return;
-    this.clearDim();
-    this.bindHover();
-    this.drawLabels();
-  }
-  /**
-   * Draw (or redraw) the band labels.
-   *
-   * Called from both render paths and safe to call on a chart that is not a
-   * streamgraph, has labels switched off, or drew no bands.
-   */
-  drawLabels() {
-    var _a, _b, _c, _d, _e, _f, _g;
-    const w = this.w;
-    if (!this.isActive()) return;
-    const cfg = (_b = (_a = w.config.plotOptions) == null ? void 0 : _a.streamgraph) == null ? void 0 : _b.labels;
-    if (!cfg || cfg.show === false) return;
-    const host = w.dom.elGraphical;
-    const data = w.streamgraphData;
-    if (!host || !data) return;
-    this.removeLabels();
-    const graphics = new Graphics(w, this.ctx);
-    const group = graphics.group({ class: "apexcharts-streamgraph-labels" });
-    const fontSize = ((_c = cfg.style) == null ? void 0 : _c.fontSize) || "auto";
-    const fontFamily = ((_d = cfg.style) == null ? void 0 : _d.fontFamily) || w.config.chart.fontFamily;
-    const fontWeight = ((_e = cfg.style) == null ? void 0 : _e.fontWeight) || 600;
-    const minWidth = cfg.minWidth == null ? 24 : cfg.minWidth;
-    const placed = [];
-    for (let i = 0; i < data.order.length; i++) {
-      const k = data.order[i];
-      const label = this._placeLabel(k, {
-        fontSize,
-        fontFamily,
-        fontWeight,
-        minWidth,
-        graphics
-      });
-      if (label) placed.push(label);
-    }
-    let drawn = 0;
-    for (const label of this._deconflict(placed)) {
-      const k = label.k;
-      const el = graphics.drawText({
-        x: label.x,
-        y: label.y,
-        text: label.text,
-        textAnchor: "middle",
-        dominantBaseline: "middle",
-        // The size a band's own name is drawn at is decided per band, not per
-        // chart (see `_resolveFontSize`).
-        fontSize: label.fontSize,
-        fontFamily,
-        fontWeight,
-        foreColor: ((_g = (_f = cfg.style) == null ? void 0 : _f.colors) == null ? void 0 : _g[k]) || label.color,
-        cssClass: "apexcharts-streamgraph-label"
-      });
-      el.node.setAttribute("data:realIndex", String(k));
-      group.add(el);
-      drawn++;
-    }
-    if (!drawn) return;
-    const xaxisEl = host.node.querySelector(".apexcharts-xaxis");
-    if (xaxisEl) {
-      host.node.insertBefore(group.node, xaxisEl);
-    } else {
-      host.add(group);
-    }
-    this.holdUntilBandsLand(group);
-  }
-  /**
-   * Where band `k`'s name could go, best spot first, or null if nowhere.
-   *
-   * Returns several candidates rather than one. Each band picks its spot from
-   * its own shape alone, and on a chart where everything peaks in the same
-   * burst that puts every name in the same narrow strip — the first version of
-   * this returned one placement each and the de-overlap pass then had to throw
-   * twenty of twenty-two away. Offering alternatives lets a name that loses its
-   * first choice slide along its own band instead of vanishing.
-   *
-   * A candidate is the middle of a stretch where the band clears the line box,
-   * plus, on a stretch with room to spare, two more spread across it.
-   *
-   * @param {number} k
-   * @param {{fontSize: string, fontFamily: string, fontWeight: any, minWidth: number, graphics: any}} opts
-   * @returns {{k: number, weight: number, candidates: any[]}|null}
-   */
-  _placeLabel(k, { fontSize, fontFamily, fontWeight, minWidth, graphics }) {
-    const w = this.w;
-    const data = w.streamgraphData;
-    const lo = data.lows[k];
-    const hi = data.highs[k];
-    if (!lo || !hi) return null;
-    const xPx = w.globals.seriesXvalues[k];
-    const m = lo.length;
-    if (!Array.isArray(xPx) || xPx.length < m || m === 0) return null;
-    const thickness = new Array(m);
-    let peakT = 0;
-    for (let j = 0; j < m; j++) {
-      const t = Math.abs(this._yPx(hi[j]) - this._yPx(lo[j]));
-      thickness[j] = t;
-      if (t > peakT) peakT = t;
-    }
-    if (peakT <= 0) return null;
-    const size = this._resolveFontSize(fontSize, peakT);
-    const name = String(data.names[k]);
-    let px = size;
-    let rect = graphics.getTextRects(
-      name,
-      `${px}px`,
-      fontFamily,
-      "",
-      true,
-      fontWeight
-    );
-    if (peakT < rect.height + VPAD * 2) return null;
-    const widest = this._widestRun(thickness, xPx, rect.height + VPAD * 2, m);
-    if (!widest) return null;
-    if (rect.width > widest.width && fontSize === "auto") {
-      const shrunk = Math.floor(px * (widest.width / rect.width));
-      if (shrunk < this._autoBounds().min) return null;
-      px = shrunk;
-      rect = graphics.getTextRects(
-        name,
-        `${px}px`,
-        fontFamily,
-        "",
-        true,
-        fontWeight
-      );
-      if (peakT < rect.height + VPAD * 2) return null;
-    }
-    const needed = rect.height + VPAD * 2;
-    const candidates = [];
-    for (const run of this._runs(thickness, needed, m)) {
-      const xL = Number(xPx[run.l]);
-      const xR = Number(xPx[run.r]);
-      if (!isFinite(xL) || !isFinite(xR)) continue;
-      let span = xR - xL;
-      if (span <= 0 && m > 1) {
-        const step = Math.abs(
-          Number(xPx[Math.min(run.r + 1, m - 1)]) - Number(xPx[Math.max(run.l - 1, 0)])
-        );
-        span = isFinite(step) ? step : 0;
-      }
-      if (span < minWidth || span < rect.width * 0.35) continue;
-      const text = rect.width <= span ? name : graphics.getTextBasedOnMaxWidth({
-        text: name,
-        maxWidth: span,
-        fontSize: `${px}px`,
-        fontFamily
-      });
-      if (!text || text === "...") continue;
-      const drawnWidth = text === name ? rect.width : rect.width * (text.length / name.length);
-      const centres = [xL + span / 2];
-      if (span > drawnWidth * 2.2) {
-        centres.push(xL + drawnWidth / 2 + 2, xR - drawnWidth / 2 - 2);
-      }
-      for (const cx of centres) {
-        let anchor = run.l;
-        let bestDx = Infinity;
-        for (let j = run.l; j <= run.r; j++) {
-          const dx = Math.abs(Number(xPx[j]) - cx);
-          if (dx < bestDx) {
-            bestDx = dx;
-            anchor = j;
-          }
-        }
-        candidates.push({
-          x: cx,
-          y: (this._yPx(lo[anchor]) + this._yPx(hi[anchor])) / 2,
-          text,
-          color: this._contrastOn(k),
-          fontSize: `${px}px`,
-          width: drawnWidth,
-          height: rect.height
-        });
-      }
-      if (candidates.length >= 6) break;
-    }
-    return candidates.length ? { k, weight: peakT, candidates } : null;
-  }
-  /**
-   * The contiguous stretches where the band clears `needed`, thickest first.
-   * @param {number[]} thickness
-   * @param {number} needed
-   * @param {number} m
-   * @returns {Array<{l: number, r: number, maxT: number}>}
-   */
-  _runs(thickness, needed, m) {
-    const runs = [];
-    let j = 0;
-    while (j < m) {
-      if (thickness[j] < needed) {
-        j++;
-        continue;
-      }
-      let end = j;
-      let maxT = thickness[j];
-      while (end + 1 < m && thickness[end + 1] >= needed) {
-        end++;
-        if (thickness[end] > maxT) maxT = thickness[end];
-      }
-      runs.push({ l: j, r: end, maxT });
-      j = end + 1;
-    }
-    return runs.sort((a, b) => b.maxT - a.maxT);
-  }
-  /**
-   * The widest qualifying stretch in px, used to decide whether the name has to
-   * be stepped down a size before any placement is attempted.
-   * @param {number[]} thickness
-   * @param {any[]} xPx
-   * @param {number} needed
-   * @param {number} m
-   * @returns {{width: number}|null}
-   */
-  _widestRun(thickness, xPx, needed, m) {
-    let best = -1;
-    for (const run of this._runs(thickness, needed, m)) {
-      const span = Number(xPx[run.r]) - Number(xPx[run.l]);
-      if (isFinite(span) && span > best) best = span;
-    }
-    return best >= 0 ? { width: best } : null;
-  }
-  /**
-   * Drop the labels that would land on top of one another.
-   *
-   * Each band picks its own widest stretch with no idea what its neighbours
-   * picked, and on a dense chart two of them routinely want the same patch of
-   * screen. Two names overlapping is worse than one name missing: the reader
-   * can no longer tell which band EITHER belongs to, and the tooltip still
-   * names every band on hover.
-   *
-   * Ranked by the BAND's own thickness, not by the label's area: sorting on
-   * area hands priority to whoever has the longest name, so a sliver called
-   * "Willow Warbler" outranks a dominant band called "Robin". Thickest band
-   * first means the name that survives a collision is the one on the band
-   * carrying more, which is also the one the reader is most likely to want.
-   *
-   * @param {any[]} labels
-   * @returns {any[]}
-   */
-  _deconflict(labels) {
-    const byImportance = labels.slice().sort((a, b) => b.weight - a.weight);
-    const kept = [];
-    const free = (box) => !kept.some(
-      (o) => box.left < o.box.right && box.right > o.box.left && box.top < o.box.bottom && box.bottom > o.box.top
-    );
-    for (const label of byImportance) {
-      for (const c of label.candidates) {
-        const box = {
-          left: c.x - c.width / 2,
-          right: c.x + c.width / 2,
-          top: c.y - c.height / 2,
-          bottom: c.y + c.height / 2
-        };
-        if (free(box)) {
-          kept.push(__spreadProps(__spreadValues({ k: label.k }, c), { box }));
-          break;
-        }
-      }
-    }
-    return kept;
-  }
-  /** The bounds `fontSize: 'auto'` scales between. */
-  _autoBounds() {
-    var _a, _b;
-    const cfg = ((_b = (_a = this.w.config.plotOptions) == null ? void 0 : _a.streamgraph) == null ? void 0 : _b.labels) || {};
-    return {
-      min: cfg.minFontSize == null ? 9 : cfg.minFontSize,
-      max: cfg.maxFontSize == null ? 30 : cfg.maxFontSize
-    };
-  }
-  /**
-   * The px size band `k`'s name is drawn at, given how thick that band gets.
-   *
-   * `auto` is the default because it is the convention of the form, and because
-   * the alternative actively misleads: a streamgraph's whole claim is that
-   * thickness is quantity, and a fixed size prints that claim in the same voice
-   * for a band carrying half the total and a band carrying a rounding error.
-   *
-   * A literal (`'12px'`) opts out and every name is drawn at it.
-   *
-   * @param {string} fontSize the configured value, or 'auto'
-   * @param {number} peakT the band's greatest thickness, in px
-   * @returns {number} px
-   */
-  _resolveFontSize(fontSize, peakT) {
-    if (fontSize !== "auto") {
-      const parsed = parseFloat(fontSize);
-      return isFinite(parsed) && parsed > 0 ? parsed : 12;
-    }
-    const { min, max } = this._autoBounds();
-    return Math.max(min, Math.min(max, Math.round(peakT * 0.36)));
-  }
-  /**
-   * Black or white, whichever reads on band `k`'s own fill.
-   *
-   * A streamgraph's palette runs from pale yellows to near-black slates in the
-   * same chart, so one fixed label colour is unreadable on some band every
-   * time.
-   *
-   * @param {number} k
-   * @returns {string}
-   */
-  _contrastOn(k) {
-    var _a;
-    const w = this.w;
-    const fill = (_a = w.globals.colors) == null ? void 0 : _a[k];
-    const rgb = typeof fill === "string" ? Utils.parseHex(fill) : null;
-    if (!rgb) return w.config.chart.foreColor;
-    return Utils.relativeLuminance(rgb) > 0.45 ? "#000000" : "#ffffff";
-  }
-  /** Drop the label layer, if one is present. */
-  removeLabels() {
-    const host = this.w.dom.elGraphical;
-    const prev = host && host.node.querySelector(".apexcharts-streamgraph-labels");
-    if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
-  }
-  // ── Hover ────────────────────────────────────────────────────────────────
-  /**
-   * Watch the plot for the band under the cursor.
-   *
-   * Bound to the svg rather than to the band paths: with `tooltip.intersect`
-   * off the pointer is not required to be over a path at all, and hit-testing
-   * from the geometry keeps the outline agreeing with the tooltip (both resolve
-   * to the nearest column) whether or not a tooltip is even switched on.
-   *
-   * The flag lives on the node, so a full render (which builds a new svg) binds
-   * again and the fast update path (which keeps the old one) does not stack a
-   * second listener per update.
-   */
-  bindHover() {
-    const w = this.w;
-    if (!Environment.isBrowser()) return;
-    if (this._hoverCfg().show === false) return;
-    const svg = w.dom.baseEl && w.dom.baseEl.querySelector(".apexcharts-svg");
-    if (!svg || svg.__apexStreamHover) return;
-    svg.__apexStreamHover = true;
-    svg.addEventListener("mousemove", (e) => {
-      if (!this.isActive() || !this.w.streamgraphData) return;
-      this._dim(this._bandAt(e));
-    });
-    svg.addEventListener("mouseleave", () => {
-      this._dim(-1);
-    });
-  }
-  /** @returns {Record<string, any>} */
-  _hoverCfg() {
-    var _a, _b;
-    return ((_b = (_a = this.w.config.plotOptions) == null ? void 0 : _a.streamgraph) == null ? void 0 : _b.hover) || {};
-  }
-  /**
-   * Which band is under the pointer, or -1.
-   *
-   * x goes through `AxisMapping.screenXToPlotPx`, the one screen-to-plot
-   * mapping, so a chart inside a CSS-zoomed container hit-tests where it looks.
-   * y is measured off the same svg rect with the same zoom factor.
-   *
-   * @param {MouseEvent} e
-   * @returns {number}
-   */
-  _bandAt(e) {
-    const w = this.w;
-    const d = w.streamgraphData;
-    if (!d || !d.order.length) return -1;
-    const svg = w.dom.baseEl && w.dom.baseEl.querySelector(".apexcharts-svg");
-    if (!svg) return -1;
-    const rect = svg.getBoundingClientRect();
-    const zoom = w.globals.svgWidth ? rect.width / w.globals.svgWidth : 1;
-    const px = AxisMapping.screenXToPlotPx(w, e.clientX);
-    const py = (e.clientY - rect.top) / (zoom || 1) - w.layout.translateY;
-    if (px < 0 || px > w.layout.gridWidth) return -1;
-    if (py < 0 || py > w.layout.gridHeight) return -1;
-    const xs = w.globals.seriesXvalues[d.order[0]];
-    if (!Array.isArray(xs) || !xs.length) return -1;
-    const captured = w.interact ? w.interact.capturedDataPointIndex : -1;
-    let j = -1;
-    if (captured >= 0 && captured < xs.length) {
-      j = captured;
-    } else {
-      let best = Infinity;
-      for (let i = 0; i < xs.length; i++) {
-        const dx = Math.abs(Number(xs[i]) - px);
-        if (dx < best) {
-          best = dx;
-          j = i;
-        }
-      }
-    }
-    if (j < 0) return -1;
-    let nearest = -1;
-    let gap = Infinity;
-    for (let i = 0; i < d.order.length; i++) {
-      const k = d.order[i];
-      const a = this._yPx(d.highs[k][j]);
-      const b = this._yPx(d.lows[k][j]);
-      const top = Math.min(a, b);
-      const bottom = Math.max(a, b);
-      if (py >= top && py <= bottom) return k;
-      const dist = py < top ? top - py : py - bottom;
-      if (dist < gap) {
-        gap = dist;
-        nearest = k;
-      }
-    }
-    return nearest;
-  }
-  /**
-   * Bring band `k` forward by dropping every other band's opacity, or clear the
-   * effect when `k` is -1.
-   *
-   * The bands touch edge to edge, so there is no gap for a treatment to live
-   * in: anything drawn ON the hovered band either spends half its width on the
-   * neighbour (a centred stroke) or falls entirely onto both of them (a drop
-   * shadow). Taking the OTHERS down instead is the one move that needs no
-   * empty space to work in, and it leaves the hovered band's colour exactly as
-   * it was, which matters on a chart where colour is the only thing tying a
-   * band to its name.
-   *
-   * A dimmed band's label is RECOLOURED rather than faded with it. Each label
-   * takes black or white by the contrast of the band it sits on at full
-   * strength, so fading the band alone leaves a white name on a band that has
-   * gone pale — the name does not read as de-emphasised, it reads as broken.
-   * Dropped to the chart's own foreColor instead, it stays legible on every
-   * faded band while clearly no longer being the one in focus.
-   *
-   * @param {number} k
-   */
-  _dim(k) {
-    const w = this.w;
-    if (k === this._hovered) return;
-    this._hovered = k;
-    const cfg = this._hoverCfg();
-    const dimmed = cfg.opacity == null ? 0.35 : cfg.opacity;
-    const bands = w.dom.baseEl.querySelectorAll(".apexcharts-series");
-    const labels = w.dom.baseEl.querySelectorAll(
-      ".apexcharts-streamgraph-label"
-    );
-    const focused = (el, index) => k < 0 || index === k;
-    for (let i = 0; i < bands.length; i++) {
-      const el = (
-        /** @type {any} */
-        bands[i]
-      );
-      el.style.transition = "opacity .15s ease";
-      el.style.opacity = focused(el, Number(el.getAttribute("data:realIndex"))) ? "" : String(dimmed);
-    }
-    for (let i = 0; i < labels.length; i++) {
-      const el = (
-        /** @type {any} */
-        labels[i]
-      );
-      el.style.transition = "opacity .15s ease, fill .15s ease";
-      if (focused(el, Number(el.getAttribute("data:realIndex")))) {
-        this._restoreLabel(el);
-      } else {
-        if (!el.getAttribute("data:fill")) {
-          el.setAttribute("data:fill", el.getAttribute("fill") || "");
-        }
-        el.setAttribute("fill", w.config.chart.foreColor);
-        el.style.opacity = "0.65";
-      }
-    }
-  }
-  /**
-   * Give one label its own colour back.
-   * @param {any} el
-   */
-  _restoreLabel(el) {
-    const orig = el.getAttribute("data:fill");
-    if (orig) el.setAttribute("fill", orig);
-    el.style.opacity = "";
-  }
-  /** Put every band and label back the way it was drawn. */
-  clearDim() {
-    this._hovered = -1;
-    const w = this.w;
-    if (!w.dom.baseEl) return;
-    const bands = w.dom.baseEl.querySelectorAll(".apexcharts-series");
-    for (let i = 0; i < bands.length; i++) {
-      const el = (
-        /** @type {any} */
-        bands[i]
-      );
-      el.style.opacity = "";
-    }
-    const labels = w.dom.baseEl.querySelectorAll(
-      ".apexcharts-streamgraph-label"
-    );
-    for (let i = 0; i < labels.length; i++) {
-      this._restoreLabel(
-        /** @type {any} */
-        labels[i]
-      );
-    }
-  }
-  /**
-   * Labels describe where the bands END UP, so drawn at full opacity while the
-   * bands are still growing they sit over the wrong shapes. Held hidden and
-   * faded in with the rest of the delayed chrome once the bands land.
-   *
-   * When there is no animation to wait for, `showDelayedElements` has already
-   * run for this render, so registering would leave the layer hidden for good.
-   *
-   * @param {any} group
-   */
-  holdUntilBandsLand(group) {
-    const w = this.w;
-    const animate = Environment.isBrowser() && w.globals.shouldAnimate && !w.globals.animationEnded;
-    if (!animate) return;
-    group.node.classList.add("apexcharts-element-hidden");
-    w.globals.delayedElements.push({ el: group.node, holdUntilComplete: true });
-  }
-}
-const OFFSETS = ["wiggle", "silhouette", "zero", "expand"];
-const ORDERS = ["inside-out", "inverse", "none"];
-function readDatum(d, j, categories) {
-  const fallbackX = categories && categories[j] !== void 0 ? categories[j] : j + 1;
-  if (d == null) return { x: fallbackX, y: null, rest: {} };
-  if (Array.isArray(d)) {
-    return { x: d[0] !== void 0 ? d[0] : fallbackX, y: d[1], rest: {} };
-  }
-  if (typeof d === "object") {
-    return { x: d.x !== void 0 ? d.x : fallbackX, y: d.y, rest: d };
-  }
-  return { x: fallbackX, y: d, rest: {} };
-}
-function isPairShaped(data) {
-  for (let j = 0; j < data.length; j++) {
-    const d = data[j];
-    const y = Array.isArray(d) ? d[1] : d && typeof d === "object" ? d.y : d;
-    if (Array.isArray(y) && y.length === 2) return true;
-  }
-  return false;
-}
-function joinOnX(raw, categories) {
-  var _a;
-  const xs = [];
-  const rows = [];
-  const seen = /* @__PURE__ */ new Map();
-  const grids = [];
-  for (let k = 0; k < raw.length; k++) {
-    const data = Array.isArray((_a = raw[k]) == null ? void 0 : _a.data) ? raw[k].data : [];
-    const grid = /* @__PURE__ */ new Map();
-    for (let j = 0; j < data.length; j++) {
-      const { x, y, rest } = readDatum(data[j], j, categories);
-      const key = x instanceof Date ? x.getTime() : x;
-      if (!seen.has(key)) {
-        seen.set(key, xs.length);
-        xs.push(x);
-        rows.push(__spreadValues({}, rest));
-      }
-      grid.set(
-        /** @type {number} */
-        seen.get(key),
-        Utils.parseNumber(y)
-      );
-    }
-    grids.push(grid);
-  }
-  return { xs, rows, grids };
-}
-function sortColumns(xs) {
-  const idx = [];
-  for (let j = 0; j < xs.length; j++) {
-    const x = xs[j] instanceof Date ? xs[j].getTime() : xs[j];
-    if (typeof x !== "number" || !isFinite(x)) return null;
-    idx.push(j);
-  }
-  const keyed = idx.map((j) => ({
-    j,
-    v: xs[j] instanceof Date ? xs[j].getTime() : xs[j]
-  }));
-  keyed.sort((a, b) => a.v - b.v);
-  const perm = keyed.map((e) => e.j);
-  for (let j = 0; j < perm.length; j++) {
-    if (perm[j] !== j) return perm;
-  }
-  return null;
-}
-function orderBands(mode, visible, values) {
-  if (mode === "none") return visible.slice();
-  if (mode === "inverse") return visible.slice().reverse();
-  const sums = {};
-  const peaks = {};
-  for (let i = 0; i < visible.length; i++) {
-    const k = visible[i];
-    const v = values[k];
-    let sum = 0;
-    let best = -Infinity;
-    let bestJ = 0;
-    for (let j = 0; j < v.length; j++) {
-      sum += v[j];
-      if (v[j] > best) {
-        best = v[j];
-        bestJ = j;
-      }
-    }
-    sums[k] = sum;
-    peaks[k] = bestJ;
-  }
-  const byPeak = visible.slice().sort((a, b) => peaks[a] - peaks[b] || a - b);
-  let top = 0;
-  let bottom = 0;
-  const tops = [];
-  const bottoms = [];
-  for (let i = 0; i < byPeak.length; i++) {
-    const k = byPeak[i];
-    if (top < bottom) {
-      top += sums[k];
-      tops.push(k);
-    } else {
-      bottom += sums[k];
-      bottoms.push(k);
-    }
-  }
-  return bottoms.reverse().concat(tops);
-}
-function baselineFor(mode, order, stack, m) {
-  const base = new Array(m).fill(0);
-  if (m === 0 || order.length === 0) return base;
-  if (mode === "zero" || mode === "expand") return base;
-  if (mode === "silhouette") {
-    for (let j = 0; j < m; j++) {
-      let total = 0;
-      for (let i = 0; i < order.length; i++) total += stack[order[i]][j];
-      base[j] = -total / 2;
-    }
-    return base;
-  }
-  let y = 0;
-  for (let j = 1; j < m; j++) {
-    let s1 = 0;
-    let s2 = 0;
-    for (let i = 0; i < order.length; i++) {
-      const vi = stack[order[i]];
-      const now = vi[j];
-      let moved = (now - vi[j - 1]) / 2;
-      for (let k = 0; k < i; k++) {
-        const vk = stack[order[k]];
-        moved += vk[j] - vk[j - 1];
-      }
-      s1 += now;
-      s2 += moved * now;
-    }
-    if (s1) y -= s2 / s1;
-    base[j] = y;
-  }
-  return base;
-}
-function streamgraphTransform(ser, w) {
-  var _a, _b;
-  const cnf = w.config;
-  const gl = w.globals;
-  if (!Array.isArray(ser)) return ser;
-  if (!gl.streamgraphRawSeries) {
-    gl.streamgraphRawSeries = ser.map((s) => __spreadProps(__spreadValues({}, s), {
-      data: Array.isArray(s == null ? void 0 : s.data) ? s.data.slice() : s == null ? void 0 : s.data
-    }));
-  }
-  const raw = gl.streamgraphRawSeries;
-  if (raw.some(
-    (s) => isPairShaped(Array.isArray(s == null ? void 0 : s.data) ? s.data : [])
-  )) {
-    w.streamgraphData = null;
-    return ser;
-  }
-  const opts = ((_a = cnf.plotOptions) == null ? void 0 : _a.streamgraph) || {};
-  const offset = OFFSETS.indexOf(opts.offset) !== -1 ? opts.offset : "wiggle";
-  const order = ORDERS.indexOf(opts.order) !== -1 ? opts.order : "inside-out";
-  const categories = (_b = cnf.xaxis) == null ? void 0 : _b.categories;
-  const collapsed = gl.collapsedSeriesIndices || [];
-  const { xs, rows, grids } = joinOnX(raw, categories);
-  const perm = sortColumns(xs);
-  const columns = perm ? perm.map((j) => xs[j]) : xs;
-  const columnRows = perm ? perm.map((j) => rows[j]) : rows;
-  const m = columns.length;
-  let sawNegative = false;
-  const values = [];
-  for (let k = 0; k < raw.length; k++) {
-    const row = new Array(m);
-    for (let j = 0; j < m; j++) {
-      const src = grids[k].get(perm ? perm[j] : j);
-      let v = src === void 0 || src === null ? 0 : Number(src);
-      if (!isFinite(v)) v = 0;
-      if (v < 0) {
-        sawNegative = true;
-        v = 0;
-      }
-      row[j] = v;
-    }
-    values.push(row);
-  }
-  if (sawNegative && !gl.streamgraphWarnedNegative) {
-    gl.streamgraphWarnedNegative = true;
-    console.warn(
-      'ApexCharts: a streamgraph stacks parts of a whole, so negative values have no band to draw and were treated as 0. Use a stacked area (chart.type: "area", chart.stacked: true) for data that goes below zero.'
-    );
-  }
-  const visible = [];
-  for (let k = 0; k < raw.length; k++) {
-    if (collapsed.indexOf(k) === -1) visible.push(k);
-  }
-  let stack = values;
-  if (offset === "expand") {
-    stack = values.map((row) => row.slice());
-    for (let j = 0; j < m; j++) {
-      let total = 0;
-      for (let i = 0; i < visible.length; i++) total += stack[visible[i]][j];
-      if (total) {
-        for (let i = 0; i < visible.length; i++) stack[visible[i]][j] /= total;
-      }
-    }
-  }
-  const bandOrder = orderBands(order, visible, stack);
-  const base = baselineFor(offset, bandOrder, stack, m);
-  const lows = raw.map(() => null);
-  const highs = raw.map(() => null);
-  for (let i = 0; i < bandOrder.length; i++) {
-    lows[bandOrder[i]] = new Array(m);
-    highs[bandOrder[i]] = new Array(m);
-  }
-  for (let j = 0; j < m; j++) {
-    let acc = base[j];
-    for (let i = 0; i < bandOrder.length; i++) {
-      const k = bandOrder[i];
-      const bandLo = (
-        /** @type {number[]} */
-        lows[k]
-      );
-      const bandHi = (
-        /** @type {number[]} */
-        highs[k]
-      );
-      bandLo[j] = acc;
-      acc += stack[k][j];
-      bandHi[j] = acc;
-    }
-  }
-  w.streamgraphData = {
-    names: raw.map(
-      (s, k) => {
-        var _a2;
-        return (_a2 = s == null ? void 0 : s.name) != null ? _a2 : `Series ${k + 1}`;
-      }
-    ),
-    xs: columns,
-    values,
-    lows,
-    highs,
-    order: bandOrder,
-    offset,
-    hidden: raw.map((_, k) => k).filter((k) => collapsed.indexOf(k) !== -1)
-  };
-  return raw.map((s, k) => {
-    const lo = lows[k];
-    const hi = highs[k];
-    if (!lo || !hi) return __spreadProps(__spreadValues({}, s), { data: [] });
-    const data = new Array(m);
-    for (let j = 0; j < m; j++) {
-      data[j] = __spreadProps(__spreadValues({}, columnRows[j]), { x: columns[j], y: [lo[j], hi[j]] });
-    }
-    return __spreadProps(__spreadValues({}, s), { data });
-  });
-}
-registerSeriesTransform("streamgraph", streamgraphTransform);
-_core__default.registerFeatures({ streamgraph: StreamLabels });

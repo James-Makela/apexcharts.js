@@ -18,7 +18,7 @@ var __spreadValues = (a, b) => {
 };
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 /*!
- * ApexCharts v7.1.0
+ * ApexCharts v8.0.0
  * (c) 2018-2026 ApexCharts
  */
 import * as _core from "apexcharts/core";
@@ -477,6 +477,7 @@ class Exports {
    */
   getSvgString(_scale) {
     return new Promise((resolve) => {
+      var _a, _b, _c;
       const w = this.w;
       let scale = _scale || w.config.chart.toolbar.export.scale || w.config.chart.toolbar.export.width / w.globals.svgWidth;
       if (!scale) {
@@ -484,6 +485,9 @@ class Exports {
       }
       const width = w.globals.svgWidth * scale;
       const height = w.globals.svgHeight * scale;
+      (_a = w.globals.layoutTween) == null ? void 0 : _a.finish();
+      (_b = w.globals.circleTween) == null ? void 0 : _b.finish();
+      (_c = w.globals.highlightTween) == null ? void 0 : _c.finish();
       const clonedNode = (
         /** @type {HTMLElement} */
         w.dom.elWrap.cloneNode(true)
@@ -791,8 +795,7 @@ class Exports {
       }
     };
     const handleUnequalXValues = () => {
-      const categories = /* @__PURE__ */ new Set();
-      const data = {};
+      const byCategory = /* @__PURE__ */ new Map();
       series.forEach((s, sI) => {
         s == null ? void 0 : s.data.forEach((dataItem) => {
           let cat, value;
@@ -805,24 +808,25 @@ class Exports {
           } else {
             return;
           }
-          if (!/** @type {Record<string,any>} */
-          data[cat]) {
-            data[cat] = Array(
-              series.length
-            ).fill("");
+          const key = String(cat);
+          let row = byCategory.get(key);
+          if (!row) {
+            row = { cat, values: Array(series.length).fill("") };
+            byCategory.set(key, row);
           }
-          data[cat][sI] = getFormattedValue(value);
-          categories.add(cat);
+          row.values[sI] = getFormattedValue(value);
         });
       });
       if (columns.length) {
         rows.push(columns.join(columnDelimiter));
       }
-      Array.from(categories).sort().forEach((cat) => {
-        const values = (
-          /** @type {Record<string,any>} */
-          data[cat]
-        );
+      Array.from(byCategory.values()).sort((a, b) => {
+        const aText = typeof a.cat === "string";
+        const bText = typeof b.cat === "string";
+        if (aText !== bText) return aText ? 1 : -1;
+        if (!aText) return a.cat - b.cat;
+        return a.cat < b.cat ? -1 : 1;
+      }).forEach(({ cat, values }) => {
         rows.push([getFormattedCategory(cat), ...values].join(columnDelimiter));
       });
     };
@@ -927,10 +931,49 @@ class Toolbar {
     this.elMenu = null;
     this.elMenuItems = [];
     this.t = null;
+    this._drawnForZoom = null;
   }
-  createToolbar() {
-    var _a, _b;
+  /**
+   * Whether this chart's built-in ways back out of a zoom are switched on.
+   *
+   * The gate `chart.zoom.resetControl` opens, and the one the Escape shortcut
+   * reads too, so a page that says it supplies its own reset gets neither.
+   * 'auto' means "supply one when nothing else on screen can": a toolbar
+   * showing its reset tool is a way back, and anything else is not.
+   *
+   * @returns {boolean}
+   */
+  resetControlAllowed() {
+    const c = this.w.config.chart;
+    if (!c.zoom || !c.zoom.enabled) return false;
+    const setting = c.zoom.resetControl === void 0 ? "auto" : c.zoom.resetControl;
+    if (setting !== "auto") return !!setting;
+    const onScreen = c.toolbar && c.toolbar.show && c.toolbar.tools && c.toolbar.tools.reset;
+    return !onScreen;
+  }
+  /**
+   * Whether a reset control has to be drawn for the state the chart is in now.
+   *
+   * Only while the chart is actually zoomed, which is the whole idea: the
+   * control appears at the moment the viewer changed the view, where they are
+   * already looking, and goes again when the range does. A page that never
+   * zooms never sees it, so `toolbar: { show: false }` still means an empty
+   * chart for everyone who does not zoom.
+   *
+   * @returns {boolean}
+   */
+  resetControlDue() {
+    return !!this.w.interact.zoomed && this.resetControlAllowed();
+  }
+  /**
+   * @param {{ resetOnly?: boolean }} [opts] `resetOnly` draws the on-demand
+   *   reset control and nothing else, for a chart whose page asked for no
+   *   toolbar at all. See {@link Toolbar#resetControlDue}.
+   */
+  createToolbar(opts = {}) {
+    var _a, _b, _c;
     const w = this.w;
+    const resetOnly = !!opts.resetOnly;
     const createDiv = () => {
       return BrowserAPIs.createElementNS("http://www.w3.org/1999/xhtml", "div");
     };
@@ -958,6 +1001,24 @@ class Toolbar {
     this.elMenu = createDiv();
     this.elCustomIcons = [];
     this.t = w.config.chart.toolbar.tools;
+    this._drawnForZoom = null;
+    if (resetOnly) {
+      this.t = {
+        zoom: false,
+        zoomin: false,
+        zoomout: false,
+        selection: false,
+        pan: false,
+        measure: false,
+        download: false,
+        customIcons: [],
+        reset: true
+      };
+      this._drawnForZoom = "wrap";
+    } else if (!this.t.reset && this.resetControlDue()) {
+      this.t = __spreadProps(__spreadValues({}, this.t), { reset: true });
+      this._drawnForZoom = "control";
+    }
     if (Array.isArray(this.t.customIcons)) {
       for (let i = 0; i < this.t.customIcons.length; i++) {
         this.elCustomIcons.push(createBtn());
@@ -1068,7 +1129,14 @@ class Toolbar {
       this.elMenuIcon.setAttribute("aria-haspopup", "true");
       this.elMenuIcon.setAttribute("aria-expanded", "false");
     }
-    this._createHamburgerMenu(elToolbarWrap);
+    if (!resetOnly) this._createHamburgerMenu(elToolbarWrap);
+    if (resetOnly) {
+      (_a = this.elZoomReset) == null ? void 0 : _a.addEventListener(
+        "click",
+        this.handleZoomReset.bind(this)
+      );
+      return;
+    }
     if (w.interact.zoomEnabled) {
       this.elZoom.classList.add(this.selectedClass);
     } else if (w.interact.panEnabled) {
@@ -1077,7 +1145,7 @@ class Toolbar {
       this.elSelection.classList.add(this.selectedClass);
     } else if (w.interact.measureEnabled && this.elMeasure) {
       this.elMeasure.classList.add(this.selectedClass);
-      (_b = (_a = this.ctx.measure) == null ? void 0 : _a.startMeasure) == null ? void 0 : _b.call(_a);
+      (_c = (_b = this.ctx.measure) == null ? void 0 : _b.startMeasure) == null ? void 0 : _c.call(_b);
     }
     this.addToolbarEventListeners();
   }
@@ -1483,9 +1551,28 @@ class Toolbar {
         break;
     }
   }
+  /**
+   * Take down whatever the zoom alone put on screen.
+   *
+   * By hand, and not left to the next render, because of the order in
+   * {@link Toolbar#handleZoomReset}: the re-render happens while
+   * `interact.zoomed` is still true, so the control is drawn once more and then
+   * the flag clears with no further pass to notice. Reversing that order would
+   * change what every listener downstream of the update sees, which is a much
+   * larger promise than this control is worth.
+   */
+  clearZoomAffordance() {
+    const drawn = this._drawnForZoom;
+    this._drawnForZoom = null;
+    if (!drawn || !this.elZoomReset) return;
+    const parent = this.elZoomReset.parentNode;
+    const gone = drawn === "wrap" ? parent : this.elZoomReset;
+    if (gone && gone.parentNode) gone.parentNode.removeChild(gone);
+  }
   handleZoomReset() {
     const charts = this.ctx.getSyncedCharts();
     charts.forEach((ch) => {
+      var _a;
       const w = ch.w;
       if (!w.interact.zoomed) return;
       w.globals.lastXAxis.min = w.globals.initialConfig.xaxis.min;
@@ -1511,6 +1598,7 @@ class Toolbar {
         w.config.chart.animations.dynamicAnimation.enabled
       );
       w.interact.zoomed = false;
+      (_a = ch.ctx.toolbar) == null ? void 0 : _a.clearZoomAffordance();
     });
   }
   destroy() {
@@ -1572,6 +1660,7 @@ class AxisMapping {
     return (screenX - svgRect.left) / (zoom || 1) - w.layout.translateX;
   }
 }
+const TooltipUtils = _core.__apex_tooltip_Utils;
 const Box = _core.__apex_index_Box;
 const WHEEL_ZOOM_PIXELS_PER_2X = 240;
 const INERTIA_MIN_RELEASE_VELOCITY = 0.05;
@@ -1579,6 +1668,7 @@ const INERTIA_DEFAULT_FRICTION = 0.92;
 const INERTIA_STOP_VELOCITY = 0.02;
 const FRAME_MS_60FPS = 16.6667;
 const PAN_NUDGE_DIVISOR = 15;
+const PLOT_ORIGIN_PX = 0;
 class ZoomPanSelection extends Toolbar {
   /**
    * @param {import('../types/internal').ChartStateW} w
@@ -1658,6 +1748,10 @@ class ZoomPanSelection extends Toolbar {
         passive: false
       });
     }
+    this.hoverArea.addEventListener("keydown", me.escapeResetEvent.bind(me), {
+      capture: false,
+      passive: true
+    });
     if (this._momentumEnabled()) {
       ["touchstart", "touchmove", "touchend", "touchcancel"].forEach(
         (event) => {
@@ -1715,10 +1809,9 @@ class ZoomPanSelection extends Toolbar {
     this.clientX = e.type === "touchmove" || e.type === "touchstart" ? e.touches[0].clientX : e.type === "touchend" ? e.changedTouches[0].clientX : e.clientX;
     this.clientY = e.type === "touchmove" || e.type === "touchstart" ? e.touches[0].clientY : e.type === "touchend" ? e.changedTouches[0].clientY : e.clientY;
     if (e.type === "mousedown" && e.which === 1 || e.type === "touchstart") {
-      const gridRectDim = this._gridRect();
-      if (!gridRectDim) return;
+      if (!this._hasPlot()) return;
       this.startX = this._screenXToPlotPx(this.clientX);
-      this.startY = this.clientY - gridRectDim.top;
+      this.startY = this._screenYToPlotPx(this.clientY);
       this.dragged = false;
       this.w.interact.mousedown = true;
     }
@@ -1750,10 +1843,9 @@ class ZoomPanSelection extends Toolbar {
   /** @param {{ zoomtype?: any, isResized?: any }} opts */
   handleMouseUp({ zoomtype, isResized }) {
     const w = this.w;
-    const gridRectDim = this._gridRect();
-    if (gridRectDim && (this.w.interact.mousedown || isResized)) {
+    if (this._hasPlot() && (this.w.interact.mousedown || isResized)) {
       this.endX = this._screenXToPlotPx(this.clientX);
-      this.endY = this.clientY - gridRectDim.top;
+      this.endY = this._screenYToPlotPx(this.clientY);
       this.dragX = Math.abs(this.endX - this.startX);
       this.dragY = Math.abs(this.endY - this.startY);
       if (w.interact.zoomEnabled || w.interact.selectionEnabled) {
@@ -1790,12 +1882,16 @@ class ZoomPanSelection extends Toolbar {
   /**
    * A wheel or pinch zoom is an incidental gesture: the viewer can land in a
    * zoomed window without meaning to (a page scroll over the chart, a two-finger
-   * swipe), so it is only offered when there is a way back out of it. The only
-   * built-in way back is the toolbar's reset button, hence 'auto' (the default
-   * for both allowMouseWheelZoom and pinch) resolves against that button being
-   * present. A page that builds its own reset control sets the option to true
-   * and gets the gesture with no toolbar. Drag-to-zoom is deliberate, so it is
-   * not gated this way.
+   * swipe), so it is only offered when there is a way back out of it. 'auto'
+   * (the default for both allowMouseWheelZoom and pinch) resolves against a
+   * reset button that is already on screen. A page that builds its own reset
+   * control sets the option to true and gets the gesture with no toolbar.
+   * Drag-to-zoom is deliberate, so it is not gated this way.
+   *
+   * `chart.zoom.resetControl` supplies a reset of its own once a chart IS
+   * zoomed, and deliberately does NOT open this gate. It arrives after the
+   * fact, and what an incidental wheel zoom takes from the viewer first is the
+   * page scroll it swallowed, which no button hands back.
    *
    * @param {boolean|'auto'} setting
    */
@@ -1809,6 +1905,58 @@ class ZoomPanSelection extends Toolbar {
   _wheelZoomEnabled() {
     const { zoom } = this.w.config.chart;
     return this._incidentalZoomEnabled(zoom && zoom.allowMouseWheelZoom);
+  }
+  /**
+   * Put keyboard focus on the chart, where the chart is focusable at all.
+   *
+   * A drag is swallowed by the zoom handlers before the browser can move focus,
+   * so a viewer who has just zoomed by hand leaves nothing focused, and every
+   * key the chart offers is out of reach: Escape to reset (see
+   * {@link ZoomPanSelection#escapeResetEvent}) and the +, - and 0 the keyboard
+   * module already binds. Focusing what they just acted on puts those in reach.
+   *
+   * Pointer-driven focus, which keyboard navigation expects and does not read
+   * as a request to start navigating, and which the stylesheet draws no ring
+   * around (`svg:focus:not(:focus-visible)`).
+   *
+   * Only where the accessibility module has made the SVG focusable, which is
+   * the default: a page that turned keyboard support off is not handed a tab
+   * stop it never asked for, and still has the reset control as its way back.
+   */
+  _focusForKeyboard() {
+    var _a, _b;
+    const node = this.w.dom.Paper && this.w.dom.Paper.node;
+    if (!node || typeof node.focus !== "function") return;
+    if (node.getAttribute("tabindex") === null) return;
+    (_b = (_a = this.ctx.keyboardNavigation) == null ? void 0 : _a.notePointerFocus) == null ? void 0 : _b.call(_a);
+    try {
+      node.focus({ preventScroll: true });
+    } catch (e) {
+      node.focus();
+    }
+  }
+  /**
+   * Escape, on a zoomed chart, puts the range back.
+   *
+   * The quiet half of the same answer the on-demand reset control gives, and
+   * gated on it, so a page that says it supplies its own way back gets neither.
+   *
+   * It defers to keyboard navigation, whose Escape dismisses the tooltip and
+   * which offers `0` for this, so the key means one thing at a time. It does
+   * not stop the event either, so a page listening for Escape still hears it.
+   *
+   * Reachable because a completed drag-zoom puts focus on the chart; see
+   * {@link ZoomPanSelection#_focusForKeyboard}.
+   *
+   * @param {any} e
+   */
+  escapeResetEvent(e) {
+    if (e.key !== "Escape" && e.key !== "Esc") return;
+    if (!this.w.interact.zoomed) return;
+    const nav = this.ctx.keyboardNavigation;
+    if (nav && nav.active) return;
+    if (!this.resetControlAllowed()) return;
+    this.handleZoomReset();
   }
   /** Lazily-created, re-render-surviving wheel-gesture state. */
   _wheel() {
@@ -1853,12 +2001,12 @@ class ZoomPanSelection extends Toolbar {
     const scale = st.factor;
     st.factor = 1;
     if (scale === 1 || w.globals.isDestroyed) return;
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim || !gridRectDim.width) return;
+    const gridWidth = w.layout.gridWidth;
+    if (!this._hasPlot() || !gridWidth) return;
     const { min, max } = this._currentXWindow();
     const range = max - min;
     const mouseX = Math.min(
-      Math.max((st.clientX - gridRectDim.left) / gridRectDim.width, 0),
+      Math.max(this._screenXToPlotPx(st.clientX) / gridWidth, 0),
       1
     );
     let newRange = range * scale;
@@ -1918,6 +2066,7 @@ class ZoomPanSelection extends Toolbar {
         }
       }).resize().on("resize", () => {
         var _a;
+        this._clampSelectionRectToPlot();
         if (w.interact.selectionEnabled) {
           w.interact.selection = {
             x: parseFloat(this.selectionRect.node.getAttribute("x")),
@@ -2019,6 +2168,32 @@ class ZoomPanSelection extends Toolbar {
     }
   }
   /**
+   * Clamp the persistent selection rect to the pixel span the x-domain occupies,
+   * i.e. PLOT_ORIGIN_PX..gridWidth, which under AxisMapping is exactly
+   * minX..maxX. A body drag has always obeyed this box through `this.constraints`;
+   * this puts a handle resize on the same footing.
+   *
+   * The rect itself is rewritten rather than only the numbers reported to
+   * listeners, so the range every consumer receives keeps matching the rect the
+   * user sees (the one-mapping invariant selection-geometry.spec.js guards), and
+   * the handles are repositioned onto the clamped edge so a handle held past the
+   * boundary stays visually pinned there.
+   */
+  _clampSelectionRectToPlot() {
+    const rect = this.selectionRect;
+    if (!rect || !rect.node) return;
+    const maxPx = this.w.layout.gridWidth;
+    if (!(maxPx > PLOT_ORIGIN_PX)) return;
+    const x = parseFloat(rect.node.getAttribute("x")) || 0;
+    const width = parseFloat(rect.node.getAttribute("width")) || 0;
+    const clamp = (px) => Math.min(Math.max(px, PLOT_ORIGIN_PX), maxPx);
+    const left = clamp(x);
+    const right = clamp(x + width);
+    if (left === x && right === x + width) return;
+    rect.attr({ x: left, width: right - left });
+    if (rect._updateSelectPositions) rect._updateSelectPositions();
+  }
+  /**
    * @param {any} rect
    */
   hideSelectionRect(rect) {
@@ -2034,14 +2209,13 @@ class ZoomPanSelection extends Toolbar {
   selectionDrawing({ context, zoomtype }) {
     const w = this.w;
     const me = context;
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim) return;
-    const startX = me.startX - 1;
+    if (!this._hasPlot()) return;
+    const startX = me.startX;
     const startY = me.startY;
     let inversedX = false;
     let inversedY = false;
     const left = this._screenXToPlotPx(me.clientX);
-    const top = me.clientY - gridRectDim.top;
+    const top = this._screenYToPlotPx(me.clientY);
     let selectionWidth = left - startX;
     let selectionHeight = top - startY;
     let selectionRect = {
@@ -2161,8 +2335,7 @@ class ZoomPanSelection extends Toolbar {
     if (typeof w.config.chart.events.selection !== "function" && !linkActive) {
       return;
     }
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim) return;
+    if (!this._hasPlot()) return;
     const selectionRect = this.selectionRect.node.getBoundingClientRect();
     const xyRatios = this.xyRatios;
     let minX, maxX, minY, maxY;
@@ -2172,8 +2345,8 @@ class ZoomPanSelection extends Toolbar {
       if (!w.globals.xAxisScale) return;
       minX = AxisMapping.pxToDataX(w, relLeft);
       maxX = AxisMapping.pxToDataX(w, relRight);
-      minY = w.globals.yAxisScale[0].niceMin + (gridRectDim.bottom - selectionRect.bottom) * xyRatios.yRatio[0];
-      maxY = w.globals.yAxisScale[0].niceMax - (selectionRect.top - gridRectDim.top) * xyRatios.yRatio[0];
+      minY = w.globals.yAxisScale[0].niceMin + (w.layout.gridHeight - this._screenYToPlotPx(selectionRect.bottom)) * xyRatios.yRatio[0];
+      maxY = w.globals.yAxisScale[0].niceMax - this._screenYToPlotPx(selectionRect.top) * xyRatios.yRatio[0];
     } else {
       minX = w.globals.yAxisScale[0].niceMin + relLeft * xyRatios.invertedYRatio;
       maxX = w.globals.yAxisScale[0].niceMin + relRight * xyRatios.invertedYRatio;
@@ -2200,12 +2373,11 @@ class ZoomPanSelection extends Toolbar {
     const xyRatios = this.xyRatios;
     const toolbar = this.ctx.toolbar;
     const selRect = w.interact.zoomEnabled ? me.zoomRect.node.getBoundingClientRect() : me.selectionRect.node.getBoundingClientRect();
-    const gridRectDim = me._gridRect();
-    if (!gridRectDim) return;
+    if (!me._hasPlot()) return;
     const localStartX = this._screenXToPlotPx(selRect.left);
     const localEndX = this._screenXToPlotPx(selRect.right);
-    const localStartY = selRect.top - gridRectDim.top;
-    const localEndY = selRect.bottom - gridRectDim.top;
+    const localStartY = this._screenYToPlotPx(selRect.top);
+    const localEndY = this._screenYToPlotPx(selRect.bottom);
     let xLowestValue, xHighestValue;
     if (!w.axisFlags.isRangeBar) {
       xLowestValue = AxisMapping.pxToDataX(w, localStartX);
@@ -2265,11 +2437,16 @@ class ZoomPanSelection extends Toolbar {
         if (!w.config.chart.group) {
           options.yaxis = yaxis;
         }
-        me.ctx.updateHelpers._updateOptions(
+        const applied = me.ctx.updateHelpers._updateOptions(
           options,
           false,
           me.w.config.chart.animations.dynamicAnimation.enabled
         );
+        if (applied && typeof applied.then === "function") {
+          applied.then(() => me._focusForKeyboard());
+        } else {
+          me._focusForKeyboard();
+        }
         if (typeof w.config.chart.events.zoomed === "function") {
           toolbar.zoomCallback(xaxis, yaxis);
         }
@@ -2457,15 +2634,25 @@ class ZoomPanSelection extends Toolbar {
     const w = this.w;
     return w.axisFlags.isRangeBar ? { min: w.globals.minY, max: w.globals.maxY } : { min: w.globals.minX, max: w.globals.maxX };
   }
-  /** Live grid rect from the current DOM. Never cache the grid node on the
-   * instance: a full render replaces this whole instance, but the fast update
-   * path (fastUpdate/_fastAxisChromeRefresh) keeps the instance while swapping
-   * the grid node, and a cached node would go stale (detached nodes report an
-   * all-zero bounding rect, silently corrupting selection geometry). */
-  _gridRect() {
+  /** Is there a chart on screen to measure the pointer against? */
+  _hasPlot() {
     const baseEl = this.w.dom.baseEl;
-    const grid = baseEl && baseEl.querySelector(".apexcharts-grid");
-    return grid ? grid.getBoundingClientRect() : null;
+    return !!(baseEl && baseEl.querySelector(".apexcharts-svg"));
+  }
+  /**
+   * Convert an absolute (client) y pixel to the plot-origin coordinate space,
+   * the y twin of {@link _screenXToPlotPx}. Measured per event from the svg
+   * (TooltipUtils.plotRect), never from the `.apexcharts-grid` box: unless
+   * gridlines reach the plot's top edge that box starts a pixel below it, so
+   * a drag rect stood a pixel above the pointer and the zoomed y range came
+   * back two pixels high. Dividing by the CSS zoom keeps a chart inside a
+   * zoomed container from reading screen pixels as plot pixels.
+   * @param {number} screenY
+   * @returns {number}
+   */
+  _screenYToPlotPx(screenY) {
+    const plot = TooltipUtils.plotRect(this.w);
+    return (screenY - plot.top) / plot.zoom;
   }
   /**
    * Convert an absolute (client) x pixel to the plot-origin coordinate space
@@ -2572,19 +2759,19 @@ class ZoomPanSelection extends Toolbar {
     const type = e.type;
     if (type === "touchstart") {
       this._cancelInertia();
-      const gridRectDim = this._gridRect();
-      if (!gridRectDim) return;
+      if (!this._hasPlot()) return;
       if (e.touches.length >= 2 && this._pinchEnabled()) {
         e.preventDefault();
         m.busy = true;
         m.panState = null;
-        this._beginPinch(e, gridRectDim);
+        this._beginPinch(e);
       } else if (e.touches.length === 1 && this._panInertiaEnabled() && w.interact.panEnabled) {
         m.busy = true;
         m.pinch = null;
         const t = e.touches[0];
         const win = this._currentXWindow();
         const gw = w.layout.gridWidth || 1;
+        const zoom = TooltipUtils.plotRect(w).zoom;
         m.panState = {
           startX: t.clientX,
           startY: t.clientY,
@@ -2592,7 +2779,9 @@ class ZoomPanSelection extends Toolbar {
           // decided on first move (rails)
           minX0: win.min,
           maxX0: win.max,
-          ratio0: (win.max - win.min) / gw
+          zoom,
+          // data per screen px
+          ratio0: (win.max - win.min) / gw / zoom
         };
         m.samples = [{ x: t.clientX, t: e.timeStamp }];
       }
@@ -2620,13 +2809,22 @@ class ZoomPanSelection extends Toolbar {
       }
     }
   }
-  /** @param {any} e @param {DOMRect} gridRectDim */
-  _beginPinch(e, gridRectDim) {
+  /**
+   * The centroid is taken in plot px through the shared AxisMapping, the
+   * space `gridWidth` and the x window are in. It used to be the grid box's
+   * left edge less barPadForNumericAxis, which only lands on the plot's left
+   * edge while the gridlines happen to reach exactly barPad past it (with
+   * `grid.show: false` they do not, and the anchor slid a bar's width), and
+   * stayed in screen px, so a chart in a CSS-zoomed container drifted under
+   * the fingers.
+   * @param {any} e
+   */
+  _beginPinch(e) {
     const w = this.w;
     const t0 = e.touches[0];
     const t1 = e.touches[1];
     const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1;
-    const cx = (t0.clientX + t1.clientX) / 2 - gridRectDim.left - w.globals.barPadForNumericAxis;
+    const cx = this._screenXToPlotPx((t0.clientX + t1.clientX) / 2);
     const { min, max } = this._currentXWindow();
     this._m().pinch = {
       d0: dist,
@@ -2640,13 +2838,11 @@ class ZoomPanSelection extends Toolbar {
   _movePinch(e) {
     const w = this.w;
     const p = this._m().pinch;
-    if (!p) return;
-    const gridRectDim = this._gridRect();
-    if (!gridRectDim) return;
+    if (!p || !this._hasPlot()) return;
     const t0 = e.touches[0];
     const t1 = e.touches[1];
     const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1;
-    const cx = (t0.clientX + t1.clientX) / 2 - gridRectDim.left - w.globals.barPadForNumericAxis;
+    const cx = this._screenXToPlotPx((t0.clientX + t1.clientX) / 2);
     const range0 = p.maxX0 - p.minX0;
     const newRange = range0 * (p.d0 / dist);
     const anchorData = p.minX0 + p.cx0 / p.gridWidth * range0;
@@ -2714,7 +2910,7 @@ class ZoomPanSelection extends Toolbar {
     }
     m.samples = [];
     if (s && s.axis === "x" && this._panInertiaEnabled() && Math.abs(vel) > INERTIA_MIN_RELEASE_VELOCITY) {
-      this._startInertia(vel);
+      this._startInertia(vel / s.zoom);
     } else {
       m.busy = false;
       this._fireScrolled();
@@ -2725,7 +2921,7 @@ class ZoomPanSelection extends Toolbar {
    * `friction` each frame and shift the window, stopping at the data edge
    * (clamp, not elastic overshoot). The loop is w-driven, so it keeps running
    * across the re-renders each frame triggers and stops only on a real destroy.
-   * @param {number} vel0 px/ms, sign is the finger direction
+   * @param {number} vel0 plot px/ms, sign is the finger direction
    */
   _startInertia(vel0) {
     const w = this.w;

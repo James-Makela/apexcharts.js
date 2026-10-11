@@ -1,74 +1,85 @@
 // @ts-check
 /**
- * ApexCharts — full bundle entry point (all chart types).
+ * ApexCharts: the full bundle's entry point (everything).
  *
- * This is what the default import resolves to:
- *   import ApexCharts from 'apexcharts'
+ *   <script src=".../dist/apexcharts.full.min.js"></script>
+ *   import ApexCharts from 'apexcharts/full'
  *
- * Registers every built-in chart type. Use a sub-entry point instead
- * (e.g. 'apexcharts/line') to ship only the types you need.
+ * The default bundle plus every chart type and feature that ships outside it,
+ * and the unit-shape and pictogram catalogs registered by name. For a page or
+ * an app that would rather load one file than choose: the default bundle stays
+ * the small one, and this is the one that needs no add-on.
+ *
+ * Premium types and features are here too and stay licence-gated at runtime,
+ * exactly as they are when loaded as add-ons.
+ *
+ * Built twice. The script-tag file inlines everything, the default bundle
+ * included, because a script tag has no resolver. The bundler build
+ * (`dist/full.esm.js`) takes the default bundle from `apexcharts` and the core
+ * from `apexcharts/core` (vite.config.mjs), so an app that also imports
+ * `apexcharts`, as every wrapper does, carries the default bundle once.
+ *
+ * Default export only. A named export turns the UMD build into a namespace
+ * object, and `new ApexCharts()` on a script-tag page would throw.
+ *
+ * Never defines `__internals`: the default bundle it starts from already did,
+ * on the same class, and a second non-configurable define throws.
  */
-import ApexCharts from '../apexcharts'
-import * as coreInternals from './core.js'
-import '../features/all.js'
-import Bar from '../charts/Bar'
-import BarStacked from '../charts/BarStacked'
-import BoxCandleStick from '../charts/BoxCandleStick'
-import Violin from '../charts/Violin'
-import HeatMap from '../charts/HeatMap'
-import Line from '../charts/Line'
-import Pie from '../charts/Pie'
-import Radar from '../charts/Radar'
-import Radial from '../charts/Radial'
-import RangeBar from '../charts/RangeBar'
-import Treemap from '../charts/Treemap'
-import Unit from '../charts/Unit'
-import Sunburst from '../charts/Sunburst'
+import ApexCharts from './standard.js'
+import Core from '../apexcharts.js'
 
-ApexCharts.use({
-  line: Line,
-  area: Line,
-  scatter: Line,
-  bubble: Line,
-  rangeArea: Line,
-  bar: Bar,
-  column: Bar,
-  barStacked: BarStacked,
-  rangeBar: RangeBar,
-  candlestick: BoxCandleStick,
-  boxPlot: BoxCandleStick,
-  violin: Violin,
-  pie: Pie,
-  donut: Pie,
-  polarArea: Pie,
-  radialBar: Radial,
-  radar: Radar,
-  heatmap: HeatMap,
-  treemap: Treemap,
-  unit: Unit,
-  sunburst: Sunburst,
-})
+// Chart types outside the default bundle.
+import './violin.js'
+import './unit.js'
+import './sunburst.js'
+import './icicle.js'
+import './raincloud.js'
 
-/**
- * The shared-module surface a script-tag add-on layers onto.
- *
- * A page without a bundler loads `apexcharts.js` and then, say,
- * `features/trellis.js`. That add-on needs the same Graphics, Utils and Scales
- * the page already has: a second copy would double the payload and, worse, give
- * it class identities the core does not recognise. So the full bundle hangs the
- * `__apex_*` modules it already contains off the global, and the UMD add-on
- * build resolves its shared imports here instead of inlining them
- * (`build/shared-modules.mjs`, target 'global').
- *
- * PRIVATE and unversioned. It is not in the type definitions, it is not
- * semver-stable, and application code must never read it. Bundler users get the
- * same modules the supported way, as `apexcharts/core` exports.
- */
-Object.defineProperty(ApexCharts, '__internals', {
-  value: coreInternals,
-  enumerable: false,
-  writable: false,
-  configurable: false,
-})
+// Features outside the default bundle.
+import '../features/drilldown.js'
+import '../features/waterfall.js'
+import '../features/dumbbell.js'
+import '../features/streamgraph.js'
+import '../features/trellis.js'
+import '../features/measure.js'
+import '../features/link.js'
+import '../features/ink.js'
+import '../features/storyboard.js'
+import '../features/perspectives.js'
+import '../features/renderer-canvas.js'
+import '../features/context-menu.js'
+import '../features/history.js'
+import '../features/highlight-filter.js'
+
+// The unit chart's catalogs, by name, as `dist/unit-shapes.js` and
+// `dist/pictograms.js` register them. Their script-tag entries also hang the
+// catalog off `globalThis.ApexCharts`, which does not exist yet while this
+// bundle's own factory runs, so it is attached here instead.
+import { catalog as unitShapes } from '../unit-shapes/catalog.js'
+import { registerShapes } from '../unit-shapes/registry.js'
+import { catalog as pictograms } from '../pictograms/catalog.js'
+import { registerMarks } from '../pictograms/registry.js'
+
+registerShapes(unitShapes)
+registerMarks(pictograms)
+const A = /** @type {any} */ (ApexCharts)
+A.unitShapes = unitShapes
+A.pictograms = pictograms
+
+// Under Node's default conditions `apexcharts` resolves to the self-contained
+// server build, whose class is not the `apexcharts/core` one the features
+// above hang their statics on (`ApexCharts.perspectives`, the crossfilter
+// factory). Chart types and features reach both classes through globalThis
+// registries; plain statics do not, so `ApexCharts.perspectives` was null and
+// `ApexCharts.crossfilter()` said the link feature was missing from the bundle
+// that carries it. Hand the class this entry exports whatever it lacks. With a
+// bundler, and in the script-tag build, the two are one class and this is a
+// no-op.
+const CoreClass = /** @type {any} */ (Core)
+if (CoreClass !== A) {
+  for (const key of Object.getOwnPropertyNames(CoreClass)) {
+    if (A[key] == null && CoreClass[key] != null) A[key] = CoreClass[key]
+  }
+}
 
 export default ApexCharts

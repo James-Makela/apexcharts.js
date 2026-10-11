@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { createChartWithOptions } from './utils/utils.js'
-import ApexCharts from '../../src/entries/full.js'
+import ApexCharts from '../../src/entries/standard.js'
 
 // ---------------------------------------------------------------------------
 // Reference + probe plugins
@@ -177,7 +177,12 @@ describe('Weave: activation + layers', () => {
     chart.destroy()
   })
 
-  it('api.scales aligns to the grid edges', async () => {
+  it('api.scales is layer-local: the domain edges map to 0 and the grid size', async () => {
+    // The plugin layer <g> sits inside elGraphical, which already carries the
+    // layout translate. These scales used to add the translate AGAIN, so
+    // everything a plugin drew landed shifted by exactly the grid offset;
+    // asserting the edges at 0 and gridWidth pins the coordinate space the
+    // layer actually lives in.
     let captured = null
     const alignProbe = {
       name: 'align',
@@ -193,11 +198,53 @@ describe('Weave: activation + layers', () => {
     await chart.render()
     const L = chart.w.layout
     expect(captured).toBeTruthy()
-    expect(captured.x(captured.domainX[0])).toBeCloseTo(L.translateX, 0)
-    expect(captured.x(captured.domainX[1])).toBeCloseTo(
-      L.translateX + L.gridWidth,
-      0,
-    )
+    expect(captured.x(captured.domainX[0])).toBeCloseTo(0, 6)
+    expect(captured.x(captured.domainX[1])).toBeCloseTo(L.gridWidth, 6)
+    expect(captured.y(captured.domainY(0)[1])).toBeCloseTo(0, 6)
+    expect(captured.y(captured.domainY(0)[0])).toBeCloseTo(L.gridHeight, 6)
+    chart.destroy()
+  })
+
+  it('api.scales projects a datum onto the same pixels the chart drew its marker at', async () => {
+    // The contract behind api.layer: a plugin drawing at scales coordinates
+    // must land ON the data. Markers carry their layer-local position as
+    // cx/cy, so comparing against them proves the alignment end to end rather
+    // than agreeing with the scales' own arithmetic.
+    let captured = null
+    const markerProbe = {
+      name: 'markeralign',
+      apiVersion: 1,
+      setup(api) {
+        api.on('draw', ({ scales }) => {
+          if (scales) captured = scales
+        })
+      },
+    }
+    ApexCharts.registerPlugin(markerProbe)
+    const chart = scatterChart([{ name: 'markeralign' }])
+    await chart.render()
+    expect(captured).toBeTruthy()
+
+    const markers = Array.from(
+      chart.w.dom.baseEl.querySelectorAll('.apexcharts-marker'),
+    ).map((m) => ({
+      cx: parseFloat(m.getAttribute('cx')),
+      cy: parseFloat(m.getAttribute('cy')),
+    }))
+    expect(markers.length).toBeGreaterThan(0)
+
+    // First and last datum of S1 in scatterChart's fixture.
+    for (const [x, y] of [
+      [0, 1],
+      [8, 17],
+    ]) {
+      const px = captured.x(x)
+      const py = captured.y(y, 0)
+      const hit = markers.some(
+        (m) => Math.abs(m.cx - px) < 0.5 && Math.abs(m.cy - py) < 0.5,
+      )
+      expect(hit).toBe(true)
+    }
     chart.destroy()
   })
 })
@@ -368,6 +415,529 @@ describe('Weave: dynamic add/remove via updateOptions', () => {
     )
     expect(el.querySelector('.apexcharts-plugin-regression')).toBeFalsy()
     expect(el.querySelector('.apexcharts-plugin-watermark')).toBeTruthy()
+    chart.destroy()
+  })
+})
+
+describe('Weave: scales on a chart laid out in bands', () => {
+  /**
+   * Reported against apex-analyst: six drawing tools on a bar chart, six
+   * buttons lit, nothing on the chart. The parser computes no x range for a
+   * category bar, so globals.minX/maxX kept the sentinels they are seeded
+   * with, and the facade divided every value down to the same pixel.
+   *
+   * Asserted against the marks the chart itself drew rather than against the
+   * scales' own arithmetic, which is the only way this means anything: the
+   * old behaviour also "worked" if you only asked it to be self-consistent.
+   */
+  const bandProbe = (name) => {
+    const out = {}
+    ApexCharts.registerPlugin({
+      name,
+      apiVersion: 2,
+      setup(api) {
+        api.on('draw', () => {
+          out.scales = api.scales
+          out.data = api.data
+        })
+      },
+    })
+    return out
+  }
+
+  /** The x of each bar path, which is where the chart really put it. */
+  const barLefts = (chart) =>
+    Array.from(chart.w.dom.baseEl.querySelectorAll('.apexcharts-bar-area')).map(
+      (b) => Number(((b.getAttribute('d') || '').match(/-?\d+\.?\d*/g) || [])[0]),
+    )
+
+  it('places a category bar on its own band rather than on one pixel', async () => {
+    const out = bandProbe('bandprobe')
+    const chart = createChartWithOptions({
+      chart: { type: 'bar', width: 800, height: 300 },
+      series: [{ name: 'A', data: [10, 20, 30, 40, 50, 60] }],
+      xaxis: { categories: ['a', 'b', 'c', 'd', 'e', 'f'] },
+      plugins: [{ name: 'bandprobe' }],
+    })
+    await chart.render()
+
+    const xs = out.data[0].points.map((p) => p.x)
+    expect(xs).toEqual([0, 1, 2, 3, 4, 5])
+
+    // Every band lands somewhere different, which is the whole defect.
+    const px = xs.map((v) => out.scales.x(v))
+    expect(new Set(px).size).toBe(6)
+
+    // And each one lands on the centre of the bar it describes.
+    const lefts = barLefts(chart)
+    const barWidth = chart.w.globals.barWidth
+    px.forEach((p, i) => {
+      expect(Math.abs(p - (lefts[i] + barWidth / 2))).toBeLessThan(0.5)
+    })
+
+    chart.destroy()
+  })
+
+  it('keeps the contract that the domain edges are 0 and gridWidth', async () => {
+    const out = bandProbe('bandedges')
+    const chart = createChartWithOptions({
+      chart: { type: 'bar', width: 800, height: 300 },
+      series: [{ name: 'A', data: [10, 20, 30] }],
+      xaxis: { categories: ['a', 'b', 'c'] },
+      plugins: [{ name: 'bandedges' }],
+    })
+    await chart.render()
+
+    // apex-analyst rebases by subtracting x(domainX[0]), which has to stay the
+    // no-op the layer-local fix made it.
+    const [lo, hi] = out.scales.domainX
+    expect(out.scales.x(lo)).toBeCloseTo(0, 6)
+    expect(out.scales.x(hi)).toBeCloseTo(chart.w.layout.gridWidth, 6)
+    chart.destroy()
+  })
+
+  it('leaves a numeric or datetime x alone', async () => {
+    const out = bandProbe('bandnumeric')
+    const chart = createChartWithOptions({
+      chart: { type: 'bar', width: 800, height: 300 },
+      series: [{ name: 'A', data: [{ x: 1, y: 10 }, { x: 2, y: 20 }, { x: 3, y: 30 }] }],
+      xaxis: { type: 'numeric' },
+      plugins: [{ name: 'bandnumeric' }],
+    })
+    await chart.render()
+
+    // The value itself, not a band index: this path was never broken and the
+    // band projection must not reach it.
+    expect(out.scales.domainX).toEqual([1, 3])
+    expect(out.scales.x(1)).toBeCloseTo(0, 6)
+    chart.destroy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// api.reserve (v3): a plugin asking the chart to make room for its own UI
+// ---------------------------------------------------------------------------
+
+describe('Weave: reserving container space for a plugin UI', () => {
+  // Each probe reads its box from here rather than closing over a constant, so
+  // one registered plugin can cover every case and a test can change the
+  // reservation of a chart that is already on screen.
+  const want = { one: null, two: null }
+  let draws = 0
+
+  const reserver = {
+    name: 'reserver',
+    apiVersion: 2,
+    setup(api) {
+      api.on('draw', () => {
+        draws++
+        api.reserve(want.one)
+      })
+    },
+  }
+
+  const reserver2 = {
+    name: 'reserver2',
+    apiVersion: 2,
+    setup(api) {
+      api.on('draw', () => api.reserve(want.two))
+    },
+  }
+
+  let sawReserve = null
+  const peek = {
+    name: 'peek',
+    apiVersion: 2,
+    setup(api) {
+      sawReserve = typeof api.reserve
+    },
+  }
+
+  beforeAll(() => {
+    ;[reserver, reserver2, peek].forEach((p) => ApexCharts.registerPlugin(p))
+  })
+
+  beforeEach(() => {
+    want.one = null
+    want.two = null
+    draws = 0
+    sawReserve = null
+  })
+
+  /**
+   * reserve() re-renders on a deferred task, so that calling it from inside a
+   * draw handler cannot re-enter the render. Nothing public reports when that
+   * has landed, so wait for the box to move rather than for a fixed tick count.
+   */
+  const settle = async (chart, read, target, tries = 25) => {
+    for (let i = 0; i < tries; i++) {
+      if (read(chart) === target) return true
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    return read(chart)
+  }
+
+  const widthOf = (chart) => chart.w.globals.svgWidth
+  const heightOf = (chart) => chart.w.globals.svgHeight
+
+  const lineChart = (plugins, chartOpts = {}) =>
+    createChartWithOptions({
+      chart: {
+        type: 'line',
+        width: 600,
+        height: 400,
+        toolbar: { show: false },
+        ...chartOpts,
+      },
+      legend: { show: false },
+      series: [{ name: 'a', data: [1, 2, 3, 4] }],
+      xaxis: { categories: ['w', 'x', 'y', 'z'] },
+      plugins,
+    })
+
+  it('leaves the drawing box alone when nothing is reserved', () => {
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(widthOf(chart)).toBe(600)
+    expect(heightOf(chart)).toBe(400)
+    expect(chart.weave.reservedBox()).toEqual({ left: 0, right: 0, top: 0, bottom: 0 })
+    chart.destroy()
+  })
+
+  it('narrows the chart by the reserved gutter', async () => {
+    want.one = { right: 160 }
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(await settle(chart, widthOf, 440)).toBe(true)
+    chart.destroy()
+  })
+
+  it('does not shorten an auto-height chart when the gutter is horizontal', async () => {
+    // The whole reason the reservation is applied after the auto-height block:
+    // opening a side panel must not move everything below the chart.
+    want.one = { right: 150 }
+    const chart = createChartWithOptions({
+      chart: { type: 'line', width: 600, toolbar: { show: false } },
+      legend: { show: false },
+      series: [{ name: 'a', data: [1, 2, 3, 4] }],
+      plugins: [{ name: 'reserver' }],
+    })
+    expect(await settle(chart, widthOf, 450)).toBe(true)
+    expect(heightOf(chart)).toBeCloseTo(600 / 1.61, 6)
+    chart.destroy()
+  })
+
+  it('takes a vertical gutter off the height', async () => {
+    want.one = { top: 40, bottom: 60 }
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(await settle(chart, heightOf, 300)).toBe(true)
+    expect(widthOf(chart)).toBe(600)
+    chart.destroy()
+  })
+
+  it('sums the reservations of two plugins rather than overlapping them', async () => {
+    want.one = { right: 100 }
+    want.two = { left: 60 }
+    const chart = lineChart([{ name: 'reserver' }, { name: 'reserver2' }])
+    expect(await settle(chart, widthOf, 440)).toBe(true)
+    expect(chart.weave.reservedBox()).toEqual({ left: 60, right: 100, top: 0, bottom: 0 })
+    chart.destroy()
+  })
+
+  it('gives the space back when the reservation is dropped', async () => {
+    want.one = { right: 200 }
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(await settle(chart, widthOf, 400)).toBe(true)
+
+    want.one = null
+    chart.weave.active[0].api.reserve(null)
+    expect(await settle(chart, widthOf, 600)).toBe(true)
+    chart.destroy()
+  })
+
+  it('re-renders once for a change and not again for the same box', async () => {
+    // The draw handler reserves the same numbers on every pass. Without the
+    // unchanged-box comparison in _reserve this is an infinite render loop
+    // rather than a failing assertion, so the timeout is the real assertion.
+    want.one = { right: 120 }
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(await settle(chart, widthOf, 480)).toBe(true)
+    const settledDraws = draws
+    await new Promise((r) => setTimeout(r, 30))
+    expect(draws).toBe(settledDraws)
+    chart.destroy()
+  })
+
+  it('keeps the chart at half the box however much a plugin asks for', async () => {
+    want.one = { right: 5000 }
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(await settle(chart, widthOf, 300)).toBe(true)
+    chart.destroy()
+  })
+
+  it('reserves nothing for values that are not usable pixel counts', () => {
+    // A NaN reaching svgWidth makes the chart vanish with no error to trace it
+    // back from, so unusable numbers are dropped rather than propagated.
+    want.one = { right: NaN, left: -40, top: 'lots', bottom: Infinity }
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(widthOf(chart)).toBe(600)
+    expect(chart.weave.reservedBox()).toEqual({ left: 0, right: 0, top: 0, bottom: 0 })
+    chart.destroy()
+  })
+
+  it('hands the gutter back when the plugin is removed from the chart', async () => {
+    want.one = { right: 180 }
+    const chart = lineChart([{ name: 'reserver' }])
+    expect(await settle(chart, widthOf, 420)).toBe(true)
+
+    await chart.updateOptions({ plugins: [] })
+    expect(await settle(chart, widthOf, 600)).toBe(true)
+    chart.destroy()
+  })
+
+  it('is offered to a plugin that declares the older API version', () => {
+    // apex-analyst ships one build against both a v2 and a v3 host, so it
+    // declares v2 (a host at v2 SKIPS a plugin declaring v3 outright) and
+    // feature-detects this method. That only works if v2 plugins are given it.
+    const chart = lineChart([{ name: 'peek' }])
+    expect(sawReserve).toBe('function')
+    chart.destroy()
+  })
+})
+
+describe('Weave: telling a plugin what the viewer is pointing at', () => {
+  /** Every payload the plugin was handed, in order. */
+  let seen = []
+  let unsubscribe = null
+  let sawPointer = null
+
+  const watcher = {
+    name: 'pointer-watcher',
+    // Declares v2 and feature-detects, which is the standing rule here: a host
+    // older than the surface skips a plugin that declares it outright.
+    apiVersion: 2,
+    setup(api) {
+      sawPointer = typeof api.pointer
+      if (typeof api.pointer === 'function') {
+        unsubscribe = api.pointer((e) => seen.push(e))
+      }
+    },
+  }
+
+  const thrower = {
+    name: 'pointer-thrower',
+    apiVersion: 2,
+    setup(api) {
+      api.pointer(() => {
+        throw new Error('a plugin handler blew up')
+      })
+    },
+  }
+
+  beforeAll(() => {
+    ;[watcher, thrower].forEach((p) => ApexCharts.registerPlugin(p))
+  })
+
+  beforeEach(() => {
+    seen = []
+    unsubscribe = null
+    sawPointer = null
+  })
+
+  const lineChart = (plugins) =>
+    createChartWithOptions({
+      chart: { type: 'line', width: 600, height: 400, toolbar: { show: false } },
+      legend: { show: false },
+      series: [{ name: 'revenue', data: [1, 2, 3, 4] }],
+      xaxis: { categories: ['Jan', 'Feb', 'Mar', 'Apr'] },
+      plugins,
+    })
+
+  /** Fire the chart's own event, the way Graphics does when a viewer hovers. */
+  const fire = (chart, name, opts) => {
+    const handlers = chart.w.globals.events[name] || []
+    handlers.forEach((h) => h({}, chart, opts))
+  }
+
+  // At least the version that added it, not exactly: the host reports where it
+  // has got to, so pinning the number here turns every later addition to the
+  // facade into a failure of the pointer suite.
+  it('is on the facade, on a host new enough to have it', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    expect(sawPointer).toBe('function')
+    expect(chart.weave.active[0].api.version).toBeGreaterThanOrEqual(4)
+    chart.destroy()
+  })
+
+  it('forwards the point the chart resolved, with the category label', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    fire(chart, 'dataPointMouseEnter', { seriesIndex: 0, dataPointIndex: 2 })
+    expect(seen).toEqual([
+      {
+        type: 'enter',
+        seriesIndex: 0,
+        dataPointIndex: 2,
+        category: 'Mar',
+        seriesName: 'revenue',
+        selected: undefined,
+        // No DOM event behind a fired one, so no key was held (v6).
+        modifiers: { shift: false, ctrl: false, alt: false, meta: false },
+      },
+    ])
+    chart.destroy()
+  })
+
+  it('reports leaving as its own kind of event', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    fire(chart, 'dataPointMouseLeave', { seriesIndex: 0, dataPointIndex: 1 })
+    expect(seen.map((e) => e.type)).toEqual(['leave'])
+    chart.destroy()
+  })
+
+  // A second click on the same point is a deselect, and a plugin keying on the
+  // selection has to be able to tell the two apart.
+  it('says whether a selected point is now in the selection or out of it', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    fire(chart, 'dataPointSelection', {
+      seriesIndex: 0,
+      dataPointIndex: 1,
+      selectedDataPoints: [[1]],
+    })
+    fire(chart, 'dataPointSelection', {
+      seriesIndex: 0,
+      dataPointIndex: 1,
+      selectedDataPoints: [[]],
+    })
+    expect(seen.map((e) => e.selected)).toEqual([true, false])
+    chart.destroy()
+  })
+
+  it('leaves selection undefined where the chart carries none', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    fire(chart, 'dataPointSelection', { seriesIndex: 0, dataPointIndex: 1 })
+    expect(seen[0].selected).toBeUndefined()
+    chart.destroy()
+  })
+
+  // The facade's whole purpose: a plugin never receives `w`.
+  it('hands over no chart internals', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    fire(chart, 'dataPointMouseEnter', { seriesIndex: 0, dataPointIndex: 0, w: chart.w })
+    expect(Object.keys(seen[0]).sort()).toEqual([
+      'category',
+      'dataPointIndex',
+      'modifiers',
+      'selected',
+      'seriesIndex',
+      'seriesName',
+      'type',
+    ])
+    chart.destroy()
+  })
+
+  it('stops delivering once the plugin unsubscribes', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    unsubscribe()
+    fire(chart, 'dataPointMouseEnter', { seriesIndex: 0, dataPointIndex: 0 })
+    expect(seen).toEqual([])
+    chart.destroy()
+  })
+
+  // This runs inside the viewer's own hover. A plugin breaking the chart's
+  // interaction would be the worst failure this facade could have.
+  it('contains a handler that throws, and keeps delivering to the others', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const chart = lineChart([{ name: 'pointer-thrower' }, { name: 'pointer-watcher' }])
+    expect(() =>
+      fire(chart, 'dataPointMouseEnter', { seriesIndex: 0, dataPointIndex: 0 })
+    ).not.toThrow()
+    expect(seen).toHaveLength(1)
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+    chart.destroy()
+  })
+
+  it('costs the chart nothing when no plugin asks', () => {
+    const chart = lineChart([])
+    expect(chart.weave._pointerWired).toBeNull()
+    chart.destroy()
+  })
+
+  it('lets go of the chart on destroy', () => {
+    const chart = lineChart([{ name: 'pointer-watcher' }])
+    // Held directly: `chart.weave` is gone by the time destroy returns, so
+    // reading it afterwards tests nothing about the listeners.
+    const host = chart.weave
+    expect(host._pointerWired).not.toBeNull()
+    chart.destroy()
+    expect(host._pointerWired).toBeNull()
+  })
+})
+
+describe('Weave: reporting the caller\'s own stroke dashing', () => {
+  /*
+   * `stroke.dashArray` is indexed by series position and has no per-series
+   * escape hatch, so a plugin that wants its OWN derived series dashed has to
+   * write the whole array. Without knowing what was there it would flatten the
+   * caller's dashed lines and have nothing to restore them from, which is the
+   * same trap `dataLabels.enabledOnSeries` is reported against.
+   */
+  let seen
+  const reader = {
+    name: 'stroke-reader',
+    apiVersion: 2,
+    setup(api) {
+      seen = api.info.stroke
+    },
+  }
+
+  // A block body, not a concise one: registerPlugin returns the class for
+  // chaining, and a beforeAll that RETURNS something hands vitest a teardown
+  // to call, which then fails with "cannot be invoked without 'new'".
+  beforeAll(() => {
+    ApexCharts.registerPlugin(reader)
+  })
+  beforeEach(() => {
+    seen = undefined
+  })
+
+  const chartWith = (stroke) =>
+    createChartWithOptions({
+      chart: { type: 'line', width: 600, height: 400, toolbar: { show: false } },
+      legend: { show: false },
+      series: [
+        { name: 'a', data: [1, 2, 3] },
+        { name: 'b', data: [3, 2, 1] },
+      ],
+      ...(stroke ? { stroke } : {}),
+      plugins: [{ name: 'stroke-reader' }],
+    })
+
+  it('reports an array the caller set, per series', () => {
+    const chart = chartWith({ dashArray: [0, 6] })
+    expect(seen.dashArray).toEqual([0, 6])
+    chart.destroy()
+  })
+
+  it('reports a scalar as the scalar it is, since it covers every series', () => {
+    const chart = chartWith({ dashArray: 4 })
+    expect(seen.dashArray).toBe(4)
+    chart.destroy()
+  })
+
+  // There is no "unset" to report and none is needed: the option defaults to
+  // 0, and 0 already means no dashing, so a plugin that restores what it was
+  // told restores exactly what the caller had.
+  it('reports the 0 that means no dashing where the caller set none', () => {
+    const chart = chartWith(null)
+    expect(seen.dashArray).toBe(0)
+    chart.destroy()
+  })
+
+  // A copy, not the live array: a plugin must not be able to restyle the chart
+  // by mutating what it was told, and `info` is rebuilt per read.
+  it('hands over a copy the plugin cannot write back through', () => {
+    const chart = chartWith({ dashArray: [0, 6] })
+    seen.dashArray.push(99)
+    expect(chart.w.config.stroke.dashArray).toEqual([0, 6])
     chart.destroy()
   })
 })

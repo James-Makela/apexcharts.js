@@ -1,5 +1,5 @@
 /*!
- * ApexCharts v7.1.0
+ * ApexCharts v8.0.0
  * (c) 2018-2026 ApexCharts
  */
 import * as _core from "apexcharts/core";
@@ -7,7 +7,9 @@ import _core__default from "apexcharts/core";
 import { default as default2 } from "apexcharts/core";
 const Utils = _core.__apex_Utils;
 const Options = _core.__apex_Options;
+const TooltipUtils = _core.__apex_tooltip_Utils;
 const DRAG_CLASS = "apexcharts-ink-draggable";
+const OWNER = "ink";
 const TYPES = ["point", "xaxis", "yaxis"];
 const EDGE_PX = 8;
 const CLICK_SLOP_PX = 2;
@@ -453,6 +455,7 @@ class InkLayer {
       x,
       y,
       id,
+      owner: OWNER,
       draggable: true,
       label: { text: opts.text || "Note" }
     });
@@ -486,6 +489,7 @@ class InkLayer {
     const defaults = type === "yaxis" ? new Options().yAxisAnnotation : new Options().xAxisAnnotation;
     const over = {
       id,
+      owner: OWNER,
       draggable: true,
       strokeDashArray: opts.strokeDashArray != null ? opts.strokeDashArray : 4,
       label: { text: opts.text || "" }
@@ -514,9 +518,10 @@ class InkLayer {
    */
   _pixelToData(clientX, clientY) {
     const w = this.w;
-    const gridEl = w.dom.baseEl && w.dom.baseEl.querySelector(".apexcharts-grid");
-    if (!gridEl) return null;
-    const g = gridEl.getBoundingClientRect();
+    if (!w.globals.axisCharts || !w.dom.baseEl || !w.dom.baseEl.querySelector(".apexcharts-svg")) {
+      return null;
+    }
+    const g = TooltipUtils.plotRect(w);
     if (!g.width || !g.height) return null;
     const fx = (clientX - g.left) / g.width;
     const fy = (clientY - g.top) / g.height;

@@ -1,18 +1,19 @@
 import { build } from 'vite'
 import { readFileSync } from 'fs'
-import { gzipSync } from 'zlib'
 import chalk from 'chalk'
+import { gzipSize } from './gzip-size.mjs'
 import { SUB_ENTRIES, UMD_ENTRIES } from '../vite.config.mjs'
 
-// Build all formats in two passes:
-//   Pass 1 — full bundle (apexcharts.esm.js / .common.js / .js / .min.js)
-//   Pass 2 — sub-entries (line/bar/etc. .esm.js / .common.js) one at a time
+// Build all formats in three passes:
+//   Pass 1: default bundle (apexcharts.esm.js / .common.js / .js / .min.js)
+//   Pass 2: sub-entries (line/bar/etc. .esm.js / .common.js) one at a time
+//   Pass 3: script-loadable add-ons and the lean-core and full baselines
 async function buildAll() {
   console.log(chalk.blue('Building ApexCharts...'))
 
   try {
-    // ── Pass 1: full bundle ───────────────────────────────────────────────
-    console.log(chalk.cyan('\n📦 Building full bundle (all 4 formats)...'))
+    // ── Pass 1: default bundle ────────────────────────────────────────────
+    console.log(chalk.cyan('\n📦 Building default bundle (all 4 formats)...'))
     await build({ mode: 'production' })
 
     // Re-emit the ESM + CJS halves with apexcharts/core external, so the
@@ -52,28 +53,31 @@ async function buildAll() {
   }
 }
 
+// Whole bytes, measured by gzip-size.mjs, so the gzip column here is the same
+// number the release notes publish and `npm run check:size` budgets.
 function showBuildStats() {
   const files = [
     { path: 'dist/apexcharts.js', label: 'UMD (debug)' },
     { path: 'dist/apexcharts.min.js', label: 'UMD (minified)' },
+    { path: 'dist/apexcharts.core.min.js', label: 'Lean core (minified)' },
+    { path: 'dist/apexcharts.full.min.js', label: 'Full (minified)' },
     { path: 'dist/apexcharts.esm.js', label: 'ESM' },
     { path: 'dist/apexcharts.common.js', label: 'CommonJS' },
   ]
+  const n = (v) => v.toLocaleString('en-US')
 
   console.log(chalk.blue('\n📊 Build outputs:'))
 
   files.forEach(({ path, label }) => {
     try {
-      const content = readFileSync(path, 'utf-8')
-      const size = (content.length / 1024).toFixed(2)
-      const gzipped = (gzipSync(content).length / 1024).toFixed(2)
+      const buf = readFileSync(path)
 
       console.log(
         chalk.gray('  •'),
-        chalk.cyan(label.padEnd(20)),
-        chalk.green(`${size}kb`),
+        chalk.cyan(label.padEnd(22)),
+        chalk.green(`${n(buf.length)} B`.padStart(12)),
         chalk.gray('|'),
-        chalk.green(`${gzipped}kb gzipped`)
+        chalk.green(`${n(gzipSize(buf))} B gzip`)
       )
     } catch (err) {
       // File might not exist, skip

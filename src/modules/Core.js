@@ -3,6 +3,7 @@ import CoreUtils from './CoreUtils'
 import Crosshairs from './Crosshairs'
 import Globals from '../modules/settings/Globals'
 import Graphics from './Graphics'
+import Animations from './Animations'
 import Range from './Range'
 import Utils from '../utils/Utils'
 import TimeScale from './TimeScale'
@@ -10,6 +11,12 @@ import { Environment } from '../utils/Environment.js'
 import { BrowserAPIs } from '../ssr/BrowserAPIs.js'
 import { SVGNS } from '../svg/math'
 import { getChartClass, isCustom } from './ChartFactory'
+import {
+  XY_TYPES,
+  AXIS_TYPES,
+  BUILTIN_TYPES,
+  SOLO_TYPES,
+} from './settings/TypeAliases'
 
 /**
  * ApexCharts Core Class responsible for major calculations and creating elements.
@@ -33,36 +40,14 @@ export default class Core {
     const { globals: gl, config: cnf } = this.w
 
     const ct = cnf.chart.type
-    const xyChartsArrTypes = [
-      'line',
-      'area',
-      'bar',
-      'rangeBar',
-      'rangeArea',
-      'candlestick',
-      'boxPlot',
-      'violin',
-      'scatter',
-      'bubble',
-    ]
-
-    const axisChartsArrTypes = [
-      ...xyChartsArrTypes,
-      'radar',
-      'heatmap',
-      'treemap',
-    ]
 
     // Marks (#11): a registered custom series type used as the chart type is an
     // xy/axis chart (it draws in series space and needs the axis/grid/scale
-    // pipeline). Non-axis built-ins (pie/radialBar/...) are never custom here.
-    const isCustomType =
-      !axisChartsArrTypes.includes(ct) &&
-      !['pie', 'donut', 'polarArea', 'radialBar'].includes(ct) &&
-      isCustom(ct)
+    // pipeline). A built-in name is never custom, whatever the registry says.
+    const isCustomType = !BUILTIN_TYPES.includes(ct) && isCustom(ct)
 
-    gl.axisCharts = axisChartsArrTypes.includes(ct) || isCustomType
-    gl.xyCharts = xyChartsArrTypes.includes(ct) || isCustomType
+    gl.axisCharts = AXIS_TYPES.includes(ct) || isCustomType
+    gl.xyCharts = XY_TYPES.includes(ct) || isCustomType
 
     gl.isBarHorizontal =
       ['bar', 'rangeBar', 'boxPlot', 'violin'].includes(ct) &&
@@ -75,9 +60,23 @@ export default class Core {
       'http://www.w3.org/1999/xhtml',
       'div',
     )
+    // respectReducedMotion:false has to reach the stylesheet as well as the JS
+    // policy in Animations.applyAnimationPolicy, or the option only half works:
+    // the tweens come back while everything CSS-driven stays flattened by the
+    // reduced-motion block in apexcharts.css. That block is scoped
+    // :not(.apexcharts-ignore-reduced-motion), so this class is the opt-out.
+    //
+    // Set here rather than tracked separately because elWrap is rebuilt on
+    // every render, so an updateOptions that flips the flag is picked up with
+    // no extra bookkeeping.
+    const ignoreReducedMotion =
+      cnf.chart.animations?.respectReducedMotion === false
+
     Graphics.setAttrs(this.w.dom.elWrap, {
       id: gl.chartClass.substring(1),
-      class: `apexcharts-canvas ${gl.chartClass.substring(1)}`,
+      class:
+        `apexcharts-canvas ${gl.chartClass.substring(1)}` +
+        (ignoreReducedMotion ? ' apexcharts-ignore-reduced-motion' : ''),
     })
     this.el.appendChild(this.w.dom.elWrap)
 
@@ -236,19 +235,7 @@ export default class Core {
         st_[seriesType].i.push(st)
 
         if (seriesType === 'bar') w.globals.columnSeries = seriesTypes.bar
-      } else if (
-        [
-          'heatmap',
-          'treemap',
-          'pie',
-          'donut',
-          'polarArea',
-          'radialBar',
-          'radar',
-          'unit',
-          'sunburst',
-        ].includes(seriesType)
-      ) {
+      } else if (SOLO_TYPES.includes(seriesType)) {
         nonComboType = seriesType
       } else if (isCustom(seriesType)) {
         // Marks (#11): a registered custom series type.
@@ -296,7 +283,13 @@ export default class Core {
     // Series marks emitted during draw() below are recorded, not added to the
     // DOM; they are painted at the end of this method (see the wrap below).
     const canvasMode = ctx.renderer && ctx.renderer.kind === 'canvas'
-    if (canvasMode) ctx.renderer.beginSeries()
+    if (canvasMode) {
+      ctx.renderer.beginSeries()
+      // What Bar.renderSeries caches for the painted marks describes this
+      // pass alone; a mark painted in several paths grows its extent over
+      // the entry, so nothing may be left from an earlier pass.
+      w.globals.barCanvasCoords = null
+    }
 
     const { seriesTypes, customBuckets } = this._classifySeriesByType(ser)
 
@@ -310,6 +303,13 @@ export default class Core {
     )
 
     if (canvasMode) {
+      // The canvas paints the final frame in this pass, so no series
+      // animation runs whose end would reveal the SVG chrome held back for
+      // it: goal markers (a box plot's outlier dots among them), bar data
+      // labels and bar shadows wait in delayedElements, hidden for good.
+      // They show now, as they do on SVG when nothing animates.
+      new Animations(w).showDelayedElements()
+
       // Paint the recorded series display list into a <foreignObject><canvas>
       // and wrap it with the real SVG chrome groups (data labels etc.) the
       // draw() built. Canvas sits at the back of the wrap (behind the chrome);
@@ -382,7 +382,11 @@ export default class Core {
           cnf.chart.type,
         ))
     const line = needsLine
-      ? new (getChartClass('line'))(ctx.w, ctx, xyRatios)
+      ? new (getChartClass('line', cnf.chart.requestedType))(
+          ctx.w,
+          ctx,
+          xyRatios,
+        )
       : null
 
     const needsCandlestick =
@@ -397,7 +401,11 @@ export default class Core {
       seriesTypes.violin.series.length > 0 ||
       (!gl.comboCharts && cnf.chart.type === 'violin')
     const violin = needsViolin
-      ? new (getChartClass('violin'))(ctx.w, ctx, xyRatios)
+      ? new (getChartClass('violin', cnf.chart.requestedType))(
+          ctx.w,
+          ctx,
+          xyRatios,
+        )
       : null
 
     const needsPie =
@@ -408,7 +416,11 @@ export default class Core {
       seriesTypes.rangeBar.series.length > 0 ||
       (!gl.comboCharts && cnf.chart.type === 'rangeBar')
     ctx.rangeBar = needsRangeBar
-      ? new (getChartClass('rangeBar'))(ctx.w, ctx, xyRatios)
+      ? new (getChartClass('rangeBar', cnf.chart.requestedType))(
+          ctx.w,
+          ctx,
+          xyRatios,
+        )
       : null
 
     return { line, boxCandlestick, violin }
@@ -560,14 +572,17 @@ export default class Core {
           break
         case 'bar':
           if (cnf.chart.stacked) {
-            const barStacked = new (getChartClass('barStacked'))(
+            const barStacked = new (getChartClass(
+              'barStacked',
+              cnf.chart.requestedType,
+            ))(ctx.w, ctx, xyRatios)
+            elGraph = barStacked.draw(this.w.seriesData.series)
+          } else {
+            ctx.bar = new (getChartClass('bar', cnf.chart.requestedType))(
               ctx.w,
               ctx,
               xyRatios,
             )
-            elGraph = barStacked.draw(this.w.seriesData.series)
-          } else {
-            ctx.bar = new (getChartClass('bar'))(ctx.w, ctx, xyRatios)
             elGraph = ctx.bar.draw(this.w.seriesData.series)
           }
           break
@@ -602,13 +617,24 @@ export default class Core {
           break
         }
         case 'unit': {
-          const unit = new (getChartClass('unit'))(ctx.w, ctx)
+          const unit = new (getChartClass(
+            'unit',
+            this.w.config.chart.requestedType,
+          ))(ctx.w, ctx)
           elGraph = unit.draw(this.w.seriesData.series)
           break
         }
         case 'sunburst': {
-          const sunburst = new (getChartClass('sunburst'))(ctx.w, ctx)
+          const sunburst = new (getChartClass(
+            'sunburst',
+            this.w.config.chart.requestedType,
+          ))(ctx.w, ctx)
           elGraph = sunburst.draw(this.w.seriesData.series)
+          break
+        }
+        case 'icicle': {
+          const icicle = new (getChartClass('icicle'))(ctx.w, ctx)
+          elGraph = icicle.draw(this.w.seriesData.series)
           break
         }
         case 'pie':
@@ -631,8 +657,20 @@ export default class Core {
             // Marks (#11): a registered custom series type as the chart type.
             const cs = new (getChartClass(type))(ctx.w, ctx, xyRatios)
             elGraph = cs.draw(this.w.seriesData.series, type)
-          } else {
+          } else if (line) {
             elGraph = line.draw(this.w.seriesData.series)
+          } else {
+            // Unreachable: Config.assertKnownChartType rejects a type with no
+            // renderer before a chart is ever built, and every name it lets
+            // through has a case above or is custom. Guarded anyway because
+            // the unguarded version of this line is what #5325 actually threw
+            // (`line` is null whenever setupElements decided the chart was
+            // not an xy one, and "fall back to a line" cannot be done with a
+            // renderer that was never instantiated). Fail with the option name
+            // rather than with a property access on null.
+            throw new Error(
+              `ApexCharts: no renderer for chart.type "${type}".`,
+            )
           }
       }
     }
@@ -697,6 +735,8 @@ export default class Core {
       gl.svgHeight = gl.axisCharts ? gl.svgWidth / 1.61 : gl.svgWidth / 1.2
     }
 
+    this._applyWeaveReservation(gl)
+
     gl.svgWidth = Math.max(gl.svgWidth, 0)
     gl.svgHeight = Math.max(gl.svgHeight, 0)
 
@@ -738,6 +778,45 @@ export default class Core {
     // Record the container inputs this render was sized from, so a later resize
     // can tell whether it actually changes the drawing box (see getResizeSignature).
     gl.lastResizeSignature = this.getResizeSignature()
+  }
+
+  /**
+   * Take off the space Weave plugins have reserved for their own UI.
+   *
+   * The container keeps the size the caller gave it; only the drawing box
+   * shrinks, so a plugin can dock a panel inside the container without the
+   * chart being drawn underneath it. See `api.reserve` in weave/PluginAPI.
+   *
+   * Applied here, after the height block above, on purpose. An auto height is
+   * derived from the width, so subtracting a right-hand gutter before that
+   * point would make the chart shorter as well as narrower, and everything
+   * below the chart would jump every time a panel opened. Taking it off
+   * afterwards means a side panel narrows the chart and moves nothing else.
+   *
+   * Clamped to half the box on each axis: a plugin may not shrink the chart it
+   * is annotating to nothing, and a UI that needs more room than that should
+   * render below the chart, where it never needed to ask.
+   *
+   * @param {any} gl w.globals
+   */
+  _applyWeaveReservation(gl) {
+    const weave = this.ctx && this.ctx.weave
+    if (!weave || typeof weave.reservedBox !== 'function') return
+
+    const box = weave.reservedBox()
+    const x = box.left + box.right
+    const y = box.top + box.bottom
+    // Nothing reserved is the common case, and it must not touch svgWidth at
+    // all: the value can legitimately be NaN here (a percentage width that
+    // could not be measured, in jsdom), and arithmetic would spread it.
+    if (!x && !y) return
+
+    if (x && Number.isFinite(gl.svgWidth)) {
+      gl.svgWidth -= Math.min(x, gl.svgWidth / 2)
+    }
+    if (y && Number.isFinite(gl.svgHeight)) {
+      gl.svgHeight -= Math.min(y, gl.svgHeight / 2)
+    }
   }
 
   /**

@@ -466,4 +466,108 @@ describe('Export Csv', () => {
       expect.stringContaining('.csv')
     )
   })
+
+  it('export csv from unequal series with a category named toString', () => {
+    var options = {
+      chart: {
+        type: 'line',
+      },
+      xaxis: {
+        type: 'datetime',
+      },
+      series: [
+        { name: 'series1', data: [{ x: 'toString', y: 1 }] },
+        { name: 'series2', data: [{ x: '2000-01-02T00:00:00.000', y: 2 }] },
+      ],
+    }
+    const csvData =
+      'category,series1,series2\n' + 'Sun Jan 02 2000,,2\n' + 'toString,1,'
+    const chart = createChartWithOptions(options)
+    const exports = new Exports(chart.ctx.w, chart.ctx)
+    vi.spyOn(Exports.prototype, 'triggerDownload')
+    exports.exportToCSV(chart.w.config.series, 'fileName')
+    expect(Exports.prototype.triggerDownload).toHaveBeenCalledTimes(1)
+    expect(Exports.prototype.triggerDownload).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent(csvData)),
+      expect.toBeUndefined,
+      expect.stringContaining('.csv')
+    )
+  })
+
+  it('export csv from unequal series leaves Object.prototype alone when a category is named __proto__', () => {
+    var options = {
+      chart: {
+        type: 'line',
+      },
+      xaxis: {
+        type: 'datetime',
+      },
+      series: [
+        { name: 'series1', data: [{ x: '__proto__', y: 1 }] },
+        { name: 'series2', data: [{ x: '2000-01-02T00:00:00.000', y: 2 }] },
+      ],
+    }
+    const chart = createChartWithOptions(options)
+    const exports = new Exports(chart.ctx.w, chart.ctx)
+    vi.spyOn(Exports.prototype, 'triggerDownload')
+    exports.exportToCSV(chart.w.config.series, 'fileName')
+    expect(Exports.prototype.triggerDownload).toHaveBeenCalledTimes(1)
+    expect(Object.getOwnPropertyNames(Object.prototype)).not.toContain('0')
+  })
+
+  it('export csv from unequal series gives one row to Date categories sharing an instant', () => {
+    var options = {
+      chart: {
+        type: 'line',
+      },
+      xaxis: {
+        type: 'datetime',
+      },
+      series: [
+        {
+          name: 'series1',
+          data: [
+            { x: new Date('2000-01-01T00:00:00.000'), y: 1 },
+            { x: new Date('2000-01-02T00:00:00.000'), y: 2 },
+          ],
+        },
+        {
+          name: 'series2',
+          data: [
+            { x: new Date('2000-01-02T00:00:00.000'), y: 3 },
+            { x: new Date('2000-01-03T00:00:00.000'), y: 4 },
+          ],
+        },
+      ],
+    }
+    const chart = createChartWithOptions(options)
+    const exports = new Exports(chart.ctx.w, chart.ctx)
+    let csv = ''
+    vi.spyOn(Exports.prototype, 'triggerDownload').mockImplementation((data) => {
+      csv = decodeURIComponent(data)
+    })
+    exports.exportToCSV(chart.w.config.series, 'fileName')
+    expect(csv.match(/Sun Jan 02 2000/g)).toHaveLength(1)
+    expect(csv).toContain('Sun Jan 02 2000,2,3')
+    expect(csv).toContain(
+      'Sat Jan 01 2000,1,\nSun Jan 02 2000,2,3\nMon Jan 03 2000,,4',
+    )
+  })
+
+  it('export csv from unequal series orders numeric categories by value', () => {
+    const chart = createChartWithOptions({
+      chart: { type: 'scatter' },
+      series: [
+        { name: 'series1', data: [[2, 1], [10, 2]] },
+        { name: 'series2', data: [[9, 3]] },
+      ],
+    })
+    const exports = new Exports(chart.ctx.w, chart.ctx)
+    let csv = ''
+    vi.spyOn(Exports.prototype, 'triggerDownload').mockImplementation((data) => {
+      csv = decodeURIComponent(data)
+    })
+    exports.exportToCSV(chart.w.config.series, 'fileName')
+    expect(csv).toContain('category,series1,series2\n2,1,\n9,,3\n10,2,')
+  })
 })

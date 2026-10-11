@@ -4,11 +4,11 @@
  *
  * Gates these premium features, and ONLY when they are actually IN USE (not
  * merely bundled): storyboard, link (crossfilter/linked views), ink, measure,
- * context-menu, perspectives, history, PLUS the premium chart TYPES: `unit`
- * (dot-cluster / pictogram) and `raincloud`. Everything else (all OTHER chart
- * types, and the free modules weave / renderer-canvas / marks / facet /
- * drilldown / morph / annotations / legend / toolbar / keyboard / exports, and
- * the always-on core) is never gated.
+ * context-menu, perspectives, history, highlight-filter, PLUS the premium
+ * chart TYPES: `unit` (dot-cluster / pictogram) and `raincloud`. Everything
+ * else (all OTHER chart types, and the free modules weave / renderer-canvas /
+ * marks / facet / drilldown / morph / annotations / legend / toolbar /
+ * keyboard / exports, and the always-on core) is never gated.
  *
  * Enforcement is trial-mode: a premium feature without a valid, entitled license
  * keeps working, but the chart shows an "APEXCHARTS" watermark. These features
@@ -26,9 +26,31 @@ import { Environment } from '../../utils/Environment.js'
 
 const PRICING_URL = 'https://apexcharts.com/pricing'
 
-// Process-global "used" signals for API-only premium paths that have no chart
-// context at call time (the static perspectives decode/fromURL entry points).
-let _perspectivesTokenDecoded = false
+/**
+ * This module's state, held on a versioned globalThis slot like every other
+ * registry, so every copy of the module reads and writes the same one.
+ *
+ * Copies exist. LicenseEnforcer is not a shared module, so each script-tag
+ * add-on that imports it (perspectives, and storyboard through it) inlines its
+ * own. With module-level state, `ApexCharts.perspectives.decode()` from the
+ * add-on set the add-on's flag while core read its own, and a page using the
+ * premium static API never showed the watermark.
+ *
+ * `perspectivesTokenDecoded`: the process-global "used" signal for the API-only
+ * premium path that has no chart context at call time (the static perspectives
+ * decode/fromURL entry points).
+ */
+const STATE_KEY = '__apexcharts_license_enforcer_v1__'
+
+if (!(/** @type {any} */ (globalThis)[STATE_KEY])) {
+  ;/** @type {any} */ (globalThis)[STATE_KEY] = {
+    perspectivesTokenDecoded: false,
+    enforced: new Set(),
+  }
+}
+
+/** @type {{ perspectivesTokenDecoded: boolean, enforced: Set<any> }} */
+const state = /** @type {any} */ (globalThis)[STATE_KEY]
 
 /**
  * Every chart currently using a premium feature, so an async signature verdict
@@ -43,7 +65,7 @@ let _perspectivesTokenDecoded = false
  *
  * Entries are removed on destroy() and pruned during reconciliation.
  */
-const enforced = new Set()
+const enforced = state.enforced
 
 /**
  * Stop reconciling a chart. Called from destroy(), which cannot use
@@ -69,13 +91,13 @@ export function _enforcedCount() {
  * decode API is itself premium usage.
  */
 export function markPerspectivesTokenDecoded() {
-  _perspectivesTokenDecoded = true
+  state.perspectivesTokenDecoded = true
   reevaluateLicenseAcrossCharts()
 }
 
 /** Test-only: reset the process-global premium signals. */
 export function _resetPremiumSignals() {
-  _perspectivesTokenDecoded = false
+  state.perspectivesTokenDecoded = false
 }
 
 /**
@@ -136,13 +158,16 @@ export function premiumFeaturesInUse(w, ctx) {
 
   // perspectives: API-only. apply()/save() set ctx.perspectives._used; the
   // static decode/fromURL path sets the process-global signal.
-  if (ctx.perspectives && (ctx.perspectives._used || _perspectivesTokenDecoded)) {
+  if (ctx.perspectives && (ctx.perspectives._used || state.perspectivesTokenDecoded)) {
     used.push('perspectives')
   }
 
   if (ctx.history && chart.history && chart.history.enabled === true) {
     used.push('history')
   }
+
+  // highlight-filter: in use when this render draws parts.
+  if (ctx._highlightFilter?.isActive()) used.push('highlight-filter')
 
   return used
 }

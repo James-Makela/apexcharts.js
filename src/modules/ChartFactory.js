@@ -10,11 +10,18 @@
  * The registry is populated at module load time by whichever entry point is
  * used:
  *   - Each entry point (src/entries/*.js) calls ApexCharts.use() with the
- *     types it includes; full.js registers all, sub-entries register a subset,
- *     allowing bundlers to tree-shake unused chart classes.
+ *     types it includes; standard.js registers the default set, sub-entries
+ *     a subset, allowing bundlers to tree-shake unused chart classes.
  *
  * @module ChartFactory
  */
+
+import {
+  RENDERER_ENTRIES,
+  RESERVED_TYPES,
+  TYPE_ALIASES,
+  TYPE_FEATURES,
+} from './settings/TypeAliases'
 
 const REGISTRY_KEY = '__apexcharts_registry__'
 // Marks (#11): names registered via registerSeriesType, so dispatch + the
@@ -25,8 +32,15 @@ const CUSTOM_KEY = '__apexcharts_custom_types__'
 if (!/** @type {any} */ (globalThis)[REGISTRY_KEY]) {
   ;/** @type {any} */ (globalThis)[REGISTRY_KEY] = {}
 }
+// Types already reported missing, so each is said once per page however many
+// charts ask for it. globalThis-backed like the rest.
+const MISSING_KEY = '__apexcharts_missing_types__'
+
 if (!/** @type {any} */ (globalThis)[CUSTOM_KEY]) {
   ;/** @type {any} */ (globalThis)[CUSTOM_KEY] = new Set()
+}
+if (!(/** @type {any} */ (globalThis)[MISSING_KEY])) {
+  ;/** @type {any} */ (globalThis)[MISSING_KEY] = new Set()
 }
 
 /** @returns {Record<string, new (...args: any[]) => any>} */
@@ -90,18 +104,74 @@ export function register(typeMap) {
  * Look up the constructor for a chart type.
  * Throws a clear error if the type was not registered.
  *
- * @param {string} type
+ * @param {string} type the renderer's type, after alias resolution
+ * @param {string} [requested] what the user wrote, when that was an alias
+ *   (`chart.requestedType`): `waffle` draws as `unit`, `raincloud` as `violin`
  * @returns {new (...args: any[]) => any}
  */
-export function getChartClass(type) {
+export function getChartClass(type, requested) {
   const Cls = getRegistry()[type]
   if (!Cls) {
-    throw new Error(
-      `ApexCharts: chart type "${type}" is not registered. ` +
-        `Bundler: import 'apexcharts/${type}'. ` +
-        `Script tag: add <script src=".../dist/${type}.js"> after ` +
-        `apexcharts.core.js, or load the full apexcharts.js instead.`,
+    // Say it in the user's terms. A raincloud on a page without the violin
+    // renderer used to report "violin", a type nobody on that page asked for,
+    // and point at an import that still leaves the raincloud statistics out.
+    // Only an alias that draws through THIS renderer's entry counts: a combo's
+    // series can need a renderer the chart's own (aliased) type does not.
+    // Compared by entry because Core asks for the family's class: a
+    // streamgraph (rangeArea) is drawn by 'line'.
+    const family = (/** @type {string} */ t) => RENDERER_ENTRIES[t] || t
+    const alias =
+      requested &&
+      TYPE_ALIASES[requested] &&
+      family(TYPE_ALIASES[requested]) === family(type)
+        ? requested
+        : undefined
+    const name = alias || type
+    // An alias whose statistics live in a feature (a waterfall, a raincloud)
+    // has an entry of its own that brings both; its script-tag route is the
+    // renderer's file, then the feature's.
+    const feature = alias ? TYPE_FEATURES[alias] : undefined
+    const entry = feature ? alias : family(type)
+    const files = feature
+      ? [`${family(type)}.js`, `features/${feature}.js`]
+      : [`${family(type)}.js`]
+    const tags = files
+      .map((f) => `<script src=".../dist/${f}">`)
+      .join(' and ')
+    // Two kinds of missing. An OPT-IN type (RESERVED_TYPES) is not in the
+    // default bundle at all, so "load apexcharts.min.js instead" would send the
+    // reader to download a file that meets them with this same error; the
+    // full bundle is the one-file answer. Any other type is in the default
+    // bundle and missing only because the page assembled from the lean core,
+    // so the default bundle is the smaller fix.
+    //
+    // The script-tag line names no particular core file: a sub-entry registers
+    // onto whichever shared class is already present, default bundle included.
+    const optIn = RESERVED_TYPES.includes(type)
+    const message =
+      `ApexCharts: chart type "${name}" is not registered` +
+      (name !== type ? ` (it draws through "${type}")` : '') +
+      `. Bundler: import 'apexcharts/${entry}'` +
+      (optIn ? ` (or import ApexCharts from 'apexcharts/full')` : '') +
+      `. Script tag: add ${tags} after the ApexCharts script` +
+      (optIn
+        ? `, or load apexcharts.full.min.js instead, which has every type. ` +
+          `This type is not in the default apexcharts.min.js.`
+        : `, or load the default apexcharts.min.js instead.`)
+    // The throw alone reaches nobody on the commonest path. render() keeps its
+    // own rejection handled, so a page that calls chart.render() without
+    // awaiting it (every sample, every theme) got no console line and no
+    // unhandled rejection, just an empty frame. Say it once per type, through
+    // globalThis.console: the minified bundle's drop_console strips calls on
+    // the bare `console` and leaves this one.
+    const missing = /** @type {Set<string>} */ (
+      /** @type {any} */ (globalThis)[MISSING_KEY]
     )
+    if (!missing.has(name)) {
+      missing.add(name)
+      globalThis.console.error(message)
+    }
+    throw new Error(message)
   }
   return Cls
 }

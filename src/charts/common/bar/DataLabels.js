@@ -36,15 +36,18 @@ export default class BarDataLabels {
       j,
       realIndex,
       columnGroupIndex,
-      series,
       barHeight,
       barWidth,
       barXPosition,
       barYPosition,
       visibleSeries,
+      hl,
     } = opts
     const w = this.w
     const graphics = new Graphics(this.barCtx.w)
+    // Highlight filter: the stacked total states the parts, at the part
+    // stack's edge; false when no part is left in the stack.
+    this.hlt = hl?.total
 
     // On a waterfall the series value is the LEVEL the bar reached, while the
     // label states the step it made (the delta, or the sum for a subtotal /
@@ -52,11 +55,16 @@ export default class BarDataLabels {
     // text: measuring a string that is never drawn would size the overflow
     // clamps wrongly, and handing a user's own formatter the level would leave
     // no way to reach the number actually on the chart.
+    //
+    // The highlight filter's part states its own value the same way, from its
+    // own end of the bar (see HighlightFilter.bar).
     const steps = w.waterfallData && w.waterfallData.values
     const waterfallStep =
-      steps && steps[realIndex] && steps[realIndex][j] != null
-        ? steps[realIndex][j]
-        : null
+      hl && hl.val != null
+        ? hl.val
+        : steps && steps[realIndex] && steps[realIndex][j] != null
+          ? steps[realIndex][j]
+          : null
 
     const strokeWidth = Array.isArray(this.barCtx.strokeWidth)
       ? this.barCtx.strokeWidth[realIndex]
@@ -154,16 +162,17 @@ export default class BarDataLabels {
     }
 
     const params = {
-      x,
-      y,
+      x: hl?.x ?? x,
+      y: hl?.y ?? y,
+      neg: hl && hl.val != null ? hl.val < 0 : undefined,
       i,
       j,
       realIndex,
       columnGroupIndex,
       bcx,
       bcy,
-      barHeight,
-      barWidth,
+      barHeight: hl?.barHeight ?? barHeight,
+      barWidth: hl?.barWidth ?? barWidth,
       textRects,
       strokeWidth,
       dataLabelsX,
@@ -200,23 +209,39 @@ export default class BarDataLabels {
     dataLabels = this.drawCalculatedDataLabels({
       x: dataLabelsPos.dataLabelsX,
       y: dataLabelsPos.dataLabelsY,
-      val:
-        waterfallStep !== null
+      neg: params.neg,
+      // A datum the highlight filter leaves without a part keeps no label. It
+      // is still drawn, blank, as a null value is: the overlap pass indexes
+      // its rects by data point, so a skipped one would misalign the rest.
+      val: hl?.hide
+        ? undefined
+        : waterfallStep !== null
           ? waterfallStep
           : this.barCtx.isRangeBar
             ? [y1, y2]
             : w.config.chart.stackType === '100%'
-              ? series[realIndex][j]
+              ? // Read the percentages globally rather than out of `series`.
+                // Under `stackType: '100%'` BarStacked replaces `series` with
+                // the percentage rows, and in a combo chart it narrows them to
+                // just the series it draws as bars, so `series` is indexed by
+                // bar position while `realIndex` counts every series. A line
+                // ahead of a column pushed `realIndex` past the end and the
+                // label read a value off `undefined` (#2429).
+                w.globals.seriesPercent[realIndex][j]
               : w.seriesData.series[realIndex][j],
       i: realIndex,
       j,
-      barWidth,
-      barHeight,
+      barWidth: params.barWidth,
+      barHeight: params.barHeight,
       textRects,
       dataLabelsConfig,
     })
 
-    if (w.config.chart.stacked && barTotalDataLabelsConfig.enabled) {
+    if (
+      w.config.chart.stacked &&
+      barTotalDataLabelsConfig.enabled &&
+      this.hlt !== false
+    ) {
       totalDataLabels = this.drawTotalDataLabels({
         x: dataLabelsPos.totalDataLabelsX,
         y: dataLabelsPos.totalDataLabelsY,
@@ -285,6 +310,7 @@ export default class BarDataLabels {
    * @param {{realIndex: any, j: any}} opts
    */
   getStackedTotalValue({ realIndex, j }) {
+    if (this.hlt) return this.hlt.val
     const w = this.w
 
     // With grouped stacks the total is the sum of this group's series only;
@@ -379,7 +405,7 @@ export default class BarDataLabels {
         dataLabelsX + textRects.height / 2 - strokeWidth / 2 - offsetDLX
     }
 
-    const valIsNegative = w.seriesData.series[i][j] < 0
+    const valIsNegative = opts.neg ?? w.seriesData.series[i][j] < 0
 
     let newY = y
     if (this.barCtx.isReversed) {
@@ -461,6 +487,7 @@ export default class BarDataLabels {
         },
       )
     })
+    if (this.hlt) lowestPrevY = this.hlt.edge
 
     if (this.drawsStackedTotal(realIndex) && barTotalDataLabelsConfig.enabled) {
       const ADDITIONAL_OFFY = 18
@@ -590,7 +617,7 @@ export default class BarDataLabels {
     let totalDataLabelsY
     let totalDataLabelsAnchor = 'start'
 
-    const valIsNegative = w.seriesData.series[i][j] < 0
+    const valIsNegative = opts.neg ?? w.seriesData.series[i][j] < 0
 
     let newX = x
     if (this.barCtx.isReversed) {
@@ -656,6 +683,7 @@ export default class BarDataLabels {
         },
       )
     })
+    if (this.hlt) lowestPrevX = this.hlt.edge
 
     if (this.drawsStackedTotal(realIndex) && barTotalDataLabelsConfig.enabled) {
       const graphics = new Graphics(this.barCtx.w)
@@ -751,11 +779,12 @@ export default class BarDataLabels {
     }
   }
 
-  /** @param {{x: any, y: any, val: any, i: any, j: any, textRects: any, barHeight: any, barWidth: any, dataLabelsConfig: any}} opts */
+  /** @param {{x: any, y: any, val: any, neg?: boolean, i: any, j: any, textRects: any, barHeight: any, barWidth: any, dataLabelsConfig: any}} opts */
   drawCalculatedDataLabels({
     x,
     y,
     val,
+    neg,
     i, // = realIndex
     j,
     textRects,
@@ -825,7 +854,7 @@ export default class BarDataLabels {
         text = ''
       }
 
-      const valIsNegative = w.seriesData.series[i][j] < 0
+      const valIsNegative = neg ?? w.seriesData.series[i][j] < 0
       const position = w.config.plotOptions.bar.dataLabels.position
       if (w.config.plotOptions.bar.dataLabels.orientation === 'vertical') {
         if (position === 'top') {

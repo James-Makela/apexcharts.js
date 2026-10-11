@@ -18,7 +18,7 @@ var __spreadValues = (a, b) => {
 };
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 /*!
- * ApexCharts v7.1.0
+ * ApexCharts v8.0.0
  * (c) 2018-2026 ApexCharts
  */
 import * as _core from "apexcharts/core";
@@ -29,7 +29,7 @@ const Dimensions = _core.__apex_dimensions_Dimensions;
 const Graphics = _core.__apex_Graphics;
 const Series = _core.__apex_Series;
 const Utils = _core.__apex_Utils;
-const apexchartsLegendCSS = ".apexcharts-flip-y {\n  transform: scaleY(-1) translateY(-100%);\n  transform-origin: top;\n  transform-box: fill-box;\n}\n.apexcharts-flip-x {\n  transform: scaleX(-1);\n  transform-origin: center;\n  transform-box: fill-box;\n}\n.apexcharts-legend {\n  display: flex;\n  overflow: auto;\n  padding: 0 10px;\n}\n.apexcharts-legend.apexcharts-legend-group-horizontal {\n  flex-direction: column;\n}\n.apexcharts-legend-group {\n  display: flex;\n}\n.apexcharts-legend-group-vertical {\n  flex-direction: column-reverse;\n}\n.apexcharts-legend.apx-legend-position-bottom, .apexcharts-legend.apx-legend-position-top {\n  flex-wrap: wrap\n}\n.apexcharts-legend.apx-legend-position-right, .apexcharts-legend.apx-legend-position-left {\n  flex-direction: column;\n  bottom: 0;\n}\n.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-left, .apexcharts-legend.apx-legend-position-top.apexcharts-align-left, .apexcharts-legend.apx-legend-position-right, .apexcharts-legend.apx-legend-position-left {\n  justify-content: flex-start;\n  align-items: flex-start;\n}\n.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-center, .apexcharts-legend.apx-legend-position-top.apexcharts-align-center {\n  justify-content: center;\n  align-items: center;\n}\n.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-right, .apexcharts-legend.apx-legend-position-top.apexcharts-align-right {\n  justify-content: flex-end;\n  align-items: flex-end;\n}\n.apexcharts-legend-series {\n  cursor: pointer;\n  line-height: normal;\n  display: flex;\n  align-items: center;\n}\n.apexcharts-legend-text {\n  position: relative;\n  font-size: 14px;\n}\n.apexcharts-legend-text *, .apexcharts-legend-marker * {\n  pointer-events: none;\n}\n.apexcharts-legend-marker {\n  position: relative;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  cursor: pointer;\n  margin-right: 1px;\n}\n\n.apexcharts-legend-series.apexcharts-no-click {\n  cursor: auto;\n}\n.apexcharts-legend .apexcharts-hidden-zero-series, .apexcharts-legend .apexcharts-hidden-null-series {\n  display: none !important;\n}\n.apexcharts-inactive-legend {\n  opacity: 0.45;\n} ";
+const apexchartsLegendCSS = ".apexcharts-flip-y{transform:scaleY(-1) translateY(-100%);transform-origin:top;transform-box:fill-box}.apexcharts-flip-x{transform:scaleX(-1);transform-origin:center;transform-box:fill-box}.apexcharts-legend{display:flex;overflow:auto;padding:0 10px}.apexcharts-legend.apexcharts-legend-group-horizontal{flex-direction:column}.apexcharts-legend-group{display:flex}.apexcharts-legend-group-vertical{flex-direction:column-reverse}.apexcharts-legend.apx-legend-position-bottom,.apexcharts-legend.apx-legend-position-top{flex-wrap:wrap}.apexcharts-legend.apx-legend-position-right,.apexcharts-legend.apx-legend-position-left{flex-direction:column;bottom:0}.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-left,.apexcharts-legend.apx-legend-position-top.apexcharts-align-left,.apexcharts-legend.apx-legend-position-right,.apexcharts-legend.apx-legend-position-left{justify-content:flex-start;align-items:flex-start}.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-center,.apexcharts-legend.apx-legend-position-top.apexcharts-align-center{justify-content:center;align-items:center}.apexcharts-legend.apx-legend-position-bottom.apexcharts-align-right,.apexcharts-legend.apx-legend-position-top.apexcharts-align-right{justify-content:flex-end;align-items:flex-end}.apexcharts-legend-series{cursor:pointer;line-height:normal;display:flex;align-items:center}.apexcharts-legend-text{position:relative;font-size:14px}.apexcharts-legend-text *,.apexcharts-legend-marker *{pointer-events:none}.apexcharts-legend-marker{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;margin-right:1px}.apexcharts-legend-series.apexcharts-no-click{cursor:auto}.apexcharts-legend .apexcharts-hidden-zero-series,.apexcharts-legend .apexcharts-hidden-null-series{display:none!important}.apexcharts-inactive-legend{opacity:.45}";
 const Environment = _core.__apex_Environment_Environment;
 class Helpers {
   /**
@@ -199,7 +199,7 @@ class Helpers {
    */
   _nonAxisSliceContainer(series) {
     const type = this.w.config.chart.type;
-    if ((type === "pie" || type === "donut" || type === "polarArea" || type === "sunburst") && series.length === 1 && series[0] && typeof series[0] === "object" && Array.isArray(series[0].data)) {
+    if ((type === "pie" || type === "donut" || type === "polarArea" || type === "sunburst" || type === "icicle") && series.length === 1 && series[0] && typeof series[0] === "object" && Array.isArray(series[0].data)) {
       return series[0].data;
     }
     return series;
@@ -341,10 +341,18 @@ class Helpers {
         }
       }
       series = this._getSeriesBasedOnCollapsedState(series);
-      this.lgCtx.updateSeries(
+      const updated = this.lgCtx.updateSeries(
         series,
         w.config.chart.animations.dynamicAnimation.enabled
       );
+      const settled = () => {
+        w.globals.risingSeries = [];
+      };
+      if (updated && typeof updated.then === "function") {
+        updated.then(settled, settled);
+      } else {
+        settled();
+      }
     }
   }
   /**
@@ -520,6 +528,7 @@ function buildContinuousScale(w) {
   }));
   return { min, max, midpoint, stops, at, legendStops };
 }
+const TooltipUtils = _core.__apex_tooltip_Utils;
 const SVG_NS = "http://www.w3.org/2000/svg";
 class HeatmapGradientLegend {
   /**
@@ -921,22 +930,29 @@ class HeatmapGradientLegend {
       w.dom.elLegendWrap
     );
     const strip = this.svgEl && this.svgEl.querySelector("rect");
-    const grid = w.dom.baseEl.querySelector(".apexcharts-grid");
-    if (!wrap || !strip || !grid || !this._geom) return;
+    if (!wrap || !strip || !this._geom) return;
+    if (!w.dom.baseEl || !w.dom.baseEl.querySelector(".apexcharts-svg")) return;
     const s = strip.getBoundingClientRect();
-    const gr = grid.getBoundingClientRect();
-    if (!s.width || !s.height || !gr.width || !gr.height) return;
+    const plot = TooltipUtils.plotRect(w);
+    if (!s.width || !s.height || !plot.width || !plot.height) return;
+    const gr = {
+      left: plot.left,
+      right: plot.left + plot.width,
+      top: plot.top,
+      bottom: plot.top + plot.height
+    };
+    const zoom = plot.zoom;
     const MIN_GAP = 16;
     const { isVertical, position } = this._geom;
     if (isVertical) {
-      const gap = position === "left" ? gr.left - s.right : s.left - gr.right;
+      const gap = (position === "left" ? gr.left - s.right : s.left - gr.right) / zoom;
       if (gap < MIN_GAP) {
         const curLeft = parseFloat(wrap.style.left) || 0;
         const shift = MIN_GAP - gap;
         wrap.style.left = curLeft + (position === "left" ? -shift : shift) + "px";
       }
     } else {
-      const gap = position === "top" ? gr.top - s.bottom : s.top - gr.bottom;
+      const gap = (position === "top" ? gr.top - s.bottom : s.top - gr.bottom) / zoom;
       if (gap < MIN_GAP) {
         const curTop = parseFloat(wrap.style.top) || 0;
         const shift = MIN_GAP - gap;

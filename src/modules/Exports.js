@@ -556,6 +556,14 @@ class Exports {
       const width = w.globals.svgWidth * scale
       const height = w.globals.svgHeight * scale
 
+      // A plot or circle still easing to a new layout (LayoutTransition,
+      // CircleTransition) lands first: the export is of the chart as laid
+      // out, not of a frame on the way. Exporting right after an update
+      // resolves (add a title, then export) is exactly its first frame.
+      w.globals.layoutTween?.finish()
+      w.globals.circleTween?.finish()
+      w.globals.highlightTween?.finish()
+
       const clonedNode = /** @type {HTMLElement} */ (
         w.dom.elWrap.cloneNode(true)
       )
@@ -998,8 +1006,9 @@ class Exports {
     }
 
     const handleUnequalXValues = () => {
-      const categories = new Set()
-      const data = {}
+      // Map stops a plain object category named `__proto__` from writing
+      /** @type {Map<string, {cat: any, values: string[]}>} */
+      const byCategory = new Map()
 
       /**
        * @param {Record<string, any>} s
@@ -1020,14 +1029,13 @@ class Exports {
           } else {
             return
           }
-          if (!(/** @type {Record<string,any>} */ (data)[cat])) {
-            ;/** @type {Record<string,any>} */ (data)[cat] = Array(
-              series.length,
-            ).fill('')
+          const key = String(cat)
+          let row = byCategory.get(key)
+          if (!row) {
+            row = { cat, values: Array(series.length).fill('') }
+            byCategory.set(key, row)
           }
-          ;/** @type {Record<string,any>} */ (data)[cat][sI] =
-            getFormattedValue(value)
-          categories.add(cat)
+          row.values[sI] = getFormattedValue(value)
         })
       })
 
@@ -1035,12 +1043,18 @@ class Exports {
         rows.push(columns.join(columnDelimiter))
       }
 
-      Array.from(categories)
-        .sort()
-        .forEach((cat) => {
+      Array.from(byCategory.values())
+        .sort((a, b) => {
+          // Numbers and Dates by value (as text 10 sorts before 9), then strings
+          const aText = typeof a.cat === 'string'
+          const bText = typeof b.cat === 'string'
+          if (aText !== bText) return aText ? 1 : -1
+          if (!aText) return a.cat - b.cat
+          return a.cat < b.cat ? -1 : 1
+        })
+        .forEach(({ cat, values }) => {
           // Join here: pushing the array would leave rows.join() to stringify
           // it, which always uses a comma between category and values.
-          const values = /** @type {Record<string,any>} */ (data)[cat]
           rows.push([getFormattedCategory(cat), ...values].join(columnDelimiter))
         })
     }

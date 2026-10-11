@@ -19,11 +19,20 @@
  * count matches the tick-label count on both sides. Any bail-out leaves the
  * new chrome exactly where the renderer put it.
  *
+ * When the update also moved or resized the plot area itself (the axes
+ * needing more or less room), LayoutTransition eases that on the same clock,
+ * around the nodes the tick tweens here already drive.
+ *
  * @module modules/animations/AxisTransition
  */
 
 import { Environment } from '../../utils/Environment'
 import Utils from '../../utils/Utils'
+import {
+  captureLayout,
+  pendingUntilPaint,
+  transitionLayout,
+} from './LayoutTransition'
 import {
   lengthTransitionEnabled,
   morphEasing,
@@ -167,13 +176,16 @@ function composeYMap(o, n) {
  */
 export function captureAxisChrome(w) {
   const gl = w.globals
+  // An update earlier in this same tick already captured what is on screen;
+  // its render never got there (see pendingUntilPaint).
+  if (gl.prevChromeFrame?.pending) return
   gl.prevChromeFrame = null
   if (!gl.axisCharts || !Environment.isBrowser()) return
   const root = w.dom.baseEl
   if (!Utils.elementExists(root)) return
   try {
     const yLabels = grabLabels(root, Y_LABELS_SEL, 'y')
-    gl.prevChromeFrame = {
+    gl.prevChromeFrame = pendingUntilPaint({
       xLabels: grabLabels(root, X_LABELS_SEL, 'x'),
       yLabels,
       vGrid: grabLines(root, V_GRID_SEL, 'x1'),
@@ -184,10 +196,59 @@ export function captureAxisChrome(w) {
       // ticks ghost out to where their value lands.
       xScale: currentXScale(w),
       yAnchors: currentYAnchors(w, yLabels),
-    }
+      // Where the plot sat and how big it was, so a layout change (axes
+      // needing more or less room) eases instead of jumping. See
+      // LayoutTransition.
+      layout: captureLayout(w),
+    })
   } catch (_) {
     gl.prevChromeFrame = null
   }
+}
+
+/**
+ * rafTween for the chrome, registered on `w.globals.chromeTweens` until it
+ * lands, so the next update can land it first (finishChromeTweens): a tween
+ * still moving a node it does not take over would otherwise keep writing to
+ * it, and anything reading that node would read a mid-flight value as final.
+ *
+ * @param {import('../../types/internal').ChartStateW} w
+ * @param {number} duration
+ * @param {(t: number) => number} ease
+ * @param {(eased: number) => void} onFrame
+ * @param {() => void} onDone
+ */
+function chromeTween(w, duration, ease, onFrame, onDone) {
+  if (!w.globals.chromeTweens) w.globals.chromeTweens = new Set()
+  const live = w.globals.chromeTweens
+  let over = false
+  const finish = () => {
+    if (over) return
+    over = true
+    live.delete(finish)
+    onDone()
+  }
+  live.add(finish)
+  rafTween(
+    w,
+    duration,
+    ease,
+    (eased) => {
+      if (!over) onFrame(eased)
+    },
+    finish,
+  )
+}
+
+/**
+ * Land every chrome tween still running from an earlier update.
+ *
+ * @param {import('../../types/internal').ChartStateW} w
+ */
+export function finishChromeTweens(w) {
+  const live = w.globals.chromeTweens
+  if (!live || !live.size) return
+  ;[...live].forEach((finish) => finish())
 }
 
 /**
@@ -199,7 +260,7 @@ export function captureAxisChrome(w) {
 function fadeIn(w, node, duration, ease) {
   const style = /** @type {any} */ (node).style
   style.opacity = '0'
-  rafTween(
+  chromeTween(
     w,
     duration,
     ease,
@@ -223,7 +284,7 @@ function fadeIn(w, node, duration, ease) {
  */
 function tweenPos(w, node, attrs, from, to, duration, ease) {
   attrs.forEach((a) => node.setAttribute(a, String(from)))
-  rafTween(
+  chromeTween(
     w,
     duration,
     ease,
@@ -273,7 +334,7 @@ function spawnGhost(w, { template, display, attrs, from, to, duration, ease }) {
   style.opacity = '1'
   parent.appendChild(ghost)
 
-  rafTween(
+  chromeTween(
     w,
     duration,
     ease,
@@ -311,6 +372,7 @@ const MAX_GHOSTS = 20
  *   duration: number,
  *   ease: (t: number) => number,
  *   project?: {toNew: (p: number) => number, toOld: (p: number) => number} | null,
+ *   driven: Set<Element>,
  * }} opts
  */
 function transitionAxis(
@@ -325,6 +387,7 @@ function transitionAxis(
     duration,
     ease,
     project,
+    driven,
   },
 ) {
   const oldByText = new Map()
@@ -364,6 +427,7 @@ function transitionAxis(
     const lineTo = parseFloat(line.getAttribute(lineAttrs[0]) || '')
     const lineFrom = oldLines[old.i]
     if (isFinite(lineTo) && isFinite(lineFrom)) {
+      driven.add(line)
       tweenPos(w, line, lineAttrs, lineFrom, lineTo, duration, ease)
     }
   }
@@ -384,8 +448,12 @@ function transitionAxis(
             ? clamp(project.toOld(to))
             : NaN
           if (isFinite(from) && Math.abs(from - to) > 0.5) {
+            driven.add(label)
             tweenPos(w, label, [posAttr], from, to, duration, ease)
-            if (line) tweenPos(w, line, lineAttrs, from, to, duration, ease)
+            if (line) {
+              driven.add(line)
+              tweenPos(w, line, lineAttrs, from, to, duration, ease)
+            }
           }
         }
         fadeIn(w, label, duration, ease)
@@ -405,8 +473,9 @@ function transitionAxis(
       // zoom / length-change updates, not just reorders.
       const delta = old.pos - to
       if (isFinite(delta)) {
+        driven.add(label)
         const base = labelTransform || ''
-        rafTween(
+        chromeTween(
           w,
           duration,
           ease,
@@ -425,6 +494,7 @@ function transitionAxis(
       return
     }
 
+    driven.add(label)
     tweenPos(w, label, [posAttr], old.pos, to, duration, ease)
     tweenPairedLine(line, old)
   })
@@ -468,12 +538,18 @@ function transitionAxis(
  * animated layout change for at least one series.
  *
  * @param {import('../../types/internal').ChartStateW} w
+ * @param {{layout?: boolean}} [opts] layout: false leaves a moved plot area
+ *   where it was rendered (a cross-type morph places its own start shapes
+ *   relative to the new plot origin, so easing the origin would count the
+ *   move twice)
  */
-export function applyAxisTransition(w) {
+export function applyAxisTransition(w, { layout = true } = {}) {
   const gl = w.globals
   const chrome = gl.prevChromeFrame
   gl.prevChromeFrame = null
-  if (!chrome || !gl.axisCharts || !Environment.isBrowser()) return
+  // Not pending any more: a frame was painted since it was captured, so it
+  // is not what is on screen (its own update never consumed it).
+  if (!chrome?.pending || !gl.axisCharts || !Environment.isBrowser()) return
   if (!lengthTransitionEnabled(w)) return
   // Any animated data-change render qualifies, including identity joins
   // (zoom re-projections, same-length value updates) and pure reorders (a
@@ -492,7 +568,17 @@ export function applyAxisTransition(w) {
   const duration = Math.max(1, w.config.chart.animations.dynamicAnimation.speed || 1)
   const ease = morphEasing(w)
 
+  // Nodes a tick tween drives, so the layout tween leaves their position be.
+  /** @type {Set<Element>} */
+  const driven = new Set()
+
   try {
+    // Tweens an earlier update started land first. The captured frame
+    // already holds where they were, which is where this update starts from;
+    // what has to be read now is each node's final value. (On the fast path
+    // the chrome nodes are the same ones, still being moved.)
+    finishChromeTweens(w)
+
     const newYLabels = [...root.querySelectorAll(Y_LABELS_SEL)]
     // Value-space projections (null on category/reversed/multi-axis/log,
     // where the transition stays text-match + fade).
@@ -517,6 +603,7 @@ export function applyAxisTransition(w) {
       duration,
       ease,
       project: projX,
+      driven,
     })
     transitionAxis(w, {
       newLabels: newYLabels,
@@ -528,7 +615,11 @@ export function applyAxisTransition(w) {
       duration,
       ease,
       project: projY,
+      driven,
     })
+
+    // Then the plot rect itself, around whatever the tick tweens above drive.
+    if (layout) transitionLayout(w, chrome.layout, { driven, duration, ease })
   } catch (_) {
     // Chrome polish must never break a render.
   }

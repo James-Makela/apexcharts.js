@@ -49,8 +49,12 @@ export default class Labels {
     const tooltipEl = this.ttCtx.getElTooltip()
 
     if (tooltipEl) {
-      this.ttCtx.tooltipRect.ttWidth = tooltipEl.getBoundingClientRect().width
-      this.ttCtx.tooltipRect.ttHeight = tooltipEl.getBoundingClientRect().height
+      // One rect read, not two: each call forces a synchronous layout of the
+      // whole tooltip, which on a shared tooltip with a row per series is the
+      // single most expensive thing a hover does after the row writes.
+      const rect = tooltipEl.getBoundingClientRect()
+      this.ttCtx.tooltipRect.ttWidth = rect.width
+      this.ttCtx.tooltipRect.ttHeight = rect.height
     }
   }
 
@@ -65,8 +69,18 @@ export default class Labels {
         ? w.globals.colors[j]
         : w.globals.colors[i]
 
-    for (let t = 0; t < seriesLen; t++) {
-      const tIndex = w.config.tooltip.inverseOrder ? seriesLen - 1 - t : t
+    // With a single row every iteration below would write the same values into
+    // it (the non-shared paths all resolve to the hovered series `i`), so the
+    // remaining seriesLen-1 passes were pure DOM churn on every hover.
+    const singleRow = ttItems?.length === 1
+    const iterations = singleRow ? 1 : seriesLen
+
+    for (let t = 0; t < iterations; t++) {
+      const tIndex = singleRow
+        ? 0
+        : w.config.tooltip.inverseOrder
+          ? seriesLen - 1 - t
+          : t
 
       const row = this.computeSeriesRow({
         i,
@@ -150,7 +164,15 @@ export default class Labels {
     // pie / donut (non-axis charts)
     if (j === null) {
       val = f.yLbFormatter(w.seriesData.series[i], {
+        // The spread is the long-standing shape here and stays, so anything
+        // already reading opts.config / opts.globals on a pie keeps working.
+        // `w` is added alongside it because every other chart type passes the
+        // state under that key, and a formatter written against the documented
+        // opts (`opts.w.config...`) used to get undefined on a pie alone
+        // (#5324). Same for `series`.
         ...w,
+        w,
+        series: w.seriesData.series,
         seriesIndex: i,
         dataPointIndex: i,
       })
@@ -321,8 +343,31 @@ export default class Labels {
     })
   }
 
+  /**
+   * The nodes a hover writes into, captured when the row was built in
+   * Tooltip.createTTElements. Rows that did not come from there (or from an
+   * older build) are queried once and then cached the same way, so no hover
+   * repeats the lookups.
+   * @param {any} row
+   */
+  rowRefs(row) {
+    if (!row.ttRefs) {
+      row.ttRefs = {
+        marker: row.querySelector('.apexcharts-tooltip-marker'),
+        text: row.querySelector('.apexcharts-tooltip-text'),
+        yLabel: row.querySelector('.apexcharts-tooltip-text-y-label'),
+        yValue: row.querySelector('.apexcharts-tooltip-text-y-value'),
+        goalsLabel: row.querySelector('.apexcharts-tooltip-text-goals-label'),
+        goalsValue: row.querySelector('.apexcharts-tooltip-text-goals-value'),
+        zLabel: row.querySelector('.apexcharts-tooltip-text-z-label'),
+        zValue: row.querySelector('.apexcharts-tooltip-text-z-value'),
+      }
+    }
+    return row.ttRefs
+  }
+
   /** @param {{ t?: any, j?: any, i?: any, ttItems?: any, values?: any, seriesName?: any, shared?: any, pColor?: any }} opts */
-  DOMHandling({ t, j, ttItems, values, seriesName, shared, pColor }) {
+  DOMHandling({ i, t, j, ttItems, values, seriesName, shared, pColor }) {
     const w = this.w
     const ttCtx = this.ttCtx
 
@@ -332,6 +377,8 @@ export default class Labels {
     // the new type's series count can momentarily outpace the rebuilt tooltip
     // rows) can index past ttItems. Bail for that row rather than crash.
     if (!ttItems || !ttItems[t]) return
+
+    const refs = this.rowRefs(ttItems[t])
 
     let ttItemsChildren = null
     ttItemsChildren = ttItems[t].children
@@ -360,13 +407,11 @@ export default class Labels {
       }
     }
 
-    const ttYLabel = ttItems[t].querySelector(
-      '.apexcharts-tooltip-text-y-label',
-    )
+    const ttYLabel = refs.yLabel
     if (ttYLabel) {
       ttYLabel.innerHTML = seriesName ? seriesName : ''
     }
-    const ttYVal = ttItems[t].querySelector('.apexcharts-tooltip-text-y-value')
+    const ttYVal = refs.yValue
     if (ttYVal) {
       ttYVal.innerHTML = typeof val !== 'undefined' ? val : ''
     }
@@ -393,12 +438,15 @@ export default class Labels {
       ttItemsChildren[0].style.display = 'none'
     }
 
-    const ttGLabel = ttItems[t].querySelector(
-      '.apexcharts-tooltip-text-goals-label',
-    )
-    const ttGVal = ttItems[t].querySelector(
-      '.apexcharts-tooltip-text-goals-value',
-    )
+    // Highlight filter: the row states its series' part against the whole.
+    const hf = ttCtx.ctx.highlightFilter
+    if (hf) {
+      const s = shared ? t : i
+      hf.tooltipRow(refs, s, j, this.getFormatters(s))
+    }
+
+    const ttGLabel = refs.goalsLabel
+    const ttGVal = refs.goalsValue
 
     if (goalVals.length && w.seriesData.seriesGoals[t]) {
       const createGoalsHtml = () => {
@@ -433,23 +481,17 @@ export default class Labels {
     }
 
     if (zVal !== null) {
-      const ttZLabel = ttItems[t].querySelector(
-        '.apexcharts-tooltip-text-z-label',
-      )
+      const ttZLabel = refs.zLabel
       ttZLabel.innerHTML = w.config.tooltip.z.title
-      const ttZVal = ttItems[t].querySelector(
-        '.apexcharts-tooltip-text-z-value',
-      )
+      const ttZVal = refs.zValue
       ttZVal.innerHTML = typeof zVal !== 'undefined' ? zVal : ''
     }
 
     if (shared && ttItemsChildren[0]) {
       // hide when no Val or series collapsed
       if (w.config.tooltip.hideEmptySeries) {
-        const ttItemMarker = ttItems[t].querySelector(
-          '.apexcharts-tooltip-marker',
-        )
-        const ttItemText = ttItems[t].querySelector('.apexcharts-tooltip-text')
+        const ttItemMarker = refs.marker
+        const ttItemText = refs.text
         if (parseFloat(val) == 0) {
           ttItemMarker.style.display = 'none'
           ttItemText.style.display = 'none'
@@ -494,9 +536,14 @@ export default class Labels {
       // disable all tooltip text groups
       this.tooltipUtil.toggleAllTooltipSeriesGroups('disable')
 
+      // Rows are indexed by series index, except where only one was allocated
+      // (the non-shared cartesian case, see Tooltip.createTTElements) and
+      // every hovered series writes into row 0.
+      const rowIndex = this.ttCtx.ttItems?.length === 1 ? 0 : i
+
       // enable the first tooltip text group
       const firstTooltipSeriesGroup = w.dom.baseEl.querySelector(
-        `.apexcharts-tooltip-series-group-${i}`,
+        `.apexcharts-tooltip-series-group-${rowIndex}`,
       )
 
       if (firstTooltipSeriesGroup) {
@@ -590,8 +637,18 @@ export default class Labels {
         bufferXVal
     }
 
-    if (w.seriesData.seriesZ.length > 0 && w.seriesData.seriesZ[i].length > 0) {
-      zVal = zFormatter?.(w.seriesData.seriesZ[i][j], w)
+    // The "Size" row belongs to a chart that HAS a third dimension. Asking
+    // seriesZ whether it is non-empty is not the same question (#5323): a
+    // series can hold z slots that are all null (placeholders keeping the
+    // index aligned, or a column of nulls a database handed over), and a
+    // custom tooltip.z.formatter would then print a size for a chart that has
+    // no sizes. isDataXYZ is set only by a value the z scale can measure.
+    if (
+      w.axisFlags.isDataXYZ &&
+      w.seriesData.seriesZ.length > 0 &&
+      w.seriesData.seriesZ[i]?.length > 0
+    ) {
+      zVal = zFormatter?.(w.seriesData.seriesZ[i][j] ?? null, w)
     }
 
     if (typeof w.config.xaxis.tooltip.formatter === 'function') {
@@ -624,7 +681,11 @@ export default class Labels {
     }
     if (typeof fn !== 'function') return
 
+    // `ctx` is the chart instance. Custom tooltips written against earlier
+    // releases (the timeline demo among them) read `opts.ctx.w`, so it stays
+    // in the opts next to `w` instead of throwing on every hover.
     const customTooltip = fn({
+      ctx: this.ttCtx.ctx,
       series: w.seriesData.series,
       seriesIndex: i,
       dataPointIndex: j,

@@ -233,7 +233,7 @@ const _po: ApexCharts.ApexPlotOptions = {}
 const _stroke: ApexCharts.ApexStroke = { curve: 'smooth' }
 const _theme: ApexCharts.ApexTheme = { mode: 'dark' }
 const _title: ApexCharts.ApexTitleSubtitle = { text: 'hello' }
-const _tooltip: ApexCharts.ApexTooltip = { enabled: true }
+const _tooltip: ApexCharts.ApexTooltip = { enabled: true, interactive: true }
 const _xaxis: ApexCharts.ApexXAxis = { type: 'datetime' }
 const _series: ApexCharts.ApexAxisChartSeries = [{ name: 'a', data: [1, 2, 3] }]
 void _ann; void _chart; void _dl; void _fill; void _grid; void _legend
@@ -321,3 +321,119 @@ async function _ssrUse() {
   void html; void svg; void hydrated; void all; void done
 }
 void _ssrUse
+
+// ---------------------------------------------------------------------------
+// Weave: the plugin API a third-party plugin is written against
+// ---------------------------------------------------------------------------
+//
+// Every member here is implemented in src/modules/weave/PluginAPI.js. Four of
+// them (info, markDerived, reserve, pointer) shipped undeclared, so a plugin
+// written in TypeScript could not call them: markDerived in particular is what
+// puts the plugin's name on its own series in `drawn()`, so a plugin could
+// declare an overlay and not its series. This exercises them rather than only
+// parsing them, which is what would have caught the gap.
+
+ApexChartsClass.registerPlugin({
+  name: 'demo',
+  apiVersion: 6,
+  setup(api) {
+    // Chart shape (v2), title since v6.
+    const kind: string = api.info.type
+    const axis: boolean = api.info.axisChart
+    const bars: boolean = api.info.horizontalBars
+    const onSeries: number[] | null = api.info.dataLabels.enabledOnSeries
+    const dash: number | number[] = api.info.stroke.dashArray
+    const title: string = api.info.title
+    void kind; void axis; void bars; void onSeries; void dash; void title
+
+    // Derived series (v2). Chainable, and idempotent with an empty array.
+    api.markDerived(['Revenue (trend)']).markDerived([])
+
+    // Reserved space (v3): a box, all-zeros, or null to give it back.
+    api.reserve({ right: 260 })
+    api.reserve(null)
+    api.reserve()
+
+    // The pointer (v4), with modifiers (v6). Returns an unsubscribe.
+    const off: () => void = api.pointer((e) => {
+      const at: number = e.dataPointIndex
+      const label: string | undefined = e.category
+      const shift: boolean = e.modifiers.shift
+      if (e.type === 'select') void e.selected
+      void at; void label; void shift
+    })
+    off()
+
+    // Capability probing (v6), for a plugin that runs on older hosts too.
+    if (api.can('drawn')) {
+      api.declare({ id: 'trend', label: 'Trend', visible: true })
+      for (const item of api.drawn()) {
+        const owner: string = item.owner
+        const kindOf: 'series' | 'annotation' | 'overlay' = item.kind
+        void owner; void kindOf
+      }
+    }
+  },
+})
+
+// A definition is registered; `plugins` in options activates one by name.
+const _activate: ApexCharts.ApexOptions = {plugins: [{name: 'demo', order: 10}]}
+void _activate
+
+// ---------------------------------------------------------------------------
+// Declarations that used to disagree with the runtime (#5324, #5327, #5328)
+// ---------------------------------------------------------------------------
+
+// series[].name takes a number: the chart renders, legends and attributes it.
+const numericSeriesName: ApexCharts.ApexAxisChartSeries = [
+  { name: 2024, data: [1, 2, 3] },
+]
+void numericSeriesName
+
+// tooltip.y.formatter is handed null wherever a series has a gap, so the
+// guard the runtime demands is one the compiler now insists on too.
+const gapTooltip: ApexCharts.ApexOptions = {
+  chart: { type: 'line' },
+  series: [{ name: 'revenue', data: [1, null, 3] }],
+  tooltip: { y: { formatter: (val) => val?.toFixed(2) ?? 'n/a' } },
+}
+void gapTooltip
+
+// getState() reports the merged config, and labels/seriesNames are numeric
+// wherever the chart was given numbers.
+declare const stateChart: ApexCharts
+const strokeWidth = stateChart.getState().config.stroke?.width
+const firstLabel: string | number = stateChart.getState().labels[0]
+const firstName: string | number = stateChart.getState().seriesNames[0]
+void strokeWidth; void firstLabel; void firstName
+
+// A pie's dataLabels / tooltip formatter gets the same opts as every other
+// chart type, so reading w and dataPointIndex off it compiles AND works.
+const pieFormatters: ApexCharts.ApexOptions = {
+  chart: { type: 'pie' },
+  labels: ['a', 'b'],
+  series: [30, 70],
+  dataLabels: {
+    formatter: (val, opts) => `${opts!.dataPointIndex.toFixed(0)}: ${val}`,
+  },
+  tooltip: {
+    y: { formatter: (val, opts) => `${opts!.w.config.chart!.type}: ${val}` },
+  },
+}
+void pieFormatters
+
+// Axis bounds in the forms a point's x already accepts.
+const datetimeBounds: ApexCharts.ApexOptions = {
+  chart: { type: 'line' },
+  xaxis: { type: 'datetime', min: '2021-12-28', max: new Date('2022-01-04') },
+}
+const numericBounds: ApexCharts.ApexOptions = {
+  chart: { type: 'line' },
+  xaxis: { min: 0, max: 10 },
+  yaxis: { min: '50', max: (max) => max + 10 },
+}
+void datetimeBounds; void numericBounds
+
+// 'column' is a spelling of 'bar'.
+const columnChart: ApexCharts.ApexOptions = { chart: { type: 'column' } }
+void columnChart

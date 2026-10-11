@@ -8,8 +8,8 @@
  */
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
 import './__mocks__/ResizeObserver.js'
-import ApexCharts from '../../src/entries/full.js'
-// Trellis is Tier 2: `entries/full.js` no longer registers it, so the feature
+import ApexCharts from '../../src/entries/standard.js'
+// Trellis is Tier 2: `entries/standard.js` no longer registers it, so the feature
 // has to be imported the same way an application imports it.
 import '../../src/features/trellis.js'
 import InitCtxVariables from '../../src/modules/helpers/InitCtxVariables.js'
@@ -234,7 +234,7 @@ describe('trellis lifecycle', () => {
       series: [{ name: 'A', data: [1, 2, 3] }],
     })
     await chart.render()
-    expect(chart.trellis).toBeTruthy() // module instantiated (full bundle)
+    expect(chart.trellis).toBeTruthy() // module instantiated (feature imported)
     expect(chart.trellis.isActive()).toBe(false)
     expect(chart.getPanels()).toHaveLength(0)
     expect(el.querySelector('.apexcharts-trellis')).toBeNull()

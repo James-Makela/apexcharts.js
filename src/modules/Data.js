@@ -4,28 +4,112 @@ import DateTime from './../utils/DateTime'
 import Series from './Series'
 import Utils from '../utils/Utils'
 import Defaults from './settings/Defaults'
-import { isCustom, getChartClass } from './ChartFactory'
+import { isCustom, getChartClass, hasChartClass } from './ChartFactory'
 import { getSeriesTransform } from './SeriesTransformRegistry'
+import warnMissingFeature from '../utils/MissingFeature.js'
 import {
   isNestedTreemap,
   resolveTreemapTree,
 } from '../charts/common/treemap/Nested'
+import {
+  RENDERER_ENTRIES,
+  TYPE_ALIASES,
+  TYPE_FEATURES,
+} from './settings/TypeAliases'
 
 /**
- * Chart types whose series carries raw observations and therefore cannot draw
- * anything until the named opt-in feature supplies the statistic
- * (type → feature module under `apexcharts/features/<name>`).
+ * Types whose renderer draws statistics the user may instead leave to the
+ * stats feature, by supplying the raw observations (type -> whether a flat
+ * number array as `y` counts as a sample, which it does where the precomputed
+ * form is an array of PAIRS). Mirrors `observationsOf` in charts/common/Stats,
+ * which core does not import: it comes with the statistics.
  */
-const RAW_SAMPLE_FEATURES = { histogram: 'stats', raincloud: 'raincloud' }
+const RAW_SAMPLE_TYPES = /** @type {Record<string, boolean>} */ ({
+  boxPlot: false,
+  violin: true,
+})
+
+/**
+ * Whether one boxPlot or violin datum carries a raw sample instead of the
+ * precomputed input its renderer draws.
+ *
+ * @param {any} d
+ * @param {string} name
+ * @param {boolean} flatY
+ * @returns {boolean}
+ */
+function isRawSample(d, name, flatY) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return false
+  if (name === 'boxPlot' && Array.isArray(d.y) && d.y.length === 5) {
+    return false
+  }
+  if (name === 'violin' && Array.isArray(d.y?.density) && d.y.density.length) {
+    return false
+  }
+  // A violin datum with its own five-number summary draws its box lane and
+  // its points without the feature; it only lacks a shape it never asked for.
+  if (
+    name === 'violin' &&
+    Array.isArray(d.y?.summary) &&
+    d.y.summary.length === 5
+  ) {
+    return false
+  }
+  const raw = Array.isArray(d.points)
+    ? d.points
+    : Array.isArray(d.y?.points)
+      ? d.y.points
+      : flatY && Array.isArray(d.y) && typeof d.y[0] === 'number'
+        ? d.y
+        : null
+  return (
+    !!raw &&
+    raw.some((/** @type {any} */ v) => {
+      const n = Utils.parseNumber(v)
+      return n !== null && isFinite(n)
+    })
+  )
+}
+
+/**
+ * Total of the values under a datum, for a partition branch that omits its own.
+ *
+ * Private to this module on purpose: `Data.js` is a shared module, so a named
+ * export here resolves to undefined inside the split bundles and only a full
+ * build catches it (see build/shared-modules.mjs).
+ *
+ * @param {any} d
+ * @returns {number}
+ */
+function subtreeTotal(d) {
+  if (!d || typeof d !== 'object') return Utils.parseNumber(d) || 0
+  if (d.y !== undefined) return Utils.parseNumber(d.y) || 0
+  if (!Array.isArray(d.children)) return 0
+  return d.children.reduce(
+    (/** @type {number} */ s, /** @type {any} */ c) => s + subtreeTotal(c),
+    0,
+  )
+}
 
 export default class Data {
   /**
    * @param {import('../types/internal').ChartStateW} w
+   * @param {{resetGlobals?: () => any, isMultipleY?: () => any, highlight?: () => any}} [hooks]
    */
-  constructor(w, { resetGlobals = () => {}, isMultipleY = () => {} } = {}) {
+  constructor(
+    w,
+    {
+      resetGlobals = () => {},
+      isMultipleY = () => {},
+      highlight = () => null,
+    } = {},
+  ) {
     this.w = w
     this.resetGlobals = resetGlobals
     this.isMultipleY = isMultipleY
+    // The highlight filter feature, or null (see InitCtxVariables).
+    this.highlight = highlight
+    this._warnedHighlight = false
 
     /** @type {any} */
     this.twoDSeries = []
@@ -35,8 +119,12 @@ export default class Data {
     this.twoDSeriesX = []
     /** @type {any} */
     this.seriesGoals = []
-    /** Warn once per chart when a raw-sample type has no registered transform. */
-    this._warnedMissingTransform = false
+    /**
+     * Missing features already reported for this chart, so each is said once
+     * however often parseData runs, and one does not hide another.
+     * @type {Set<string>}
+     */
+    this._warnedFeatures = new Set()
     this.coreUtils = new CoreUtils(this.w)
     /** @type {number} */ this.activeSeriesIndex = 0
   }
@@ -212,9 +300,26 @@ export default class Data {
     const cnf = this.w.config
     const data = ser[i].data
 
-    const isBoxPlot =
-      cnf.chart.type === 'boxPlot' ||
-      /** @type {any} */ (cnf.series[i]).type === 'boxPlot'
+    // A legend-collapsed series arrives here as `data: []`, and a stacked chart
+    // then pads its y with zeros (Series.setNullSeriesToZeroValues). Without
+    // x values to go with them every point lands at x = NaN, the stack lookup
+    // (Line._stackKey keys by x value) misses, and the keyed morph join reads
+    // every datum as an exit plus an enter. The hidden layer then tweens into
+    // the plot's bottom-left corner instead of flattening onto the series
+    // below it. Borrow the active series' x, as handleFormatXY has done for
+    // the {x, y} format since #368, so both formats exit the same way.
+    if (data.length === 0 && this._isCollapsedIndex(i)) {
+      const activeData = ser[this.activeSeriesIndex]?.data || []
+      for (let j = 0; j < activeData.length; j++) {
+        const x = Array.isArray(activeData[j]) ? activeData[j][0] : undefined
+        this.twoDSeriesX.push(
+          cnf.xaxis.type === 'datetime' ? new Date(x).getTime() : x,
+        )
+      }
+      return
+    }
+
+    const isBoxPlot = this._isBoxPlotSeries(i)
 
     if (
       !isBoxPlot &&
@@ -250,11 +355,68 @@ export default class Data {
         this.twoDSeriesX.push(x)
       }
 
-      if (typeof z !== 'undefined') {
-        this.threeDSeries.push(z)
-        this.w.axisFlags.isDataXYZ = true
-      }
+      this.pushZ(z, j)
     }
+  }
+
+  /**
+   * Record one point's `z`, the third dimension a bubble sizes itself by and
+   * the tooltip reports as "Size".
+   *
+   * Two rules, both of which used to be broken (#5323):
+   *
+   * 1. The slot is positional. `seriesZ[i][j]` is read by data-point index, so
+   *    a point WITHOUT `z` still owns its slot. Otherwise a series where only
+   *    some points carry `z` reports the previous point's value for every
+   *    point after the first gap. Nothing is allocated for a series that
+   *    carries no `z` at all: the backfill only runs once the first `z` shows
+   *    up, so an ordinary line chart pays nothing.
+   *
+   * 2. Only a MEASURABLE value makes the chart three-dimensional. `z: NaN`,
+   *    `z: ''` and `z: null` are the shapes a missing value arrives in from a
+   *    database or a CSV, and they used to set `isDataXYZ` just by being
+   *    present, which grew a stray "Size:" row on charts that have no third
+   *    dimension. A numeric string goes the other way and is coerced, the way
+   *    `y` already is, so `z: '99'` sizes a bubble instead of sitting in
+   *    `seriesZ` as a string that `Range.setZRange` then skips. Anything else
+   *    is stored as given, since a custom `tooltip.z.formatter` may still want
+   *    it; it just cannot be what declares the chart 3-D.
+   *
+   * @param {any} z the point's raw `z`, or undefined when it has none
+   * @param {number} j the point's index within the series
+   */
+  pushZ(z, j) {
+    if (typeof z === 'undefined') {
+      // Only hold the slot for a series already carrying z (rule 1).
+      if (this.threeDSeries.length) this.threeDSeries.push(null)
+      return
+    }
+
+    const num = typeof z === 'string' && z.trim() !== '' ? Number(z) : z
+    // The same test Range.setZRange applies, so a value that counts as the
+    // third dimension here is one the z extent can actually be built from.
+    const measurable = Utils.isNumber(num)
+
+    while (this.threeDSeries.length < j) this.threeDSeries.push(null)
+    this.threeDSeries.push(measurable ? num : z)
+
+    if (measurable) {
+      this.w.axisFlags.isDataXYZ = true
+    }
+  }
+
+  /**
+   * Hidden through the legend, either outright or as an ancillary series whose
+   * y axis stays drawn (`yaxis.showAlways`). Both empty the series' data.
+   * @param {number} i
+   * @returns {boolean}
+   */
+  _isCollapsedIndex(i) {
+    const gl = this.w.globals
+    return (
+      gl.collapsedSeriesIndices.indexOf(i) > -1 ||
+      gl.ancillaryCollapsedSeriesIndices.indexOf(i) > -1
+    )
   }
 
   /**
@@ -268,7 +430,7 @@ export default class Data {
     const data = ser[i].data
 
     let activeI = i
-    if (gl.collapsedSeriesIndices.indexOf(i) > -1) {
+    if (this._isCollapsedIndex(i)) {
       // fix #368
       activeI = this.activeSeriesIndex
     }
@@ -294,10 +456,7 @@ export default class Data {
         this.seriesGoals[i].push(null)
       }
 
-      if (typeof point.z !== 'undefined') {
-        this.threeDSeries.push(point.z)
-        this.w.axisFlags.isDataXYZ = true
-      }
+      this.pushZ(point.z, j)
     }
 
     // get seriesX
@@ -689,15 +848,26 @@ export default class Data {
   }
 
   /**
+   * Is series `i` read as a box plot (o, q1, median, q3, c) rather than as
+   * candles (o, h, l, c)? A box or candle series is read as its own type, as
+   * BoxCandleStick draws it, so a candlestick series in a 'boxPlot' chart is
+   * read as candles. Any other series goes by the chart's type, as before.
+   * @param {number} i
+   * @returns {boolean}
+   */
+  _isBoxPlotSeries(i) {
+    const own = /** @type {any} */ (this.w.config.series[i])?.type
+    if (own === 'boxPlot' || own === 'candlestick') return own === 'boxPlot'
+    return this.w.config.chart.type === 'boxPlot'
+  }
+
+  /**
    * @param {string} format
    * @param {any[]} ser
    * @param {number} i
    */
   handleCandleStickBoxDataFormat(format, ser, i) {
-    const w = this.w
-    const isBoxPlot =
-      w.config.chart.type === 'boxPlot' ||
-      /** @type {Record<string,any>} */ (w.config.series[i]).type === 'boxPlot'
+    const isBoxPlot = this._isBoxPlotSeries(i)
 
     const serO = []
     const serH = []
@@ -1210,6 +1380,19 @@ export default class Data {
           if (dataPoint.x !== undefined && dataPoint.y !== undefined) {
             labels.push(String(dataPoint.x))
             values.push(Utils.parseNumber(dataPoint.y))
+          } else if (
+            dataPoint.x !== undefined &&
+            Array.isArray(dataPoint.children)
+          ) {
+            // A partition chart (sunburst, icicle) may leave a branch's own
+            // value out and let it be the sum of its children. The hierarchy
+            // resolver does exactly that in `fillValues`, but that runs long
+            // after this parse, and dropping the datum here left the chart with
+            // an EMPTY series, which makes the renderer bail before it ever
+            // builds the tree: a blank chart and a warning about pie data.
+            // So roll the subtree up now, which is the same number.
+            labels.push(String(dataPoint.x))
+            values.push(subtreeTotal(dataPoint))
           } else {
             console.warn(
               'ApexCharts: Invalid data point format for pie chart. Expected {x, y} format:',
@@ -1648,24 +1831,82 @@ export default class Data {
 
     const transform = getSeriesTransform(name)
     if (transform) return transform(ser, this.w)
-    const feature =
-      /** @type {Record<string,string>} */ (RAW_SAMPLE_FEATURES)[name]
+    if (Array.isArray(ser) && name in RAW_SAMPLE_TYPES) {
+      return this._withoutStats(ser, name)
+    }
+    const feature = /** @type {Record<string,string>} */ (TYPE_FEATURES)[name]
     if (!Array.isArray(ser) || !feature) return ser
-    // Without the feature there is no statistic to compute, and drawing the
-    // raw sample as one mark per observation would be a silent, unusable mess
-    // (a 1800-point sample would render 1800 bars). Warn once per chart:
+    // Without the feature the series is not what the renderer draws (see
+    // TYPE_FEATURES), so draw nothing and say why. Warn once per chart:
     // parseData runs on every render, and a resize should not spam the console.
-    if (!this._warnedMissingTransform) {
-      this._warnedMissingTransform = true
-      console.warn(
-        `ApexCharts: chart.type '${name}' requires the ${feature} feature, ` +
-          `which is not in this bundle. Bundler: import ` +
-          `'apexcharts/features/${feature}' (or from 'apexcharts/${name}'). ` +
-          `Script tag: add <script src='.../dist/features/${feature}.js'> ` +
-          `after apexcharts.js.`,
+    if (!this._warnedFeatures.has(feature)) {
+      this._warnedFeatures.add(feature)
+      // With the renderer on the page (the default bundle has bar and
+      // rangeArea), the feature is all that is missing: the type's own entry
+      // would bring the feature AND a second copy of the renderer, about
+      // 15-20 KB gzipped for a 1-5 KB feature. Only a page without the
+      // renderer (the lean core, or a raincloud without violin) needs the
+      // entry, and its script-tag route adds the renderer's file first.
+      const base = TYPE_ALIASES[name]
+      warnMissingFeature(
+        `chart.type '${name}'`,
+        feature,
+        hasChartClass(base)
+          ? {}
+          : {
+              module: name,
+              scripts: [
+                `${RENDERER_ENTRIES[base] || base}.js`,
+                `features/${feature}.js`,
+              ],
+            },
       )
     }
     return ser.map((/** @type {any} */ s) => ({ ...s, data: [] }))
+  }
+
+  /**
+   * A boxPlot or violin on a page without the stats feature. Precomputed input
+   * (a five-number `y`, a density profile) draws as it always has. Raw
+   * observations are what the feature turns into that input, so without it
+   * the renderer got no summary and no density and drew a sliver or nothing,
+   * with no word as to why. That only happens off the default bundle, which
+   * has the feature: the lean core, or a page assembled from type entries.
+   *
+   * Said, not blanked. Unlike a TYPE_FEATURES type, nothing here draws a WRONG
+   * chart, and the series stays as given: parseData writes it back to the
+   * config, so a stats feature that registers later (a deferred import, an
+   * async script tag) finds the observations on the next render.
+   *
+   * Only series that are this type: a combo's other series (a precomputed
+   * boxPlot in a violin chart, a rangeArea's `y: [lo, hi]`) are not samples.
+   *
+   * @param {any[]} ser
+   * @param {string} name 'boxPlot' or 'violin'
+   * @returns {any[]}
+   */
+  _withoutStats(ser, name) {
+    if (this._warnedFeatures.has('stats')) return ser
+    const flatY = RAW_SAMPLE_TYPES[name]
+    const raw = ser.some(
+      (/** @type {any} */ s) =>
+        (s?.type || name) === name &&
+        Array.isArray(s?.data) &&
+        s.data.some((/** @type {any} */ d) => isRawSample(d, name, flatY)),
+    )
+    if (raw) {
+      this._warnedFeatures.add('stats')
+      warnMissingFeature(
+        `chart.type '${name}' with raw observations (\`points\`${
+          flatY ? ', or a flat number array as `y`' : ''
+        })`,
+        'stats',
+        {
+          tail: 'Precomputed input draws without it; raw series draw nothing until it loads and the chart renders again.',
+        },
+      )
+    }
+    return ser
   }
 
   /**
@@ -1919,8 +2160,11 @@ export default class Data {
   // Segregate user provided data into appropriate vars
   /**
    * @param {any[]} ser
+   * @param {boolean} [overwriteInitialSeries=true] false when the caller hands
+   *   back the series the chart already has (an internal re-render), so the
+   *   baseline resetSeries() restores must not move.
    */
-  parseData(ser) {
+  parseData(ser, overwriteInitialSeries = true) {
     const w = this.w
     const cnf = w.config
     const gl = w.globals
@@ -1993,7 +2237,10 @@ export default class Data {
     // Re-cloning from cnf.series each parse would corrupt initialSeries and
     // break resetZoom (it would only restore one zoom step). Instead, snapshot
     // from the raw stash so initialSeries always represents the true input.
-    if (gl.dataReducerRawSeries && cnf.chart.dataReducer?.enabled) {
+    if (!overwriteInitialSeries) {
+      // An internal re-render replays the series the chart already has, so the
+      // baseline it was given stays put (#5283).
+    } else if (gl.dataReducerRawSeries && cnf.chart.dataReducer?.enabled) {
       const stash = gl.dataReducerRawSeries
       gl.initialSeries = ser.map((s, i) => ({
         ...s,
@@ -2094,6 +2341,32 @@ export default class Data {
         this.w.axisFlags.isMultiLineX = true
         break
       }
+    }
+
+    // Highlight filter: the feature reads the parts off the parsed rows. When
+    // it is not loaded, a chart handed parts would otherwise just draw without
+    // them, so say once what is missing. Checked per series, never per point.
+    const hf = this.highlight()
+    if (hf) {
+      hf.parse()
+    } else if (
+      !this._warnedHighlight &&
+      (cnf.highlightFilter?.data ||
+        ser.some(
+          (/** @type {any} */ s) =>
+            s &&
+            (s.highlightData ||
+              (s.data?.[0] && typeof s.data[0] === 'object' && 'highlight' in s.data[0])),
+        ))
+    ) {
+      this._warnedHighlight = true
+      // Through the helper, like every missing-feature line: a bare
+      // console.warn is stripped from apexcharts.min.js.
+      warnMissingFeature(
+        'Highlight parts (`highlightData`, `highlightFilter.data`)',
+        'highlight-filter',
+        { tail: 'Drawing the chart without them.' },
+      )
     }
 
     // Return a snapshot of all parsed state grouped by future w.* slice destinations.

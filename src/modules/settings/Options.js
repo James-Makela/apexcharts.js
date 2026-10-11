@@ -276,7 +276,7 @@ export default class Options {
       },
       // Weave (#1): public plugin platform. Per-chart activation list:
       // { name, options?, order? }. Requires the Weave host to be bundled
-      // (`import 'apexcharts/features/weave'`, included in the full bundle) and
+      // (`import 'apexcharts/features/weave'`, included in the default bundle) and
       // the plugin registered via ApexCharts.registerPlugin().
       plugins: [],
       // Trellis (#22): small multiples / faceting. Requires the trellis
@@ -318,6 +318,11 @@ export default class Options {
         gap: 12, // px between cells
         aspectRatio: 1.6, // panel w:h when no explicit height governs
         panelHeight: undefined, // px; wins over aspectRatio/chart.height
+        // Floor for a height-derived panel. Below ~80px a panel stops being
+        // readable and Dimensions starts producing degenerate plot boxes, so
+        // a grid that cannot fit its host overflows rather than shrink past
+        // this. Lower it when fitting a short container matters more.
+        minPanelHeight: 80, // px
         order: 'first-seen', // | 'asc' | 'desc' | string[] | comparator
         limit: undefined, // render only the first N panels (warns)
         // Virtualization: 'auto' mounts only the panels intersecting the
@@ -368,9 +373,13 @@ export default class Options {
         tooltip: 'panel',
         zoom: 'sync', // 'sync' (drag/wheel zoom moves every panel) | 'none'
         // Panel promotion: clicking a cell's header expands that panel to
-        // the grid's full width, with an "All panels" breadcrumb back
-        // (also chart.promotePanel(key) / chart.restorePanels()).
-        promote: true,
+        // the grid's full width, with an "All panels" breadcrumb back.
+        // OFF by default: a trellis embedded in a page is usually read, not
+        // driven, and taking over the grid on a stray header click is a large
+        // surprise for an interaction nobody asked for. Opt in with
+        // `promote: true`, or drive it from
+        // chart.promotePanel(key) / chart.restorePanels() without it.
+        promote: false,
         // Pie/donut/polarArea only: scale each panel's radius so its AREA is
         // proportional to the panel's total (equal-size pies cannot encode
         // magnitude, which is the honest objection to a pie trellis).
@@ -436,9 +445,12 @@ export default class Options {
             enabled: true,
             speed: 600,
           },
-          // Honor the OS-level prefers-reduced-motion setting. When true (default)
-          // and the user has the accessibility preference enabled, all initial-mount
-          // animations are skipped and the chart renders instantly.
+          // Honor the OS-level prefers-reduced-motion setting. When true
+          // (default) and the preference is on, applyAnimationPolicy forces off
+          // BOTH `enabled` and `dynamicAnimation.enabled`, so neither the
+          // initial mount nor a data update animates. Setting it false also
+          // puts `apexcharts-ignore-reduced-motion` on the canvas, which is how
+          // the stylesheet's reduced-motion rules know to stand down too.
           respectReducedMotion: true,
           // Above this many data points, per-element morph + stagger (which
           // spins up one JS-driven animation timeline per path — three chained
@@ -512,6 +524,7 @@ export default class Options {
           brushScrolled: undefined,
           crossFilter: undefined,
           filterChange: undefined,
+          highlightFilterChanged: undefined,
           annotationDragged: undefined,
           annotationEdited: undefined,
           annotationCreated: undefined,
@@ -769,6 +782,17 @@ export default class Options {
           // around the pinch centroid (matching the x-only wheel/toolbar zoom),
           // frame-by-frame rather than the 400ms wheel throttle.
           pinch: 'auto',
+          // Drag-to-zoom is deliberate, so it is not gated the way those two
+          // are: it stays on with the toolbar hidden. The reset button that
+          // undoes it does not, which leaves the viewer in a window with no
+          // exit. So while the chart IS zoomed and nothing else on screen can
+          // reset it, one reset control is drawn where the toolbar would have
+          // been, and it goes when the range does. A chart nobody zooms is
+          // untouched. Set false for a page that supplies its own reset (which
+          // also turns off the Escape shortcut), or true to force the control
+          // on whenever the chart is zoomed, even where `toolbar.tools.reset`
+          // is off.
+          resetControl: 'auto',
           zoomedArea: {
             fill: {
               color: '#90CAF9',
@@ -832,6 +856,10 @@ export default class Options {
           distributed: false,
           borderRadius: 0,
           borderRadiusApplication: 'around', // [around, end]
+          // Which segments of a stack round. 'all' caps both ends of the
+          // stack (baseline and far end); 'last' caps only the far end, so
+          // the stack sits square on the baseline. Stacked charts only.
+          borderRadiusWhenStacked: 'all', // [all, last]
           rangeBarOverlap: true,
           rangeBarGroupRows: false,
           hideZeroBarsWhenGrouped: false,
@@ -2047,6 +2075,89 @@ export default class Options {
             connectorColors: '#e8e8e8',
           },
         },
+        icicle: {
+          // Icicle (cartesian partition). One band per hierarchy level, each
+          // child cell nested inside its parent's extent along the value axis.
+          // Opt-in: `import ApexCharts from 'apexcharts/icicle'`.
+          //
+          // Which way the tree grows from the root. 'down' (default) puts the
+          // root band on top; 'up' puts it at the bottom and is the flame-graph
+          // orientation; 'right'/'left' grow sideways.
+          direction: 'down',
+          // Thickness of one depth band. 'equal' divides the depth axis by the
+          // deepest visible level; a number is px; a '%' string is a share of
+          // the depth axis. A fixed size keeps its thickness through a zoom.
+          levelSize: 'equal',
+          // How many levels to draw, counting the focused one. 'auto' (default)
+          // draws the whole tree: labels already hide themselves once a band is
+          // thinner than a line of text, so a deep tree degrades to an honest
+          // dense shape rather than to nonsense. Set a number for very deep
+          // trees (a call stack, say) to keep the top levels readable; branches
+          // cut that way are marked, and clicking one zooms in to reveal them.
+          maxDepth: 'auto',
+          // Gap between adjacent cells and corner rounding, both px, same
+          // semantics as plotOptions.pie.spacing / .borderRadius.
+          spacing: 1,
+          borderRadius: 0,
+          // How a branch that bottoms out before the deepest level is drawn.
+          // 'stop' (default) ends the leaf at its own band and leaves the
+          // deeper bands empty, so the white space below a branch shows how
+          // deep it goes: that stepped silhouette is what makes an icicle
+          // readable as a hierarchy. 'extend' stretches the leaf to the far
+          // edge instead, which fills the plot and reads like a treemap.
+          leaf: 'stop',
+          // Partition of a parent's extent among its children: 'normalize'
+          // splits by each child's share of its siblings (safe for any data);
+          // 'strict' expects children to sum to the parent's value.
+          partition: 'normalize',
+          // Sibling order within a parent. 'none' keeps data order, 'value' is
+          // descending by size, 'name' is alphabetical — the flame-graph
+          // convention, which holds a frame in the same place across profiles
+          // so two runs can be compared by eye.
+          sort: 'none',
+          // Each depth level is tinted this much lighter than its parent
+          // (0 = keep the parent colour, 1 = white). A per-node `color` wins.
+          // Default 0: a branch carries ONE hue at every depth and the gaps do
+          // the separating, which is what lets the eye follow a branch down.
+          // Per-depth shading instead reads as nested boxes, i.e. a treemap.
+          tint: 0,
+          // Click a cell to zoom into that branch (a breadcrumb walks back).
+          // Set false to disable.
+          zoomOnClick: true,
+          // What a zoom actually changes, the partition equivalent of
+          // chart.zoom.type. 'value' (default) rescales the VALUE axis only:
+          // the branch stretches to fill the width and every level stays
+          // exactly where it was, so the reader keeps their bearings and the
+          // ancestors stay on screen as context. 'both' also re-bands the DEPTH
+          // axis, promoting the branch to the top level so its subtree fills
+          // the whole plot, which uses the space better and moves everything.
+          // Not named 'x'/'y': `direction` swaps which screen axis is which.
+          zoomType: 'value',
+          dataLabels: {
+            show: true,
+            // Hide the label on any cell shorter than this (px) along the
+            // reading direction, so narrow cells do not overflow.
+            minSizeToShow: 30,
+            // 'left' | 'center' | 'right', along the reading direction. Centred
+            // by default so a band reads as one unit; a flame graph usually
+            // wants 'left', because a reader scans the left edge of the stack.
+            align: 'center',
+            // 'auto' (default) turns the label a quarter turn on a cell taller
+            // than it is wide, which is where a flat label would be clipped by
+            // the band while the value axis has room to spare. 'always' turns
+            // every label for a uniform look, but note that a turned label
+            // reads across the BAND THICKNESS, so it suits short names and
+            // costs labels on wide shallow bands. 'never' keeps them all flat.
+            rotate: 'auto',
+            showValue: false,
+            style: {
+              fontSize: '12px',
+              fontFamily: undefined,
+              fontWeight: 400,
+              colors: undefined,
+            },
+          },
+        },
         sunburst: {
           // Sunburst / nested pie-donut (hierarchical radial). Rings go from the
           // centre hole outward, one per hierarchy level; each child arc is
@@ -2116,6 +2227,24 @@ export default class Options {
         },
         textAnchor: 'middle',
         distributed: false,
+        // Nudge data labels apart when they land on each other, across series
+        // as well as within one. ON by default: a label sitting on top of
+        // another one is never what the chart meant to say, and the pass is a
+        // no-op on a chart whose labels already clear each other, so the cost
+        // of leaving it on is one measuring pass. Set false for the old
+        // behaviour, or an object to override:
+        //   gap       clear space left between two separated labels (px)
+        //   maxShift  how far a label may travel from its own mark; defaults
+        //             to about one label's own size along that axis
+        //   hide      drop a label that still collides after both have spent
+        //             their budget, later-drawn first. Off by default: this
+        //             pass runs on every chart, and silently deleting a value
+        //             is worse than the overlap it set out to fix.
+        // Labels separate along the VALUE axis, so a horizontal bar's move
+        // left/right and everything else moves up/down. Rotated labels are
+        // avoided but never moved, and radial types (pie, radar, ...) are left
+        // to their own placement.
+        avoidOverlap: true,
         offsetX: 0,
         offsetY: 0,
         style: {
@@ -2200,6 +2329,31 @@ export default class Options {
         fillOpacity: 0.5,
         strokeWidth: undefined,
         dashArray: 4,
+      },
+      // Draws each value faded and a part of it solid in front (the part
+      // comes as `highlight` on a point or `highlightData` on a series, or
+      // in `data`, one per slice or ring, on a circle; a one-value row reads
+      // as that value).
+      // Needs `import 'apexcharts/features/highlight-filter'`.
+      highlightFilter: {
+        enabled: true,
+        data: undefined,
+        fadeOpacity: 0.2,
+        outline: { width: 1, opacity: 1 },
+        enter: 'whole',
+        axis: 'extend',
+        dataLabels: { value: 'part', total: 'part' },
+        tooltip: { show: true, share: false, formatter: undefined },
+        line: { dashArray: 4 },
+        pie: { encoding: 'radius' },
+        // indicator unset: 'arc' on every ring (the whole faded on its
+        // track, the part solid in front from the same start), or 'needle'
+        // where the gauge draws its own needle (plotOptions.radialBar.shape
+        // 'needle'). 'lanes' (opt-in) splits each band in two, the whole
+        // light outside, the part solid inside. Unset needle keys fall back
+        // to plotOptions.radialBar.needle; unset, lanes.opacity (the whole
+        // lane's strength) is 0.45.
+        radialBar: { indicator: undefined, needle: {} },
       },
       grid: {
         show: true,
@@ -2480,6 +2634,9 @@ export default class Options {
         followCursor: false, // when disabled, the tooltip will show on top of the series instead of mouse position
         intersect: false, // when enabled, tooltip will only show when user directly hovers over point
         inverseOrder: false,
+        // Keeps custom tooltip content clickable; when enabled, it overrides
+        // followCursor because a cursor-trailing tooltip cannot be entered.
+        interactive: false,
         arrow: true,
         // One tight line instead of a card: the x label sits inline before
         // the value, the marker goes, the padding and font shrink. For panels

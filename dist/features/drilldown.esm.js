@@ -38,7 +38,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 /*!
- * ApexCharts v7.1.0
+ * ApexCharts v8.0.0
  * (c) 2018-2026 ApexCharts
  */
 import * as _core from "apexcharts/core";
@@ -401,13 +401,18 @@ class Drilldown {
     }
     if (!this.rootSnapshot) this.rootSnapshot = this._snapshot();
     const from = this.path[this.path.length - 1];
-    this.stack.push({ id: child.id, name: child.name, restore: this._snapshot() });
+    const level = { id: child.id, name: child.name, restore: this._snapshot() };
+    this.stack.push(level);
     return this._apply(this._viewFromChild(child), "down", {
       from,
       to: child.id,
       point: triggerPoint,
       seriesIndex: meta && meta.seriesIndex,
       dataPointIndex: meta && meta.dataPointIndex
+    }).catch((error) => {
+      if (this.stack[this.stack.length - 1] === level) this.stack.pop();
+      this._fire("drillDownError", { id: child.id, error });
+      throw error;
     });
   }
   /**
@@ -655,6 +660,7 @@ class Drilldown {
    * @returns {Promise<any>}
    */
   _apply(view, direction, meta) {
+    var _a;
     const w = this.w;
     w.interact.selectedDataPoints = [];
     w.globals.collapsedSeries = [];
@@ -668,6 +674,7 @@ class Drilldown {
     });
     const animate = (!w.config.drilldown.animation || w.config.drilldown.animation.enabled !== false) && w.config.chart.animations.enabled !== false;
     if (direction === "down") this._fire("drillDownStart", meta);
+    (_a = this.ctx.highlightFilter) == null ? void 0 : _a.drillView(view);
     const runUpdate = (anim) => this.ctx.updateOptions(view, false, anim, false, false);
     const done = () => {
       this._fire(direction === "down" ? "drillDownEnd" : "drillUp", meta);

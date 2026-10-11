@@ -140,6 +140,20 @@ export function applyProgressiveReveal(el, x, w) {
  * `chart.animations.respectReducedMotion` is true, disable both initial-mount
  * and data-change animations so the chart renders instantly.
  *
+ * The disable is a REVERSIBLE latch. `w.config` is the merged config that every
+ * update merges *onto* (`w.config = Utils.extend(w.config, options)` in
+ * UpdateHelpers._updateOptions), so writing `enabled = false` straight into it
+ * used to be permanent: a viewer who turned the OS preference back off
+ * mid-session kept a chart that never animated again, because nothing ever put
+ * the original value back. The pre-policy values are stashed in globals and
+ * restored the moment the query stops matching.
+ *
+ * Known corner: an explicit `animations.enabled: false` arriving via
+ * updateOptions() *while* the latch is engaged is indistinguishable from the
+ * false we wrote ourselves, so lifting the OS preference restores the older
+ * value instead. Reaching it takes an OS toggle mid-session, and the
+ * alternative is threading user intent through every config merge site.
+ *
  * Must be called once, after config finalization (Base.init) and before the
  * first render. Idempotent; safe to call again after a config update.
  *
@@ -148,9 +162,34 @@ export function applyProgressiveReveal(el, x, w) {
 export function applyAnimationPolicy(w) {
   const anim = w.config.chart.animations
   if (!anim) return
+  const dyn = anim.dynamicAnimation
+  const gl = w.globals
+
   if (anim.respectReducedMotion !== false && prefersReducedMotion()) {
+    if (!gl.reducedMotionLatch) {
+      gl.reducedMotionLatch = {
+        enabled: anim.enabled,
+        dynamicEnabled: dyn ? dyn.enabled : undefined,
+      }
+    } else {
+      // Latch already engaged, so anything that is no longer `false` was put
+      // there by the user since the last render — re-stash it, or lifting the
+      // OS preference would restore a value they have already replaced.
+      if (anim.enabled !== false) {
+        gl.reducedMotionLatch.enabled = anim.enabled
+      }
+      if (dyn && dyn.enabled !== false) {
+        gl.reducedMotionLatch.dynamicEnabled = dyn.enabled
+      }
+    }
     anim.enabled = false
-    if (anim.dynamicAnimation) anim.dynamicAnimation.enabled = false
+    if (dyn) dyn.enabled = false
+  } else if (gl.reducedMotionLatch) {
+    anim.enabled = gl.reducedMotionLatch.enabled
+    if (dyn && gl.reducedMotionLatch.dynamicEnabled !== undefined) {
+      dyn.enabled = gl.reducedMotionLatch.dynamicEnabled
+    }
+    gl.reducedMotionLatch = null
   }
   // Cadence (#6) P1: resolve chart.animations.easing (name | cubic-bezier array
   // | fn) and set it as the runner's default for the generic tweens. Defaults
@@ -199,6 +238,18 @@ export function computeStagger(opts) {
 }
 
 /**
+ * The chart instance behind each chart state `w`, recorded by the first
+ * Animations built with one (the chart-level instance InitCtxVariables makes
+ * in the chart constructor). Most renderers build their Animations from `w`
+ * alone, and whichever of them finishes the mount animation is the one that
+ * fires `chart.events.animationEnd`, so without this lookup a line, pie or
+ * heatmap chart would hand the user `undefined` where the chart belongs.
+ * A WeakMap keeps `w` free of a reference back to the chart.
+ * @type {WeakMap<object, import('../types/internal').ChartContext>}
+ */
+const chartByState = new WeakMap()
+
+/**
  * ApexCharts Animation Class.
  *
  * @module Animations
@@ -212,6 +263,7 @@ export default class Animations {
   constructor(w, ctx) {
     this.w = w
     this.ctx = ctx // kept for animationEnd user callback: chart.events.animationEnd(ctx, …)
+    if (ctx && w && !chartByState.has(w)) chartByState.set(w, ctx)
   }
 
   /**
@@ -308,7 +360,8 @@ export default class Animations {
    */
   /** @param {any} el @param {any} from @param {any} to @param {any} speed @param {any} fn @param {number} [delay] */
   animateRect(el, from, to, speed, fn, delay = 0) {
-    el.attr(from)
+    return el
+      .attr(from)
       .animate(speed, delay)
       .attr(to)
       .after(() => fn())
@@ -367,10 +420,10 @@ export default class Animations {
   /**
    * Opacity-fade reveal (see Graphics.renderPaths `revealViaFade`): hide this
    * path immediately, then reveal the whole series in a single CSS opacity fade
-   * once the synchronous draw pass has finished. Used for two cases that both
-   * want to avoid per-path morphs: the large-dataset bulk render (>
-   * largeDatasetThreshold) and candlestick/boxPlot data-change updates (where an
-   * index-based morph would slide candles around on zoom). Every faded path is
+   * once the synchronous draw pass has finished. Used by the large-dataset bulk
+   * render (> largeDatasetThreshold), where per-path morphs cost too much.
+   * (Candlestick/boxPlot data changes used to fade too; they now morph, keyed
+   * by datum, see Graphics.renderPaths.) Every faded path is
    * pushed to delayedElements, but only the first one schedules the reveal — a
    * lone requestAnimationFrame fires after all paths are in the DOM, so N paths
    * cost one frame callback instead of N morph timelines. The guard flag is
@@ -382,6 +435,7 @@ export default class Animations {
     const w = this.w
     el.node.classList.add('apexcharts-element-hidden')
     w.globals.delayedElements.push({ el: el.node })
+    w.globals.fadeRevealEls.push(el.node)
 
     if (!Environment.isBrowser() || !w.globals.shouldAnimate) {
       // No animation frame to wait on (SSR / animation off) — reveal at once so
@@ -396,6 +450,21 @@ export default class Animations {
         // chart may have been destroyed before this frame ran (see animateDraw)
         if (w.globals.isDestroyed) return
         w.globals.bulkRevealScheduled = false
+        const faded = w.globals.fadeRevealEls
+        w.globals.fadeRevealEls = []
+        const batch = w.globals.morphBatch
+        if (batch && batch.pending > 0) {
+          // A series that fades can share the render with series that
+          // morph (candles that lost their identity beside a line). The
+          // animation is not over until those land: reveal only what faded
+          // now, and complete when the last morph does.
+          faded.forEach((n) => {
+            n.classList.remove('apexcharts-element-hidden')
+            n.classList.add('apexcharts-hidden-element-shown')
+          })
+          batch.onDone = () => this.animationCompleted(el)
+          return
+        }
         this.animationCompleted(el)
       })
     }
@@ -429,7 +498,10 @@ export default class Animations {
     this.showDelayedElements()
 
     if (typeof w.config.chart.events.animationEnd === 'function') {
-      w.config.chart.events.animationEnd(this.ctx, { el, w })
+      w.config.chart.events.animationEnd(this.ctx || chartByState.get(w), {
+        el,
+        w,
+      })
     }
   }
 
@@ -701,6 +773,11 @@ export default class Animations {
     // _executeChain, so every staggered bar started at 2x its intended offset,
     // drifting away from the axis/data labels that share its clock. The
     // synchronous plot(pathFrom) already pins the start shape during the wait.
+    // The morphs this render started, so a fade sharing the render can wait
+    // for the last of them (see revealBulk).
+    const batch = w.globals.morphBatch
+    if (batch) batch.pending++
+    const landed = Animations.trackSeriesTween(w, realIndex)
     const runner = el.plot(pathFrom).animate(speed, delay)
     if (morphEase) {
       runner.ease(morphEase)
@@ -732,6 +809,48 @@ export default class Animations {
         }
 
         this.showDelayedElements()
+
+        if (batch) {
+          batch.pending--
+          if (batch.pending <= 0 && batch.onDone) {
+            const done = batch.onDone
+            batch.onDone = null
+            done()
+          }
+        }
+        landed()
       })
+  }
+
+  /**
+   * Count one tween of series `realIndex` in this render's batch, and return
+   * the call to make when it lands. A legend-hidden series is cleared the
+   * moment its LAST tween lands (Series.settleCollapsedShapes): a line that
+   * has flattened onto the baseline must not lie there waiting for a timer.
+   * @param {import('../types/internal').ChartStateW} w
+   * @param {any} realIndex
+   * @returns {() => void}
+   */
+  static trackSeriesTween(w, realIndex) {
+    const series = w.globals.morphBatch?.series
+    if (!series || !Utils.isNumber(realIndex)) return () => {}
+    let s = series.get(realIndex)
+    if (!s) {
+      s = { pending: 0, onDone: null }
+      series.set(realIndex, s)
+    }
+    const entry = s
+    entry.pending++
+    let done = false
+    return () => {
+      if (done) return
+      done = true
+      entry.pending--
+      if (entry.pending <= 0 && entry.onDone) {
+        const fn = entry.onDone
+        entry.onDone = null
+        fn()
+      }
+    }
   }
 }

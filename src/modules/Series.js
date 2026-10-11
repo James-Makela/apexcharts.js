@@ -4,7 +4,12 @@ import Utils from '../utils/Utils'
 import { Environment } from '../utils/Environment'
 import { captureStreamFrame } from './animations/StreamScroll'
 import { captureAxisChrome } from './animations/AxisTransition'
-import { captureDataLabels } from './animations/DataLabelTransition'
+import { captureCircle } from './animations/CircleTransition'
+import { pendingUntilPaint } from './animations/LayoutTransition'
+import {
+  captureDataLabels,
+  captureExitLabels,
+} from './animations/DataLabelTransition'
 
 /**
  * ApexCharts Series Class for interaction with the Series of the chart.
@@ -76,7 +81,15 @@ export default class Series {
     const targetElement = this.getSeriesByName(seriesName)
     const el = /** @type {Element} */ (targetElement)
     const realIndex = parseInt(el.getAttribute('data:realIndex') ?? '0', 10)
-    const isHidden = el.classList.contains('apexcharts-series-collapsed')
+    // The collapse is recorded per index for every type; the class only on
+    // the types that draw a series group for it. A pie, donut or polarArea
+    // slice never carries it, so asking the class alone called a hidden slice
+    // visible, and a second toggleSeries() hid it again instead of showing it.
+    const gl = this.w.globals
+    const isHidden =
+      el.classList.contains('apexcharts-series-collapsed') ||
+      gl.collapsedSeriesIndices.includes(realIndex) ||
+      gl.ancillaryCollapsedSeriesIndices.includes(realIndex)
 
     return { isHidden, realIndex }
   }
@@ -143,6 +156,165 @@ export default class Series {
   }
 
   /**
+   * Everything a capture of the screen writes (getPreviousPaths), plus the
+   * polar stash the renderer leaves for the next render: what a second update
+   * in the same frame is handed again.
+   */
+  /** A counter keeping the ids of copied zoom defs apart. */
+  static ghostDefs = 0
+
+  static HELD = [
+    'previousPaths',
+    'prevStreamFrame',
+    'prevChromeFrame',
+    'prevCircleFrame',
+    'prevDataLabels',
+    'exitLabels',
+    'riseLabels',
+    'prevTreemapParents',
+    'prevTreemapView',
+    'prevPolarAngles',
+    'prevPolarSizes',
+  ]
+
+  /**
+   * What a treemap tile's label shows: its text, its size, and whether it is
+   * turned to fit. Two renders that agree on this draw the same label, so it
+   * can ride from one to the other; when they differ the two cross-fade.
+   * Empty for a label that shows nothing.
+   * @param {Element} el the label's group
+   * @returns {string}
+   */
+  static treemapLabelLook(el) {
+    const t = el.querySelector('text')
+    const text = (t?.textContent || '').trim()
+    if (!t || !text) return ''
+    const turned = /rotate\(/.test(
+      `${el.getAttribute('transform') || ''} ${t.getAttribute('transform') || ''}`,
+    )
+    return `${text}|${t.getAttribute('font-size')}|${turned}`
+  }
+
+  /**
+   * How a treemap container's header text reads, the same way: its text and
+   * its size (a zoom moves a container to another depth, which sets both).
+   * @param {Element | null | undefined} el the header's text
+   * @returns {string}
+   */
+  static treemapHeaderLook(el) {
+    return el ? `${el.textContent}|${el.getAttribute('font-size')}` : ''
+  }
+
+  /**
+   * Once a legend-hidden series has finished leaving, leave nothing behind.
+   * (Also removes marks that only slid out of view, see Bar._wasOnScreen.)
+   *
+   * A hidden series is drawn to its exit target so that hiding animates (a
+   * line flattens onto the baseline, a stacked layer onto its neighbour, a
+   * radar into its center, points shrink away). At rest that shape used to
+   * stay in the DOM, unpainted only through the stylesheet's `opacity: 0`:
+   * it still lay there, and an export (which cannot rely on the stylesheet)
+   * drew it. So once the exit is over its geometry is cleared: every path's
+   * `d` is emptied and exit-only ghosts are removed.
+   *
+   * `pathTo` is kept. It is what the next render reads as this series'
+   * previous shape (getPreviousPaths), so showing the series again still
+   * rises from its exit target instead of popping in.
+   *
+   * Runs after every render, not only the one that hid the series: a chart
+   * re-rendered while the series is hidden (a resize, a data update) morphs
+   * the hidden shape again, invisibly, and that morph must finish first.
+   * @param {import('../types/internal').ChartStateW} w
+   * @param {any} graphs the renderer output: one element or an array
+   */
+  static settleCollapsedShapes(w, graphs) {
+    const roots = (Array.isArray(graphs) ? graphs : [graphs])
+      .map((g) => (g && g.node ? g.node : g))
+      .filter((n) => n && typeof n.querySelectorAll === 'function')
+    /** @type {Element[]} */
+    const groups = []
+    // Marks drawn only so they could slide out of view (Bar._wasOnScreen): a
+    // zoom-in's outer bars and candles, which end their morph off-screen.
+    /** @type {Element[]} */
+    const leaving = []
+    roots.forEach((r) => {
+      r.querySelectorAll('.apexcharts-series-collapsed').forEach(
+        (/** @type {Element} */ g) => groups.push(g),
+      )
+      r.querySelectorAll('.apexcharts-leaving').forEach(
+        (/** @type {Element} */ el) => leaving.push(el),
+      )
+    })
+    if (!groups.length && !leaving.length) return
+
+    /** @param {Element} g */
+    const clearGroup = (g) => {
+      if (w.globals.isDestroyed) return
+      g.classList.remove('apexcharts-series-collapsing')
+      g.querySelectorAll('.apexcharts-marker-exit, .apexcharts-bar-ghost').forEach(
+        (/** @type {Element} */ el) => el.remove(),
+      )
+      g.querySelectorAll('path').forEach((/** @type {Element} */ p) => {
+        p.setAttribute('d', '')
+      })
+    }
+    const clearLeaving = () => {
+      if (w.globals.isDestroyed) return
+      leaving.forEach((el) => el.remove())
+    }
+
+    const anim = w.config.chart.animations
+    const animating =
+      Environment.isBrowser() &&
+      anim.enabled &&
+      w.globals.shouldAnimate !== false &&
+      (!w.globals.dataChanged || anim.dynamicAnimation.enabled)
+    if (!animating) {
+      clearLeaving()
+      groups.forEach(clearGroup)
+      return
+    }
+
+    // A series whose exit reports its tweens (path morphs, marker exits) is
+    // cleared the moment the last one lands: a line flattened onto the
+    // baseline must vanish as it arrives, not lie there until a timer that
+    // allows for the slowest staggered bar row runs out.
+    const tweens = w.globals.morphBatch?.series
+    /** @type {Element[]} */
+    const timed = []
+    groups.forEach((g) => {
+      const ri = g.getAttribute('data:realIndex')
+      const s = ri === null ? null : tweens?.get(Number(ri))
+      if (!s || s.pending <= 0) {
+        timed.push(g)
+        return
+      }
+      const before = s.onDone
+      s.onDone = () => {
+        before?.()
+        clearGroup(g)
+      }
+    })
+
+    // Everything else (exits drawn some other way, marks that slid out of
+    // view) waits as long as the -collapsing class does: long enough for the
+    // last mark of any exit, or of an invisible re-render morph, to land.
+    const hold = (anim.dynamicAnimation.speed || 0) + (anim.speed || 0) + 100
+    setTimeout(() => {
+      clearLeaving()
+      timed.forEach(clearGroup)
+    }, hold)
+  }
+
+  /**
+   * Instance entry point for the render pipeline; see the static.
+   * @param {any} graphs
+   */
+  settleCollapsedShapes(graphs) {
+    Series.settleCollapsedShapes(this.w, graphs)
+  }
+
+  /**
    * @param {string} seriesName
    */
   toggleSeries(seriesName) {
@@ -177,21 +349,41 @@ export default class Series {
 
   /**
    * Cheap pre-update reset for the data-replacement paths (updateSeries /
-   * appendSeries). Clears the same bookkeeping resetSeries() clears (series
-   * cache, previous paths, collapsed-series state) WITHOUT restoring
-   * config.series from the initialSeries snapshot: the caller is about to
-   * replace the series anyway (parseData assigns config.series = newSeries),
-   * so materializing and cloning the snapshot per update is pure waste (two
-   * O(n) deep clones per streaming tick at 50k points).
+   * appendSeries). Clears the series cache and previous paths WITHOUT
+   * restoring config.series from the initialSeries snapshot: the caller is
+   * about to replace the series anyway (parseData assigns config.series =
+   * newSeries), so materializing and cloning the snapshot per update is pure
+   * waste (two O(n) deep clones per streaming tick at 50k points).
+   *
+   * It used to clear the collapsed-series bookkeeping here as well, which made
+   * updateSeries() disagree with updateOptions({ series }) about a legend
+   * collapse: the options path reconciles hides by name, this one dropped
+   * them, so a viewer's legend click was undone by the next data refresh and
+   * every series came back on a polling dashboard. An axis chart's records are
+   * now kept and reconciled in _updateSeries, the same way and by the same
+   * code. A genuine reset still clears them: that is resetSeries(), which does
+   * its own clearing and is the call that means "put everything back".
+   *
+   * A non-axis chart still clears here, and has to. Its collapses are recorded
+   * per SLICE: the index points into the slice container (which for an
+   * object-form pie or unit chart is series[0].data, not config.series) and
+   * the stored data is one slice's value rather than a series' rows. Nothing
+   * about that reconciles against an incoming series list, and running the
+   * by-name reconcile over it overwrote each record's slice value with a whole
+   * series object, so a legend click could hide a category and never bring it
+   * back. Persisting those across a data update needs its own slice-level
+   * reconcile, which is a separate piece of work.
    */
   prepareDataUpdate() {
     const w = this.w
     this.clearSeriesCache()
     w.globals.previousPaths = []
-    w.globals.collapsedSeries = []
-    w.globals.ancillaryCollapsedSeries = []
-    w.globals.collapsedSeriesIndices = []
-    w.globals.ancillaryCollapsedSeriesIndices = []
+    if (!w.globals.axisCharts) {
+      w.globals.collapsedSeries = []
+      w.globals.ancillaryCollapsedSeries = []
+      w.globals.collapsedSeriesIndices = []
+      w.globals.ancillaryCollapsedSeriesIndices = []
+    }
   }
 
   resetSeries(
@@ -263,11 +455,12 @@ export default class Series {
    * Series display names for the CURRENT `w.config` (post-merge), derived the
    * same way the parser does: an object series' own `name`, else the matching
    * `labels` entry (non-axis / pie / unit), else a generated `series-N`.
+   * @param {any[]} [list] the series to name, defaulting to the live config.
    * @returns {string[]}
    */
-  _deriveSeriesNames() {
+  _deriveSeriesNames(list) {
     const w = this.w
-    const series = w.config.series || []
+    const series = list || w.config.series || []
     const labels = w.config.labels || []
     return series.map((/** @type {any} */ s, /** @type {number} */ i) => {
       if (s && typeof s === 'object' && s.name != null) return String(s.name)
@@ -284,11 +477,20 @@ export default class Series {
    *   - a category the update dropped/regrouped away is un-hidden (it no longer
    *     exists, so it must reappear as part of the new grouping).
    * Records without a stored name (older collapses) fall back to their index.
+   *
+   * @param {any[]} [list] the series being written, defaulting to the live
+   *   `w.config.series`. updateSeries()/appendSeries() pass the INCOMING array
+   *   instead, because the reconcile has to happen before that array is
+   *   parsed: parsing a collapsed row that still carries its values puts them
+   *   back into the axis range, and the chart rescales to fit a series nobody
+   *   can see. Pass a copy, not the caller's own objects: collapsed rows are
+   *   emptied in place at the end of this.
    */
-  reconcileCollapsedByName() {
+  reconcileCollapsedByName(list) {
     const w = this.w
     const gl = w.globals
-    const newNames = this._deriveSeriesNames()
+    const target = list || w.config.series
+    const newNames = this._deriveSeriesNames(target)
 
     /**
      * @param {any[]} records
@@ -301,12 +503,21 @@ export default class Series {
         const j =
           rec && rec.name != null ? newNames.indexOf(rec.name) : rec.index
         // Category gone (regrouped away) -> drop the collapse so it reappears.
-        if (j == null || j < 0 || j >= w.config.series.length) return
-        const s = /** @type {any} */ (w.config.series[j])
+        if (j == null || j < 0 || j >= target.length) return
+        const s = /** @type {any} */ (target[j])
         rec.index = j
         // Refresh the stored data to the NEW value so a later rise restores the
         // current data, not the stale snapshot from when it was first hidden.
-        rec.data = gl.axisCharts ? (s && s.data ? s.data.slice() : []) : s
+        //
+        // An empty incoming row is not new data, it IS the collapsed
+        // representation: resetSeries(shouldResetCollapsed:false) empties the
+        // list before handing it on, and taking that would overwrite the only
+        // copy of the data a later rise has to restore from.
+        if (gl.axisCharts) {
+          if (s && Array.isArray(s.data) && s.data.length) rec.data = s.data.slice()
+        } else {
+          rec.data = s
+        }
         nextRecords.push(rec)
         nextIndices.push(j)
       })
@@ -323,9 +534,9 @@ export default class Series {
 
     gl.allSeriesCollapsed =
       gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length ===
-      w.config.series.length
+      target.length
 
-    this.emptyCollapsedSeries(w.config.series)
+    this.emptyCollapsedSeries(target)
   }
 
   /**
@@ -610,6 +821,28 @@ export default class Series {
   }
 
   getPreviousPaths() {
+    const gl = /** @type {Record<string, any>} */ (this.w.globals)
+    // Two updates in one frame (an updateOptions and an updateSeries from the
+    // same handler, or the second after awaiting the first): the first one's
+    // render never reached the screen, so it is not what this capture should
+    // start from. The first capture still is, so all of it is handed to this
+    // update too (see LayoutTransition.pendingUntilPaint): the first update
+    // has consumed its frames by now, and updateSeries clears the paths
+    // before it captures. The polar stash is what the first render wrote.
+    const held = gl.pendingCapture
+    if (held?.pending) {
+      Series.HELD.forEach((k) => {
+        gl[k] = held[k]
+      })
+      return
+    }
+    this.capturePreviousPaths()
+    gl.pendingCapture = Environment.isBrowser()
+      ? pendingUntilPaint(Object.fromEntries(Series.HELD.map((k) => [k, gl[k]])))
+      : null
+  }
+
+  capturePreviousPaths() {
     const w = this.w
 
     // Streaming scroll: snapshot the outgoing frame's parsed rows + pixel
@@ -622,10 +855,19 @@ export default class Series {
     // reflowing marks. See AxisTransition.
     captureAxisChrome(w)
 
+    // Circle snapshot (pie, donut, polarArea, radialBar, radar): its centre
+    // and radius, so a circle the chrome re-centres or resizes eases there
+    // instead of jumping. See CircleTransition.
+    captureCircle(w)
+
     // Data-label snapshot (opt-in): position + value of bar/column labels, so
     // a data-change update can ride labels to their new slot and count their
     // value up. See DataLabelTransition. No-op unless the feature is on.
     captureDataLabels(w)
+    // The labels of a series the legend is hiding, to carry out with it.
+    captureExitLabels(w)
+    // Highlight filter parts, keyed by datum like the bars they sit on.
+    w.highlightData?.capture()
 
     // Non-axis charts (pie/donut/radialBar) overwrite previousPaths with the
     // raw series values at the end anyway — skip the DOM captures entirely.
@@ -662,7 +904,13 @@ export default class Series {
 
       for (let j = 0; j < paths.length; j++) {
         if (paths[j].hasAttribute('pathTo')) {
-          const d = paths[j].getAttribute('pathTo')
+          // A line or area caught mid-morph moves on from where it is drawn,
+          // not from where that morph was taking it. A legend-hidden one has
+          // had its `d` cleared, and keeps its target.
+          const d =
+            ((type === 'line' || type === 'area') &&
+              paths[j].getAttribute('d')) ||
+            paths[j].getAttribute('pathTo')
           // Datum key + fill stamped by the bar renderer: the key lets the
           // next render match survivors by identity (not position) and detect
           // exited datums; the fill paints their exit ghosts.
@@ -695,6 +943,8 @@ export default class Series {
       )
     }
 
+    // boxPlot shares the candlestick renderer, which now morphs each box from
+    // its previous shape, so its paths are captured too.
     const chartTypes = [
       'line',
       'area',
@@ -702,6 +952,7 @@ export default class Series {
       'rangebar',
       'rangeArea',
       'candlestick',
+      'boxPlot',
       'radar',
     ]
     chartTypes.forEach((type) => {
@@ -717,15 +968,33 @@ export default class Series {
 
     if (heatTreeSeries.length > 0) {
       for (let h = 0; h < heatTreeSeries.length; h++) {
-        // Non-rect heatmap cell shapes render as <path> but still carry the
-        // heatmap-rect class; the capture must see them too or a data update
-        // loses its color-from and tweens in from transparent.
+        // The cells/tiles by their class, rect or path alike: non-rect heatmap
+        // cell shapes render as <path> (and without them a data update loses
+        // its color-from and tweens in from transparent). Not every rect in
+        // the group: a nested treemap draws its parents and headers ahead of
+        // the tiles, so by position each tile started from a parent's shape,
+        // and the series title plate came along too.
         const base = `.apexcharts-${w.config.chart.type} .apexcharts-series[data\\:realIndex='${h}']`
         const seriesEls = w.dom.baseEl.querySelectorAll(
-          `${base} rect, ${base} path.apexcharts-heatmap-rect`,
+          `${base} .apexcharts-${w.config.chart.type}-rect`,
         )
 
         const dArr = []
+        // What each tile's label showed, so a label the next render adds (or
+        // draws differently) fades in rather than appearing at full strength
+        // over a tile still growing.
+        /** @type {Map<string | null, string>} */
+        const labelled = new Map()
+        /** @type {Set<string | null>} */
+        const fading = new Set()
+        w.dom.baseEl
+          .querySelectorAll(`${base} .apexcharts-data-labels[data\\:key]`)
+          .forEach((/** @type {Element} */ el) => {
+            labelled.set(el.getAttribute('data:key'), Series.treemapLabelLook(el))
+            if (parseFloat(el.getAttribute('opacity') ?? '1') < 0.999) {
+              fading.add(el.getAttribute('data:key'))
+            }
+          })
 
         for (let i = 0; i < seriesEls.length; i++) {
           /**
@@ -740,12 +1009,114 @@ export default class Series {
             width: parseFloat(getAttr('width') ?? '0'),
             height: parseFloat(getAttr('height') ?? '0'),
           }
-          dArr.push({
+          const entry = {
             rect,
             color: seriesEls[i].getAttribute('color'),
-          })
+            fill: seriesEls[i].getAttribute('fill'),
+            label: labelled.get(getAttr('data:key')) ?? '',
+            // Still fading in (a move was under way): its successor fades in
+            // too, rather than appearing at full strength.
+            labelFading: fading.has(getAttr('data:key')),
+          }
+          // Read back by data index (previousPaths[i][j]), so stored by it.
+          // In DOM order, a zoomed treemap (which draws only the branch's
+          // leaves) started every tile from another tile's box.
+          const j = parseInt(getAttr('j') ?? '', 10)
+          if (Number.isFinite(j) && j >= 0) dArr[j] = entry
+          else dArr.push(entry)
         }
         w.globals.previousPaths.push(dArr)
+      }
+    }
+
+    // A nested treemap's parent containers, by series and branch, so they ease from
+    // their old boxes with the tiles inside them (Treemap._drawParent).
+    /** @type {NonNullable<import('../types/internal').ChartStateW['globals']['prevTreemapParents']>} */
+    const parents = new Map()
+    if (w.config.chart.type === 'treemap') {
+      w.dom.baseEl
+        .querySelectorAll('.apexcharts-treemap-parent-rect[data\\:key]')
+        .forEach((/** @type {Element} */ el) => {
+          const box = ['x', 'y', 'width', 'height'].map((a) =>
+            parseFloat(el.getAttribute(a) ?? ''),
+          )
+          // Branch keys repeat from one series to the next (each has its own
+          // root and its own "/0:G1"), so the series is part of the key.
+          const ri = el
+            .closest('.apexcharts-series')
+            ?.getAttribute('data:realIndex')
+          // Its header strip too: a zoom changes a container's depth, and
+          // with it the strip's height and colours.
+          const head = el.parentElement?.querySelector(
+            '.apexcharts-treemap-parent-header',
+          )
+          const hb = head
+            ? ['x', 'y', 'width', 'height'].map((a) =>
+                parseFloat(head.getAttribute(a) ?? ''),
+              )
+            : null
+          if (box.every(Number.isFinite) && ri != null) {
+            parents.set(`${ri}|${el.getAttribute('data:key') ?? ''}`, {
+              x: box[0],
+              y: box[1],
+              width: box[2],
+              height: box[3],
+              fill: el.getAttribute('fill'),
+              header:
+                head && hb && hb.every(Number.isFinite)
+                  ? {
+                      x: hb[0],
+                      y: hb[1],
+                      width: hb[2],
+                      height: hb[3],
+                      fill: head.getAttribute('fill'),
+                      look: Series.treemapHeaderLook(
+                        el.parentElement?.querySelector(
+                          '.apexcharts-treemap-parent-label',
+                        ),
+                      ),
+                    }
+                  : null,
+            })
+          }
+        })
+    }
+    w.globals.prevTreemapParents = parents.size ? parents : null
+
+    // A click-to-zoom also needs what the new view will leave out: the whole
+    // outgoing picture, for Treemap to carry off the plot, including what an
+    // earlier zoom still moving is carrying off. Its gradients, patterns and
+    // filters live in the old render's defs, which go with it: copied too,
+    // under ids of their own, so nothing the new render defines is shadowed.
+    w.globals.prevTreemapView = null
+    if (w.config.chart.type === 'treemap' && w.globals.treemapZoom) {
+      const view = w.dom.baseEl.querySelector('.apexcharts-treemap')
+      if (view) {
+        const copy = /** @type {Element} */ (view.cloneNode(true))
+        const tag = `zoom${++Series.ghostDefs}`
+        /** @type {Map<string, Element>} */
+        const defs = new Map()
+        copy.querySelectorAll('[fill^="url("], [stroke^="url("], [filter^="url("]').forEach((el) => {
+          ;['fill', 'stroke', 'filter'].forEach((a) => {
+            const m = /^url\(#([^)]+)\)$/.exec(el.getAttribute(a) || '')
+            if (!m) return
+            if (!defs.has(m[1])) {
+              const src = w.dom.baseEl.querySelector(`[id="${m[1]}"]`)
+              if (!src) return
+              const c = /** @type {Element} */ (src.cloneNode(true))
+              c.setAttribute('id', `${m[1]}-${tag}`)
+              defs.set(m[1], c)
+            }
+            el.setAttribute(a, `url(#${m[1]}-${tag})`)
+          })
+        })
+        if (defs.size) {
+          const holder = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
+          holder.setAttribute('class', 'apexcharts-treemap-ghost-defs')
+          defs.forEach((c) => holder.appendChild(c))
+          copy.appendChild(holder)
+        }
+        w.globals.prevTreemapView = copy
       }
     }
   }

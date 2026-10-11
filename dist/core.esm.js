@@ -17,6 +17,18 @@ var __spreadValues = (a2, b) => {
   return a2;
 };
 var __spreadProps = (a2, b) => __defProps(a2, __getOwnPropDescs(b));
+var __objRest = (source, exclude) => {
+  var target = {};
+  for (var prop in source)
+    if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0)
+      target[prop] = source[prop];
+  if (source != null && __getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(source)) {
+      if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
+        target[prop] = source[prop];
+    }
+  return target;
+};
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -39,7 +51,7 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 /*!
- * ApexCharts v7.1.0
+ * ApexCharts v8.0.0
  * (c) 2018-2026 ApexCharts
  */
 class Environment {
@@ -78,6 +90,11 @@ class Environment {
     return {};
   }
 }
+const CHAR_WIDTH_EM = 0.55;
+const ASCENT_EM = 0.917;
+const DESCENT_EM = 0.25;
+const LINE_HEIGHT_EM = 1.1;
+const DEFAULT_FONT_SIZE = 11;
 class SSRElement {
   /**
    * @param {string} nodeName
@@ -198,6 +215,43 @@ class SSRElement {
       y: 0
     };
   }
+  getBBox() {
+    if (this.nodeName !== "text" && this.nodeName !== "tspan") {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+    const lines = this._textLines();
+    const longest = lines.reduce((acc, line) => Math.max(acc, line.length), 0);
+    if (!longest) {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+    const fontSize = parseFloat(this.attributes.get("font-size")) || DEFAULT_FONT_SIZE;
+    const width = longest * fontSize * CHAR_WIDTH_EM;
+    const height = fontSize * (ASCENT_EM + DESCENT_EM) + (lines.length - 1) * fontSize * LINE_HEIGHT_EM;
+    const anchor = this.attributes.get("text-anchor");
+    const x = parseFloat(this.attributes.get("x")) || 0;
+    const y = parseFloat(this.attributes.get("y")) || 0;
+    return {
+      x: anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x,
+      y: y - fontSize * ASCENT_EM,
+      width,
+      height
+    };
+  }
+  /**
+   * Text of this element, one entry per rendered line
+   * @returns {string[]}
+   */
+  _textLines() {
+    var _a;
+    const tspans = this.children.filter((child) => child.nodeName === "tspan");
+    if (tspans.length) {
+      return tspans.map((tspan) => {
+        var _a2;
+        return String((_a2 = tspan.textContent) != null ? _a2 : "");
+      });
+    }
+    return [String((_a = this.textContent) != null ? _a : "")];
+  }
   getRootNode() {
     let root = this;
     while (root.parentNode) {
@@ -229,12 +283,12 @@ class SSRElement {
     if (this.children.length === 0 && !this.textContent) {
       return `<${this.nodeName}${attrs}/>`;
     }
-    const childrenStr = this.children.map((c2) => c2.toString()).join("");
+    const childrenStr = this.children.map((c) => c.toString()).join("");
     return `<${this.nodeName}${attrs}>${this.textContent}${childrenStr}</${this.nodeName}>`;
   }
   // Property getters/setters
   get innerHTML() {
-    return this.children.map((c2) => c2.toString()).join("");
+    return this.children.map((c) => c.toString()).join("");
   }
   set innerHTML(value) {
     this.children = [];
@@ -687,15 +741,12 @@ let Utils$1 = class Utils {
     return output;
   }
   // A per-series shallow copy: the series OBJECTS are copied, their data arrays
-  // are shared. Almost every internal "mutation" of a series' data is a
-  // property REPLACEMENT (`series[i].data = []` on legend collapse,
-  // `series[i] = 0` for non-axis charts), and those cannot reach a copy made
-  // this way because the series object was copied at capture time. The
-  // exception is appendData(), whose push loop grows the shared data array in
-  // place, so a copy taken before it does see the appended points; see the
-  // note above defineLazyInitialSeries(). This is the same cheap shape
-  // `globals.initialSeries` captures, so snapshotting a config stays O(n)
-  // instead of deep-cloning every point.
+  // are shared. Every internal "mutation" of a series' data is a property
+  // REPLACEMENT (`series[i].data = []` on legend collapse, `series[i] = 0` for
+  // non-axis charts, appendData's concat), and those cannot reach a copy made
+  // this way because the series object was copied at capture time. This is the
+  // same cheap shape `globals.initialSeries` captures, so snapshotting a config
+  // stays O(n) instead of deep-cloning every point.
   /**
    * @param {any} series
    */
@@ -962,12 +1013,12 @@ let Utils$1 = class Utils {
       hex = "#999999";
     }
     const hexStr = hex.replace("#", "");
-    const h2 = hexStr.match(new RegExp("(.{" + hexStr.length / 3 + "})", "g")) || [];
-    for (let i2 = 0; i2 < h2.length; i2++) {
-      h2[i2] = parseInt(h2[i2].length === 1 ? h2[i2] + h2[i2] : h2[i2], 16);
+    const h = hexStr.match(new RegExp("(.{" + hexStr.length / 3 + "})", "g")) || [];
+    for (let i2 = 0; i2 < h.length; i2++) {
+      h[i2] = parseInt(h[i2].length === 1 ? h[i2] + h[i2] : h[i2], 16);
     }
-    if (typeof opacity !== "undefined") h2.push(opacity);
-    return "rgba(" + h2.join(",") + ")";
+    if (typeof opacity !== "undefined") h.push(opacity);
+    return "rgba(" + h.join(",") + ")";
   }
   /**
    * @param {string} rgba
@@ -983,15 +1034,15 @@ let Utils$1 = class Utils {
    */
   static parseHex(hex) {
     if (typeof hex !== "string") return null;
-    let h2 = hex.trim().replace("#", "");
-    if (h2.length === 3) {
-      h2 = h2.split("").map((c2) => c2 + c2).join("");
+    let h = hex.trim().replace("#", "");
+    if (h.length === 3) {
+      h = h.split("").map((c) => c + c).join("");
     }
-    if (!/^[0-9a-fA-F]{6}$/.test(h2)) return null;
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
     return [
-      parseInt(h2.slice(0, 2), 16),
-      parseInt(h2.slice(2, 4), 16),
-      parseInt(h2.slice(4, 6), 16)
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16)
     ];
   }
   /**
@@ -1000,8 +1051,8 @@ let Utils$1 = class Utils {
    * @returns {number} 0.0–1.0
    */
   static relativeLuminance([r2, g, b]) {
-    const channel = (c2) => {
-      const v = c2 / 255;
+    const channel = (c) => {
+      const v = c / 255;
       return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
     };
     return 0.2126 * channel(r2) + 0.7152 * channel(g) + 0.0722 * channel(b);
@@ -1213,6 +1264,63 @@ let Utils$1 = class Utils {
   static isFloat(n2) {
     return Number(n2) === n2 && n2 % 1 !== 0;
   }
+  /**
+   * Edit distance, capped: how many single-character insertions, deletions or
+   * substitutions turn `a` into `b`. Only ever asked "is this within `max`?",
+   * so it abandons a row the moment every cell in it has passed the budget,
+   * which keeps a near-miss check over a few dozen names free.
+   *
+   * @param {string} a
+   * @param {string} b
+   * @param {number} max
+   * @returns {number} the distance, or `max + 1` once it is known to exceed it
+   */
+  static editDistance(a2, b, max) {
+    if (Math.abs(a2.length - b.length) > max) return max + 1;
+    let prev = Array.from({ length: b.length + 1 }, (_, j2) => j2);
+    for (let i2 = 1; i2 <= a2.length; i2++) {
+      const row = [i2];
+      let best = i2;
+      for (let j2 = 1; j2 <= b.length; j2++) {
+        row[j2] = Math.min(
+          prev[j2] + 1,
+          row[j2 - 1] + 1,
+          prev[j2 - 1] + (a2[i2 - 1] === b[j2 - 1] ? 0 : 1)
+        );
+        if (row[j2] < best) best = row[j2];
+      }
+      if (best > max) return max + 1;
+      prev = row;
+    }
+    return prev[b.length];
+  }
+  /**
+   * The name in `candidates` closest to `name`, or '' when nothing is close
+   * enough to be worth putting in front of a reader. Case and surrounding
+   * whitespace are ignored, so `Line ` finds `line`.
+   *
+   * Used to turn "that option does not exist" into "did you mean this one",
+   * which is the difference between a message that reports a problem and one
+   * that ends it.
+   *
+   * @param {string} name
+   * @param {string[]} candidates
+   * @returns {string}
+   */
+  static nearestName(name2, candidates) {
+    const needle = String(name2).trim().toLowerCase();
+    const max = needle.length > 4 ? 2 : 1;
+    let best = "";
+    let bestDist = max + 1;
+    candidates.forEach((candidate) => {
+      const d = Utils.editDistance(needle, candidate.toLowerCase(), max);
+      if (d < bestDist) {
+        bestDist = d;
+        best = candidate;
+      }
+    });
+    return bestDist <= max ? best : "";
+  }
   static isMsEdge() {
     if (Environment.isSSR()) return false;
     const ua = window.navigator.userAgent;
@@ -1364,9 +1472,9 @@ class DateTime {
     const H = utc ? date.getUTCHours() : date.getHours();
     format = format.replace(/(^|[^\\])HH+/g, "$1" + ii(H));
     format = format.replace(/(^|[^\\])H/g, "$1" + H);
-    const h2 = H > 12 ? H - 12 : H === 0 ? 12 : H;
-    format = format.replace(/(^|[^\\])hh+/g, "$1" + ii(h2));
-    format = format.replace(/(^|[^\\])h/g, "$1" + h2);
+    const h = H > 12 ? H - 12 : H === 0 ? 12 : H;
+    format = format.replace(/(^|[^\\])hh+/g, "$1" + ii(h));
+    format = format.replace(/(^|[^\\])h/g, "$1" + h);
     const m = utc ? date.getUTCMinutes() : date.getMinutes();
     format = format.replace(/(^|[^\\])mm+/g, "$1" + ii(m));
     format = format.replace(/(^|[^\\])m/g, "$1" + m);
@@ -1637,9 +1745,9 @@ class DateTime {
           return d.getTime();
         }
         case "hour": {
-          const h2 = d.getUTCHours();
-          const aligned = Math.ceil(h2 / step) * step;
-          if (aligned === h2 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0)
+          const h = d.getUTCHours();
+          const aligned = Math.ceil(h / step) * step;
+          if (aligned === h && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0)
             return timestamp;
           d.setUTCMilliseconds(0);
           d.setUTCSeconds(0);
@@ -1715,9 +1823,9 @@ class DateTime {
           return d.getTime();
         }
         case "hour": {
-          const h2 = d.getHours();
-          const aligned = Math.ceil(h2 / step) * step;
-          if (aligned === h2 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0)
+          const h = d.getHours();
+          const aligned = Math.ceil(h / step) * step;
+          if (aligned === h && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0)
             return timestamp;
           d.setMilliseconds(0);
           d.setSeconds(0);
@@ -1866,6 +1974,7 @@ class Formatters {
   setLabelFormatters() {
     const w = this.w;
     const fmt = w.formatters;
+    const inferredNumericX = w.axisFlags.isXNumeric && w.axisFlags.dataFormatXNumeric && w.config.xaxis.type !== "datetime" && !w.config.xaxis.convertedCatToNumeric && !w.globals.isBarHorizontal;
     fmt.xaxisTooltipFormatter = (val) => {
       return this.defaultGeneralFormatter(val);
     };
@@ -1882,8 +1991,13 @@ class Formatters {
       fmt.xLabelFormatter = w.config.xaxis.labels.formatter;
     } else {
       fmt.xLabelFormatter = (val) => {
+        var _a;
         if (Utils$1.isNumber(val)) {
-          if (!w.config.xaxis.convertedCatToNumeric && w.config.xaxis.type === "numeric") {
+          if (!w.config.xaxis.convertedCatToNumeric && (w.config.xaxis.type === "numeric" || inferredNumericX)) {
+            const ticks = (_a = w.globals.xAxisScale) == null ? void 0 : _a.result;
+            if (inferredNumericX && Array.isArray(ticks) && ticks.every(Number.isInteger)) {
+              return val.toFixed(0);
+            }
             if (Utils$1.isNumber(w.config.xaxis.decimalsInFloat)) {
               return val.toFixed(w.config.xaxis.decimalsInFloat);
             } else {
@@ -1909,6 +2023,12 @@ class Formatters {
     }
     if (typeof w.config.tooltip.x.formatter === "function") {
       fmt.ttKeyFormatter = w.config.tooltip.x.formatter;
+    } else if (w.config.xaxis.labels.formatter === void 0 && inferredNumericX) {
+      const xLabelFormatter = (
+        /** @type {(val: any) => any} */
+        fmt.xLabelFormatter
+      );
+      fmt.ttKeyFormatter = (val) => Number.isInteger(val) ? val.toFixed(0) : xLabelFormatter(val);
     } else {
       fmt.ttKeyFormatter = fmt.xLabelFormatter;
     }
@@ -2244,7 +2364,7 @@ class Options {
       },
       // Weave (#1): public plugin platform. Per-chart activation list:
       // { name, options?, order? }. Requires the Weave host to be bundled
-      // (`import 'apexcharts/features/weave'`, included in the full bundle) and
+      // (`import 'apexcharts/features/weave'`, included in the default bundle) and
       // the plugin registered via ApexCharts.registerPlugin().
       plugins: [],
       // Trellis (#22): small multiples / faceting. Requires the trellis
@@ -2295,6 +2415,12 @@ class Options {
         // panel w:h when no explicit height governs
         panelHeight: void 0,
         // px; wins over aspectRatio/chart.height
+        // Floor for a height-derived panel. Below ~80px a panel stops being
+        // readable and Dimensions starts producing degenerate plot boxes, so
+        // a grid that cannot fit its host overflows rather than shrink past
+        // this. Lower it when fitting a short container matters more.
+        minPanelHeight: 80,
+        // px
         order: "first-seen",
         // | 'asc' | 'desc' | string[] | comparator
         limit: void 0,
@@ -2352,9 +2478,13 @@ class Options {
         zoom: "sync",
         // 'sync' (drag/wheel zoom moves every panel) | 'none'
         // Panel promotion: clicking a cell's header expands that panel to
-        // the grid's full width, with an "All panels" breadcrumb back
-        // (also chart.promotePanel(key) / chart.restorePanels()).
-        promote: true,
+        // the grid's full width, with an "All panels" breadcrumb back.
+        // OFF by default: a trellis embedded in a page is usually read, not
+        // driven, and taking over the grid on a stray header click is a large
+        // surprise for an interaction nobody asked for. Opt in with
+        // `promote: true`, or drive it from
+        // chart.promotePanel(key) / chart.restorePanels() without it.
+        promote: false,
         // Pie/donut/polarArea only: scale each panel's radius so its AREA is
         // proportional to the panel's total (equal-size pies cannot encode
         // magnitude, which is the honest objection to a pie trellis).
@@ -2420,9 +2550,12 @@ class Options {
             enabled: true,
             speed: 600
           },
-          // Honor the OS-level prefers-reduced-motion setting. When true (default)
-          // and the user has the accessibility preference enabled, all initial-mount
-          // animations are skipped and the chart renders instantly.
+          // Honor the OS-level prefers-reduced-motion setting. When true
+          // (default) and the preference is on, applyAnimationPolicy forces off
+          // BOTH `enabled` and `dynamicAnimation.enabled`, so neither the
+          // initial mount nor a data update animates. Setting it false also
+          // puts `apexcharts-ignore-reduced-motion` on the canvas, which is how
+          // the stylesheet's reduced-motion rules know to stand down too.
           respectReducedMotion: true,
           // Above this many data points, per-element morph + stagger (which
           // spins up one JS-driven animation timeline per path — three chained
@@ -2496,6 +2629,7 @@ class Options {
           brushScrolled: void 0,
           crossFilter: void 0,
           filterChange: void 0,
+          highlightFilterChanged: void 0,
           annotationDragged: void 0,
           annotationEdited: void 0,
           annotationCreated: void 0,
@@ -2767,6 +2901,17 @@ class Options {
           // around the pinch centroid (matching the x-only wheel/toolbar zoom),
           // frame-by-frame rather than the 400ms wheel throttle.
           pinch: "auto",
+          // Drag-to-zoom is deliberate, so it is not gated the way those two
+          // are: it stays on with the toolbar hidden. The reset button that
+          // undoes it does not, which leaves the viewer in a window with no
+          // exit. So while the chart IS zoomed and nothing else on screen can
+          // reset it, one reset control is drawn where the toolbar would have
+          // been, and it goes when the range does. A chart nobody zooms is
+          // untouched. Set false for a page that supplies its own reset (which
+          // also turns off the Escape shortcut), or true to force the control
+          // on whenever the chart is zoomed, even where `toolbar.tools.reset`
+          // is off.
+          resetControl: "auto",
           zoomedArea: {
             fill: {
               color: "#90CAF9",
@@ -2833,6 +2978,11 @@ class Options {
           borderRadius: 0,
           borderRadiusApplication: "around",
           // [around, end]
+          // Which segments of a stack round. 'all' caps both ends of the
+          // stack (baseline and far end); 'last' caps only the far end, so
+          // the stack sits square on the baseline. Stacked charts only.
+          borderRadiusWhenStacked: "all",
+          // [all, last]
           rangeBarOverlap: true,
           rangeBarGroupRows: false,
           hideZeroBarsWhenGrouped: false,
@@ -4078,6 +4228,89 @@ class Options {
             connectorColors: "#e8e8e8"
           }
         },
+        icicle: {
+          // Icicle (cartesian partition). One band per hierarchy level, each
+          // child cell nested inside its parent's extent along the value axis.
+          // Opt-in: `import ApexCharts from 'apexcharts/icicle'`.
+          //
+          // Which way the tree grows from the root. 'down' (default) puts the
+          // root band on top; 'up' puts it at the bottom and is the flame-graph
+          // orientation; 'right'/'left' grow sideways.
+          direction: "down",
+          // Thickness of one depth band. 'equal' divides the depth axis by the
+          // deepest visible level; a number is px; a '%' string is a share of
+          // the depth axis. A fixed size keeps its thickness through a zoom.
+          levelSize: "equal",
+          // How many levels to draw, counting the focused one. 'auto' (default)
+          // draws the whole tree: labels already hide themselves once a band is
+          // thinner than a line of text, so a deep tree degrades to an honest
+          // dense shape rather than to nonsense. Set a number for very deep
+          // trees (a call stack, say) to keep the top levels readable; branches
+          // cut that way are marked, and clicking one zooms in to reveal them.
+          maxDepth: "auto",
+          // Gap between adjacent cells and corner rounding, both px, same
+          // semantics as plotOptions.pie.spacing / .borderRadius.
+          spacing: 1,
+          borderRadius: 0,
+          // How a branch that bottoms out before the deepest level is drawn.
+          // 'stop' (default) ends the leaf at its own band and leaves the
+          // deeper bands empty, so the white space below a branch shows how
+          // deep it goes: that stepped silhouette is what makes an icicle
+          // readable as a hierarchy. 'extend' stretches the leaf to the far
+          // edge instead, which fills the plot and reads like a treemap.
+          leaf: "stop",
+          // Partition of a parent's extent among its children: 'normalize'
+          // splits by each child's share of its siblings (safe for any data);
+          // 'strict' expects children to sum to the parent's value.
+          partition: "normalize",
+          // Sibling order within a parent. 'none' keeps data order, 'value' is
+          // descending by size, 'name' is alphabetical — the flame-graph
+          // convention, which holds a frame in the same place across profiles
+          // so two runs can be compared by eye.
+          sort: "none",
+          // Each depth level is tinted this much lighter than its parent
+          // (0 = keep the parent colour, 1 = white). A per-node `color` wins.
+          // Default 0: a branch carries ONE hue at every depth and the gaps do
+          // the separating, which is what lets the eye follow a branch down.
+          // Per-depth shading instead reads as nested boxes, i.e. a treemap.
+          tint: 0,
+          // Click a cell to zoom into that branch (a breadcrumb walks back).
+          // Set false to disable.
+          zoomOnClick: true,
+          // What a zoom actually changes, the partition equivalent of
+          // chart.zoom.type. 'value' (default) rescales the VALUE axis only:
+          // the branch stretches to fill the width and every level stays
+          // exactly where it was, so the reader keeps their bearings and the
+          // ancestors stay on screen as context. 'both' also re-bands the DEPTH
+          // axis, promoting the branch to the top level so its subtree fills
+          // the whole plot, which uses the space better and moves everything.
+          // Not named 'x'/'y': `direction` swaps which screen axis is which.
+          zoomType: "value",
+          dataLabels: {
+            show: true,
+            // Hide the label on any cell shorter than this (px) along the
+            // reading direction, so narrow cells do not overflow.
+            minSizeToShow: 30,
+            // 'left' | 'center' | 'right', along the reading direction. Centred
+            // by default so a band reads as one unit; a flame graph usually
+            // wants 'left', because a reader scans the left edge of the stack.
+            align: "center",
+            // 'auto' (default) turns the label a quarter turn on a cell taller
+            // than it is wide, which is where a flat label would be clipped by
+            // the band while the value axis has room to spare. 'always' turns
+            // every label for a uniform look, but note that a turned label
+            // reads across the BAND THICKNESS, so it suits short names and
+            // costs labels on wide shallow bands. 'never' keeps them all flat.
+            rotate: "auto",
+            showValue: false,
+            style: {
+              fontSize: "12px",
+              fontFamily: void 0,
+              fontWeight: 400,
+              colors: void 0
+            }
+          }
+        },
         sunburst: {
           // Sunburst / nested pie-donut (hierarchical radial). Rings go from the
           // centre hole outward, one per hierarchy level; each child arc is
@@ -4147,6 +4380,24 @@ class Options {
         },
         textAnchor: "middle",
         distributed: false,
+        // Nudge data labels apart when they land on each other, across series
+        // as well as within one. ON by default: a label sitting on top of
+        // another one is never what the chart meant to say, and the pass is a
+        // no-op on a chart whose labels already clear each other, so the cost
+        // of leaving it on is one measuring pass. Set false for the old
+        // behaviour, or an object to override:
+        //   gap       clear space left between two separated labels (px)
+        //   maxShift  how far a label may travel from its own mark; defaults
+        //             to about one label's own size along that axis
+        //   hide      drop a label that still collides after both have spent
+        //             their budget, later-drawn first. Off by default: this
+        //             pass runs on every chart, and silently deleting a value
+        //             is worse than the overlap it set out to fix.
+        // Labels separate along the VALUE axis, so a horizontal bar's move
+        // left/right and everything else moves up/down. Rotated labels are
+        // avoided but never moved, and radial types (pie, radar, ...) are left
+        // to their own placement.
+        avoidOverlap: true,
         offsetX: 0,
         offsetY: 0,
         style: {
@@ -4235,6 +4486,31 @@ class Options {
         fillOpacity: 0.5,
         strokeWidth: void 0,
         dashArray: 4
+      },
+      // Draws each value faded and a part of it solid in front (the part
+      // comes as `highlight` on a point or `highlightData` on a series, or
+      // in `data`, one per slice or ring, on a circle; a one-value row reads
+      // as that value).
+      // Needs `import 'apexcharts/features/highlight-filter'`.
+      highlightFilter: {
+        enabled: true,
+        data: void 0,
+        fadeOpacity: 0.2,
+        outline: { width: 1, opacity: 1 },
+        enter: "whole",
+        axis: "extend",
+        dataLabels: { value: "part", total: "part" },
+        tooltip: { show: true, share: false, formatter: void 0 },
+        line: { dashArray: 4 },
+        pie: { encoding: "radius" },
+        // indicator unset: 'arc' on every ring (the whole faded on its
+        // track, the part solid in front from the same start), or 'needle'
+        // where the gauge draws its own needle (plotOptions.radialBar.shape
+        // 'needle'). 'lanes' (opt-in) splits each band in two, the whole
+        // light outside, the part solid inside. Unset needle keys fall back
+        // to plotOptions.radialBar.needle; unset, lanes.opacity (the whole
+        // lane's strength) is 0.45.
+        radialBar: { indicator: void 0, needle: {} }
       },
       grid: {
         show: true,
@@ -4528,6 +4804,9 @@ class Options {
         intersect: false,
         // when enabled, tooltip will only show when user directly hovers over point
         inverseOrder: false,
+        // Keeps custom tooltip content clickable; when enabled, it overrides
+        // followCursor because a cursor-trailing tooltip cannot be entered.
+        interactive: false,
         arrow: true,
         // One tight line instead of a card: the x label sits inline before
         // the value, the marker goes, the padding and font shrink. For panels
@@ -4751,6 +5030,7 @@ class Options {
     };
   }
 }
+const RESERVED_TYPES = ["icicle", "unit", "sunburst", "violin"];
 const TYPE_ALIASES = {
   funnel: "bar",
   pyramid: "bar",
@@ -4760,8 +5040,61 @@ const TYPE_ALIASES = {
   waterfall: "rangeBar",
   dumbbell: "rangeBar",
   streamgraph: "rangeArea",
-  raincloud: "violin"
+  raincloud: "violin",
+  // `column` is the name half the world uses for a vertical bar chart, and the
+  // combo path has always accepted it on `series[].type`. On `chart.type` it
+  // used to fall through every dispatch and die inside the renderer (#5325),
+  // so it is spelled out here as what it has always meant.
+  column: "bar"
 };
+const TYPE_FEATURES = {
+  histogram: "stats",
+  raincloud: "raincloud",
+  waterfall: "waterfall",
+  dumbbell: "dumbbell",
+  streamgraph: "streamgraph"
+};
+const RENDERER_ENTRIES = {
+  area: "line",
+  scatter: "line",
+  bubble: "line",
+  rangeArea: "line",
+  column: "bar",
+  barStacked: "bar",
+  rangeBar: "bar",
+  boxPlot: "candlestick",
+  donut: "pie",
+  polarArea: "pie"
+};
+const XY_TYPES = [
+  "line",
+  "area",
+  "bar",
+  "rangeBar",
+  "rangeArea",
+  "candlestick",
+  "boxPlot",
+  "violin",
+  "scatter",
+  "bubble"
+];
+const AXIS_ONLY_TYPES = ["radar", "heatmap", "treemap"];
+const NON_AXIS_TYPES = [
+  "pie",
+  "donut",
+  "polarArea",
+  "radialBar",
+  "unit",
+  "sunburst",
+  "icicle"
+];
+const BUILTIN_TYPES = [
+  ...XY_TYPES,
+  ...AXIS_ONLY_TYPES,
+  ...NON_AXIS_TYPES
+];
+const AXIS_TYPES = [...XY_TYPES, ...AXIS_ONLY_TYPES];
+const SOLO_TYPES = [...AXIS_ONLY_TYPES, ...NON_AXIS_TYPES];
 const TYPE_OWNED = "_apexOwnedByType";
 const ownedBy = (types, fn) => {
   const marked = (
@@ -4997,27 +5330,7 @@ class Defaults {
   static forType(opts) {
     var _a, _b;
     const defaults = new Defaults(opts);
-    const chartTypes = [
-      "line",
-      "area",
-      "bar",
-      "candlestick",
-      "boxPlot",
-      "violin",
-      "rangeBar",
-      "rangeArea",
-      "bubble",
-      "scatter",
-      "heatmap",
-      "treemap",
-      "unit",
-      "sunburst",
-      "pie",
-      "polarArea",
-      "donut",
-      "radar",
-      "radialBar"
-    ];
+    const chartTypes = BUILTIN_TYPES;
     const requestedType = opts.chart.requestedType;
     let chartDefaults;
     if (requestedType === "funnel" || requestedType === "pyramid") {
@@ -5358,7 +5671,9 @@ class Defaults {
               show: true,
               fontSize: "32px",
               fontWeight: 600,
-              offsetY: 8
+              // Placed as the gauge is drawn (see Radial.draw): 8, or on the
+              // needle shape below where the needle reaches.
+              offsetY: void 0
             }
           }
         }
@@ -5366,6 +5681,7 @@ class Defaults {
     });
   }
   waterfall() {
+    var _a;
     const range = this.rangeBar();
     return __spreadProps(__spreadValues({}, range), {
       chart: {
@@ -5408,18 +5724,28 @@ class Defaults {
         // `end - start`, which is the delta for a step bar and the sum for a
         // subtotal / total bar.
         enabled: true,
-        // Small steps are normal in a waterfall, and a label wider or taller
-        // than its bar gets placed OUTSIDE it. The range column's white label
-        // is then white text on the chart background, so the two smallest steps
-        // of a P&L bridge simply vanished. A pale chip with dark ink reads
-        // wherever the label lands: over a green, red or blue bar, or off it.
+        // No chip behind the label. A waterfall is usually a dense row of
+        // steps, and a chip per label is a second rectangle competing with the
+        // bar it names.
         background: {
-          enabled: true,
-          backgroundColor: "#fff",
-          foreColor: "#373d3f",
-          borderColor: "#e3e8ee",
-          opacity: 0.92
-        }
+          enabled: false
+        },
+        style: __spreadProps(__spreadValues(
+          {},
+          /** @type {any} */
+          (_a = range.dataLabels) == null ? void 0 : _a.style
+        ), {
+          // Small steps are normal in a waterfall, and a label wider or taller
+          // than its bar gets placed OUTSIDE it. The range column's white ink
+          // is then white text on the chart background, so the two smallest
+          // steps of a P&L bridge simply vanished. Following `chart.foreColor`
+          // instead keeps the label readable off the bar in either theme, and
+          // legible enough over an increase/decrease/total bar.
+          colors: [
+            /** @param {any} opts */
+            (opts) => opts.w.config.chart.foreColor
+          ]
+        })
       }),
       legend: {
         // A waterfall is one series, so the legend would show a single swatch
@@ -5560,13 +5886,10 @@ class Defaults {
   }
   boxPlot() {
     return {
-      chart: {
-        animations: {
-          dynamicAnimation: {
-            enabled: false
-          }
-        }
-      },
+      // No dynamicAnimation override any more: box plot updates used to be
+      // switched off here (2021), since nothing captured a box's previous shape
+      // and every update snapped. Boxes now morph from their own previous
+      // shape, keyed by datum, like candlesticks and bars.
       stroke: {
         width: 1,
         colors: ["#24292e"]
@@ -6004,11 +6327,11 @@ class Defaults {
         const rect = svg.getBoundingClientRect();
         const zoom = w.globals.svgWidth ? rect.width / w.globals.svgWidth : 1;
         const py = (clientY - rect.top) / (zoom || 1) - w.layout.translateY;
-        const h2 = w.layout.gridHeight;
+        const h = w.layout.gridHeight;
         const yPx = (v) => {
           var _a2;
           const frac = (v - w.globals.minY) / span;
-          return ((_a2 = w.config.yaxis[0]) == null ? void 0 : _a2.reversed) ? frac * h2 : h2 - frac * h2;
+          return ((_a2 = w.config.yaxis[0]) == null ? void 0 : _a2.reversed) ? frac * h : h - frac * h;
         };
         let nearest = seriesIndex;
         let gap = Infinity;
@@ -6167,24 +6490,28 @@ class Defaults {
    */
   stacked100(opts) {
     opts.dataLabels = opts.dataLabels || {};
-    opts.dataLabels.formatter = opts.dataLabels.formatter || void 0;
-    const existingDataLabelFormatter = opts.dataLabels.formatter;
     opts.yaxis.forEach((yaxe, index) => {
       opts.yaxis[index].min = 0;
       opts.yaxis[index].max = 100;
     });
-    const isBar = opts.chart.type === "bar";
-    if (isBar) {
-      opts.dataLabels.formatter = existingDataLabelFormatter || /**
-       * @param {any} val
-       */
-      function(val) {
-        if (typeof val === "number") {
-          return val ? val.toFixed(0) + "%" : val;
-        }
-        return val;
-      };
-    }
+    if (opts.dataLabels.formatter) return opts;
+    const percent = (val) => {
+      if (typeof val === "number") {
+        return val ? val.toFixed(0) + "%" : val;
+      }
+      return val;
+    };
+    const plain = (val) => val !== null ? val : "";
+    const chartType = opts.chart.type;
+    const isBarSeries = (s2) => s2.type ? s2.type === "bar" || s2.type === "column" : chartType === "bar" || chartType === "column";
+    const hasBars = (opts.series || []).some(isBarSeries);
+    opts.dataLabels.formatter = (val, ctx) => {
+      var _a, _b, _c;
+      const barIndices = (_c = (_b = (_a = ctx == null ? void 0 : ctx.w) == null ? void 0 : _a.globals) == null ? void 0 : _b.columnSeries) == null ? void 0 : _c.i;
+      const isBarLabel = barIndices ? barIndices.includes(ctx == null ? void 0 : ctx.seriesIndex) : hasBars;
+      if (isBarLabel) return percent(val);
+      return plain(val);
+    };
     return opts;
   }
   stackedBars() {
@@ -6207,7 +6534,7 @@ class Defaults {
   }
   /**
    * @param {Record<string, any>} opts
-   * @param {any} cats
+   * @param {any[]} [cats] the category names, when they are not in `opts`
    */
   convertCatToNumericXaxis(opts, cats) {
     opts.xaxis.type = "numeric";
@@ -6221,14 +6548,19 @@ class Defaults {
     const defaultFormatter = opts.xaxis.labels.formatter;
     let labels = opts.xaxis.categories && opts.xaxis.categories.length ? opts.xaxis.categories : opts.labels;
     if (cats && cats.length) {
-      labels = cats.map((c2) => {
-        return Array.isArray(c2) ? c2 : String(c2);
+      labels = cats.map((c) => {
+        return Array.isArray(c) ? c : String(c);
       });
     }
     if (labels && labels.length) {
-      opts.xaxis.labels.formatter = function(val) {
-        return Utils$1.isNumber(val) ? defaultFormatter(labels[Math.floor(val) - 1]) : defaultFormatter(val);
+      const names = labels;
+      const format = function(val) {
+        if (!Utils$1.isNumber(val)) return defaultFormatter(val);
+        const label = names[Math.floor(val) - 1];
+        return label === void 0 ? "" : defaultFormatter(label);
       };
+      format.categoryNames = names;
+      opts.xaxis.labels.formatter = format;
     }
     opts.xaxis.categories = [];
     opts.labels = [];
@@ -6413,6 +6745,42 @@ class Defaults {
       },
       legend: {
         show: true,
+        position: "bottom"
+      },
+      grid: {
+        padding: {
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0
+        }
+      }
+    };
+  }
+  icicle() {
+    return {
+      chart: {
+        toolbar: {
+          show: false
+        }
+      },
+      dataLabels: {
+        style: {
+          colors: ["#fff"]
+        }
+      },
+      stroke: {
+        colors: ["#fff"]
+      },
+      fill: {
+        opacity: 1
+      },
+      // Off by default: every cell carries its own label, so a legend repeats
+      // what the chart already says. It also only lines up with the colours
+      // when the tree has several roots, because the palette is applied to the
+      // shallowest level that branches. A multi-root icicle can turn it on.
+      legend: {
+        show: false,
         position: "bottom"
       },
       grid: {
@@ -6740,10 +7108,10 @@ class Defaults {
    */
   _getBoxTooltip(w, seriesIndex, dataPointIndex, labels, chartType) {
     const o2 = w.candleData.seriesCandleO[seriesIndex][dataPointIndex];
-    const h2 = w.candleData.seriesCandleH[seriesIndex][dataPointIndex];
+    const h = w.candleData.seriesCandleH[seriesIndex][dataPointIndex];
     const m = w.candleData.seriesCandleM[seriesIndex][dataPointIndex];
     const l2 = w.candleData.seriesCandleL[seriesIndex][dataPointIndex];
-    const c2 = w.candleData.seriesCandleC[seriesIndex][dataPointIndex];
+    const c = w.candleData.seriesCandleC[seriesIndex][dataPointIndex];
     const _si = (
       /** @type {Record<string,any>} */
       w.config.series[seriesIndex]
@@ -6753,7 +7121,7 @@ class Defaults {
           ${_si.name ? _si.name : "series-" + (seriesIndex + 1)}: <strong>${w.seriesData.series[seriesIndex][dataPointIndex]}</strong>
         </div>`;
     } else {
-      return `<div class="apexcharts-tooltip-box apexcharts-tooltip-${w.config.chart.type}"><div>${labels[0]}: <span class="value">` + o2 + `</span></div><div>${labels[1]}: <span class="value">` + h2 + "</span></div>" + (m ? `<div>${labels[2]}: <span class="value">` + m + "</span></div>" : "") + `<div>${labels[3]}: <span class="value">` + l2 + `</span></div><div>${labels[4]}: <span class="value">` + c2 + "</span></div></div>";
+      return `<div class="apexcharts-tooltip-box apexcharts-tooltip-${w.config.chart.type}"><div>${labels[0]}: <span class="value">` + o2 + `</span></div><div>${labels[1]}: <span class="value">` + h + "</span></div>" + (m ? `<div>${labels[2]}: <span class="value">` + m + "</span></div>" : "") + `<div>${labels[3]}: <span class="value">` + l2 + `</span></div><div>${labels[4]}: <span class="value">` + c + "</span></div></div>";
     }
   }
   /**
@@ -6805,7 +7173,75 @@ class Defaults {
     return `<div class="apexcharts-tooltip-box apexcharts-tooltip-${w.config.chart.type}"><div class="apexcharts-tooltip-violin-name">${name2}</div><div>Whisker high: <span class="value">${fmt(hi)}</span></div><div>Q3: <span class="value">${fmt(q3)}</span></div><div>Median: <span class="value">${fmt(med)}</span></div><div>Q1: <span class="value">${fmt(q1)}</span></div><div>Whisker low: <span class="value">${fmt(lo)}</span></div><div>Observations: <span class="value">${pts.length}</span></div></div>`;
   }
 }
-class Config {
+const REGISTRY_KEY$1 = "__apexcharts_registry__";
+const CUSTOM_KEY = "__apexcharts_custom_types__";
+if (!/** @type {any} */
+globalThis[REGISTRY_KEY$1]) {
+  globalThis[REGISTRY_KEY$1] = {};
+}
+const MISSING_KEY = "__apexcharts_missing_types__";
+if (!/** @type {any} */
+globalThis[CUSTOM_KEY]) {
+  globalThis[CUSTOM_KEY] = /* @__PURE__ */ new Set();
+}
+if (!/** @type {any} */
+globalThis[MISSING_KEY]) {
+  globalThis[MISSING_KEY] = /* @__PURE__ */ new Set();
+}
+function getRegistry$1() {
+  return (
+    /** @type {any} */
+    globalThis[REGISTRY_KEY$1]
+  );
+}
+function getCustomTypes() {
+  return (
+    /** @type {any} */
+    globalThis[CUSTOM_KEY]
+  );
+}
+function markCustom(name2) {
+  getCustomTypes().add(name2);
+}
+function isCustom(name2) {
+  return getCustomTypes().has(name2);
+}
+function hasChartClass(type) {
+  return !!getRegistry$1()[type];
+}
+function unregister(name2) {
+  delete getRegistry$1()[name2];
+  getCustomTypes().delete(name2);
+}
+function register(typeMap) {
+  Object.assign(getRegistry$1(), typeMap);
+}
+function getChartClass(type, requested) {
+  const Cls = getRegistry$1()[type];
+  if (!Cls) {
+    const family = (t2) => RENDERER_ENTRIES[t2] || t2;
+    const alias = requested && TYPE_ALIASES[requested] && family(TYPE_ALIASES[requested]) === family(type) ? requested : void 0;
+    const name2 = alias || type;
+    const feature = alias ? TYPE_FEATURES[alias] : void 0;
+    const entry = feature ? alias : family(type);
+    const files = feature ? [`${family(type)}.js`, `features/${feature}.js`] : [`${family(type)}.js`];
+    const tags = files.map((f) => `<script src=".../dist/${f}">`).join(" and ");
+    const optIn = RESERVED_TYPES.includes(type);
+    const message = `ApexCharts: chart type "${name2}" is not registered` + (name2 !== type ? ` (it draws through "${type}")` : "") + `. Bundler: import 'apexcharts/${entry}'` + (optIn ? ` (or import ApexCharts from 'apexcharts/full')` : "") + `. Script tag: add ${tags} after the ApexCharts script` + (optIn ? `, or load apexcharts.full.min.js instead, which has every type. This type is not in the default apexcharts.min.js.` : `, or load the default apexcharts.min.js instead.`);
+    const missing = (
+      /** @type {Set<string>} */
+      /** @type {any} */
+      globalThis[MISSING_KEY]
+    );
+    if (!missing.has(name2)) {
+      missing.add(name2);
+      globalThis.console.error(message);
+    }
+    throw new Error(message);
+  }
+  return Cls;
+}
+const _Config = class _Config {
   /**
    * @param {Record<string, any>} opts
    */
@@ -6815,10 +7251,16 @@ class Config {
   /** @param {{responsiveOverride: any}} opts */
   init({ responsiveOverride }) {
     var _a, _b, _c, _d, _e, _f, _g, _h;
-    let opts = this.opts;
+    let opts = _Config.dropEmptyOptions(this.opts);
     const options2 = new Options();
     const defaults = new Defaults(opts);
+    if (opts && opts.chart && !opts.chart.type) {
+      opts.chart.type = "line";
+    }
     opts = this.normalizeAliasedChartType(opts);
+    if (!responsiveOverride) {
+      _Config.warnUnknownOptionKeys(this.opts);
+    }
     this.chartType = opts.chart.type;
     opts = this.extendYAxis(opts);
     opts = this.extendAnnotations(opts);
@@ -6855,6 +7297,7 @@ class Config {
       Environment.getApex()
     );
     config = Utils$1.extend(mergedWithDefaultConfig, opts);
+    _Config.normalizeAxisBounds(config);
     config = this.handleUserInputErrors(config);
     return config;
   }
@@ -6871,6 +7314,13 @@ class Config {
    */
   normalizeAliasedChartType(opts) {
     if (!opts || !opts.chart) return opts;
+    if (opts.chart.type !== void 0) {
+      _Config.assertKnownChartType(opts.chart.type);
+    }
+    if (opts.chart.type === "column") {
+      opts.chart.type = "bar";
+      return opts;
+    }
     const requested = opts.chart.type;
     if (!requested || !TYPE_ALIASES[requested]) {
       return opts;
@@ -6926,6 +7376,8 @@ class Config {
       opts.chart.type = "bar";
     } else if (requested === "raincloud") {
       opts.chart.type = "violin";
+    } else {
+      opts.chart.type = TYPE_ALIASES[requested];
     }
     return opts;
   }
@@ -6938,7 +7390,7 @@ class Config {
     var _a, _b, _c, _d, _e;
     const defaults = new Defaults(opts);
     const isBarHorizontal = (chartType === "bar" || chartType === "boxPlot" || chartType === "violin") && ((_b = (_a = opts.plotOptions) == null ? void 0 : _a.bar) == null ? void 0 : _b.horizontal);
-    const unsupportedZoom = chartType === "pie" || chartType === "polarArea" || chartType === "donut" || chartType === "radar" || chartType === "radialBar" || chartType === "heatmap" || chartType === "unit" || chartType === "sunburst";
+    const unsupportedZoom = chartType === "pie" || chartType === "polarArea" || chartType === "donut" || chartType === "radar" || chartType === "radialBar" || chartType === "heatmap" || chartType === "unit" || chartType === "sunburst" || chartType === "icicle";
     const notNumericXAxis = opts.xaxis.type !== "datetime" && opts.xaxis.type !== "numeric";
     const isScatterJitter = (chartType === "scatter" || chartType === "bubble") && ((_e = (_d = (_c = opts.plotOptions) == null ? void 0 : _c.scatter) == null ? void 0 : _d.jitter) == null ? void 0 : _e.enabled);
     const tickPlacement = opts.xaxis.tickPlacement ? opts.xaxis.tickPlacement : chartDefaults.xaxis && chartDefaults.xaxis.tickPlacement;
@@ -7105,7 +7557,239 @@ class Config {
     }
     return config;
   }
-}
+  /**
+   * Reject a `chart.type` no renderer answers to, at the point the config is
+   * read rather than deep inside drawing.
+   *
+   * An unknown type used to survive all the way to `Core.plotChartType`, where
+   * the fallthrough asked a renderer that was never built to draw, and the
+   * reader got `Cannot read properties of null (reading 'draw')` out of a
+   * rejected `render()` promise: no mention of `chart.type`, no mention of the
+   * value, and a stack pointing at internals (#5325). Three of the four ways
+   * to get this wrong (a different capitalisation, a trailing space, a name
+   * from another library) are a one-word fix once the message says so.
+   *
+   * @param {string} type
+   */
+  static assertKnownChartType(type) {
+    if (typeof type !== "string") {
+      throw new Error(
+        `ApexCharts: chart.type must be a string, got ${typeof type}.`
+      );
+    }
+    if (BUILTIN_TYPES.includes(type) || TYPE_ALIASES[type] !== void 0 || isCustom(type)) {
+      return;
+    }
+    const known = BUILTIN_TYPES.concat(Object.keys(TYPE_ALIASES));
+    const nearest = Utils$1.nearestName(type, known);
+    throw new Error(
+      `ApexCharts: unknown chart.type "${type}".` + (nearest ? ` Did you mean "${nearest}"?` : "") + ` Known types: ${known.sort().join(", ")}.`
+    );
+  }
+  /**
+   * The default options tree, built once (see warnUnknownOptionKeys).
+   * @returns {Record<string, any>}
+   */
+  static _defaultsTree() {
+    if (!_Config._defaults) _Config._defaults = new Options().init();
+    return _Config._defaults;
+  }
+  /**
+   * Read an option given as `undefined` or `null` as not given, where the
+   * library expects a group of settings or a list.
+   *
+   * The merge copies what it is handed, so `stroke: undefined` replaced the
+   * whole stroke section and the first read of `stroke.colors` threw: every
+   * chart type, at any depth (`chart.animations`, `xaxis.labels`), and from
+   * `updateOptions` too. Framework wrappers hand these over routinely by
+   * passing optional props straight through.
+   *
+   * - Where the default is a section (a plain object), the key is dropped, as
+   *   if it were absent: the defaults stand on a new chart, the current
+   *   settings on an update.
+   * - Where the default is a list, it becomes an empty one, which is what an
+   *   empty `xaxis.categories` already did.
+   * - Anything else is left alone: `xaxis: { min: undefined }` must still
+   *   reset a bound, and `colors: undefined` must still fall back to the
+   *   theme.
+   *
+   * Lists of settings (`yaxis`, annotation lists) are walked entry by entry.
+   * Copy on write: the caller's objects are never modified.
+   *
+   * @param {any} opts the options, or an updateOptions payload
+   * @param {any} [defaults] the matching part of the default tree
+   * @returns {any}
+   */
+  static dropEmptyOptions(opts, defaults = _Config._defaultsTree()) {
+    if (!Utils$1.isObject(opts) || !Utils$1.isObject(defaults)) return opts;
+    let out = opts;
+    const write = (key, value) => {
+      if (out === opts) out = __spreadValues({}, opts);
+      if (value === void 0) delete out[key];
+      else out[key] = value;
+    };
+    for (const key of Object.keys(opts)) {
+      const v = opts[key];
+      const d = defaults[key];
+      if (v == null) {
+        if (Utils$1.isObject(d)) write(key, void 0);
+        else if (Array.isArray(d)) write(key, []);
+        continue;
+      }
+      const entry = Array.isArray(d) ? d[0] : d;
+      if (Array.isArray(v) && Utils$1.isObject(entry)) {
+        const walked = v.map((item) => _Config.dropEmptyOptions(item, entry));
+        if (walked.some((item, i2) => item !== v[i2])) write(key, walked);
+        continue;
+      }
+      if (Utils$1.isObject(v) && Utils$1.isObject(d)) {
+        const walked = _Config.dropEmptyOptions(v, d);
+        if (walked !== v) write(key, walked);
+      }
+    }
+    return out;
+  }
+  /**
+   * Report top-level option keys ApexCharts does not read.
+   *
+   * The merge that builds the config copies whatever it is handed, so an
+   * invented key, or a typo of a real one, lands in `w.config` looking exactly
+   * as accepted as a real option and is then never read by anything. The
+   * reporter of #5326 shipped `zaxis: { title: { text } }` for a long time
+   * believing it labelled something.
+   *
+   * The known set is `Options.init()`'s own keys, so it cannot drift from what
+   * the library actually supports. A warning, not a throw: an unknown key has
+   * never stopped a chart rendering, and someone stashing their own metadata
+   * on the options object should not have their page broken by an upgrade.
+   *
+   * @param {Record<string, any>} opts the options as the user supplied them
+   */
+  static warnUnknownOptionKeys(opts) {
+    if (!opts || typeof opts !== "object") return;
+    if (!_Config._knownOptionKeys) {
+      _Config._knownOptionKeys = Object.keys(_Config._defaultsTree());
+    }
+    const known = _Config._knownOptionKeys;
+    const unknown = Object.keys(opts).filter((key) => !known.includes(key));
+    if (!unknown.length) return;
+    const described = unknown.map((key) => {
+      const nearest = Utils$1.nearestName(key, known);
+      return nearest ? `${key} (did you mean "${nearest}"?)` : key;
+    });
+    console.warn(
+      `ApexCharts: unrecognized top-level option${unknown.length > 1 ? "s" : ""}: ${described.join(", ")}. ${unknown.length > 1 ? "They are" : "It is"} kept in the config but never read.`
+    );
+  }
+  /**
+   * One bound (`min` or `max`) on one axis, as a number, whatever shape the
+   * user wrote it in.
+   *
+   * `x` values accept a date string and a `Date` and a timestamp, so the
+   * bounds that frame them should too; they used to be dropped in silence
+   * unless they were already numbers (#5327). A numeric string was worse than
+   * dropped: it passed the `!== undefined` test and then failed the
+   * `typeof === 'number'` one, leaving the axis half-assigned and collapsed to
+   * `0 … tickAmount` with the series drawn off-chart (#5328).
+   *
+   * @param {any} value the configured bound
+   * @param {boolean} isDatetime whether this axis measures time
+   * @param {boolean|undefined} datetimeUTC xaxis.labels.datetimeUTC
+   * @param {string} where the option path, for the warning
+   * @returns {number|undefined} a number, or undefined to leave the bound unset
+   */
+  static _coerceAxisBound(value, isDatetime, datetimeUTC, where) {
+    if (value === void 0 || value === null) return void 0;
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : _Config._rejectBound(value, where);
+    }
+    if (isDatetime) {
+      const dt = new DateTime(
+        /** @type {any} */
+        { config: { xaxis: { labels: { datetimeUTC } } } }
+      );
+      const parsed = dt.parseDate(value);
+      return Number.isFinite(parsed) ? parsed : _Config._rejectBound(value, where);
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return _Config._rejectBound(value, where);
+  }
+  /**
+   * @param {any} value
+   * @param {string} where
+   * @returns {undefined}
+   */
+  static _rejectBound(value, where) {
+    console.warn(
+      `ApexCharts: ${where} cannot be read as a number. got ${typeof value === "string" ? `"${value}"` : String(value)}. The bound is ignored and the axis scales to the data.`
+    );
+    return void 0;
+  }
+  /**
+   * Put every axis bound into the one shape the scale code reads: a number.
+   *
+   * Runs on the merged config, so every later reader (Range, Toolbar,
+   * ZoomPanSelection, the data window slicer) sees a number or nothing. Their
+   * own `typeof === 'number'` guards stay: a bound can also be written
+   * straight onto `w.config` by a zoom, a brush or a linked view, and those
+   * paths do not come back through here.
+   *
+   * Idempotent, because the update path runs it again on options that may
+   * already have been through it.
+   *
+   * @param {Record<string, any>} config a full config, or an updateOptions
+   *   payload that carries only some of it
+   * @param {{xaxisType?: string, datetimeUTC?: boolean}} [inherited] what the
+   *   chart already has, for a payload that does not restate it
+   * @returns {Record<string, any>} the same object, mutated
+   */
+  static normalizeAxisBounds(config, inherited = {}) {
+    var _a, _b, _c;
+    if (!config || typeof config !== "object") return config;
+    const xaxis = config.xaxis;
+    if (xaxis) {
+      const isDatetime = ((_a = xaxis.type) != null ? _a : inherited.xaxisType) === "datetime";
+      const datetimeUTC = (_c = (_b = xaxis.labels) == null ? void 0 : _b.datetimeUTC) != null ? _c : inherited.datetimeUTC;
+      ["min", "max"].forEach((bound) => {
+        if (xaxis[bound] === void 0) return;
+        xaxis[bound] = _Config._coerceAxisBound(
+          xaxis[bound],
+          isDatetime,
+          datetimeUTC,
+          `xaxis.${bound}`
+        );
+      });
+    }
+    const yaxes = Array.isArray(config.yaxis) ? config.yaxis : config.yaxis ? [config.yaxis] : [];
+    yaxes.forEach((yaxe, index) => {
+      if (!yaxe) return;
+      ["min", "max"].forEach((bound) => {
+        if (yaxe[bound] === void 0 || typeof yaxe[bound] === "function") {
+          return;
+        }
+        yaxe[bound] = _Config._coerceAxisBound(
+          yaxe[bound],
+          false,
+          void 0,
+          `yaxis${yaxes.length > 1 ? `[${index}]` : ""}.${bound}`
+        );
+      });
+    });
+    return config;
+  }
+};
+/**
+ * The top-level option names, cached from the first Options.init(). See
+ * warnUnknownOptionKeys.
+ * @type {string[] | null}
+ */
+__publicField(_Config, "_knownOptionKeys", null);
+/** @type {Record<string, any> | null} */
+__publicField(_Config, "_defaults", null);
+let Config = _Config;
 const LINE_HEIGHT_RATIO = 1.618;
 const NICE_SCALE_ALLOWED_MAG_MSD = [
   [1, 1, 2, 5, 5, 5, 10, 10, 10, 10, 10],
@@ -7222,17 +7906,19 @@ class Globals {
     gl.rotateXLabels = false;
     gl.overlappingXLabels = false;
     gl.radialSize = 0;
+    gl.circleGeometry = null;
     gl.barHeight = 0;
     gl.barWidth = 0;
     gl.animationEnded = false;
     gl.isDestroyed = false;
     gl.bulkRevealScheduled = false;
+    gl.fadeRevealEls = [];
+    gl.morphBatch = { pending: 0, onDone: null, series: /* @__PURE__ */ new Map() };
     gl.resizeTimer = null;
     gl.selectionResizeTimer = null;
     gl.delayedElements = [];
     gl.pointsArray = [];
     gl.barCanvasCoords = null;
-    gl.activeRenderer = null;
     gl.dataLabelsRects = [];
     gl.lastDrawnDataLabelsIndexes = [];
     gl.textRectsCache = /* @__PURE__ */ new Map();
@@ -7545,6 +8231,11 @@ class Globals {
       // running total (used by pie/radial)
       // ── Animation control ─────────────────────────────────────────────────────
       shouldAnimate: true,
+      // Set by Animations.applyAnimationPolicy while prefers-reduced-motion is
+      // forcing animations off, holding the config values it overwrote so the
+      // same function can put them back if the OS preference is lifted. Null
+      // whenever the policy is not engaged.
+      reducedMotionLatch: null,
       previousPaths: [],
       // paths from previous render — source for enter animation
       // polarArea's last-drawn sector angles. Its angles are count-based, not
@@ -7552,10 +8243,28 @@ class Globals {
       // previousPaths (the previous VALUES) the way pie does; Pie.draw stashes
       // the real ones here each render.
       prevPolarAngles: null,
+      // ...and its last-drawn slice radii, as fractions of radialSize. The
+      // radius scale depends on whether the polar grid was drawn before the
+      // slices (it rounds maxY to a nice max) or after, so rebuilding them from
+      // previous values got it wrong.
+      prevPolarSizes: null,
       // Streaming scroll: previous frame's parsed rows + pixel positions,
       // captured by Series.getPreviousPaths(). Consulted (like previousPaths)
       // only while a data-change morph renders. See StreamScroll.
       prevStreamFrame: null,
+      // A hidden series' labels to carry out, and a shown one's to bring in
+      // (DataLabelTransition.captureExitLabels / playExitLabels).
+      exitLabels: null,
+      riseLabels: null,
+      prevTreemapParents: null,
+      // The last capture of what is on screen (Series.getPreviousPaths), kept
+      // until the next frame is painted so a second update in the same tick
+      // starts from it too.
+      pendingCapture: null,
+      // A treemap click-to-zoom on its way to the next render (the branch
+      // focused before and after), and the outgoing picture it carries off.
+      treemapZoom: null,
+      prevTreemapView: null,
       // Set for the duration of one render when a streaming scroll is driving
       // it; see captureStreamFrame / detectStreamScroll.
       streamScrolled: false,
@@ -7563,6 +8272,19 @@ class Globals {
       // captured alongside prevStreamFrame; consumed once by AxisTransition
       // after a variable-length re-render mounts.
       prevChromeFrame: null,
+      // The plot-layout tween in flight (LayoutTransition), if any: its
+      // in-flight rect is where the next update's layout change starts from.
+      layoutTween: null,
+      // The chrome tweens AxisTransition has running (each entry lands its
+      // tween), so the next update can land them before reading the chrome.
+      chromeTweens: null,
+      // A circle chart's circle (and, without axes, its plot rect) captured
+      // before an update's teardown; consumed once by CircleTransition after
+      // the new render mounts.
+      prevCircleFrame: null,
+      // The circle tween in flight (CircleTransition), if any: its in-flight
+      // circle is where the next update's move starts from.
+      circleTween: null,
       // ── SVG viewport (set by Dimensions, but persistent as layout anchor) ─────
       svgWidth: 0,
       svgHeight: 0,
@@ -7585,6 +8307,14 @@ class Globals {
       // ── Instances (created once, replaced only on full re-init) ──────────────
       tooltip: null,
       resizeObserver: null,
+      // Strata (#2): the series renderer on screen, mirrored from
+      // RendererController (its only writer) so w-only modules (tooltip hit
+      // tests, Series restyle) can reach it without threading ctx. It lives
+      // as long as the controller does, not one render: the data-only fast
+      // update reparses (which runs initGlobalVars) but keeps the renderer
+      // and never resolves again, so a per-render copy read null after the
+      // first updateSeries() and every canvas hover path went with it.
+      activeRenderer: null,
       // ── Locale (loaded once; changes only via setLocale()) ───────────────────
       locale: {},
       // ── Method queue (deferred calls during async operations) ────────────────
@@ -7621,16 +8351,11 @@ class Globals {
    * which cannot reach the captured copies because each series object was
    * copied at capture time.
    *
-   * The one in-place mutator is appendData(), whose push loop grows the shared
-   * data array. Re-capturing after it does not undo that: the pushed points
-   * are already in the array both snapshots point at, so a snapshot taken
-   * before the append reads back as appended. That is the documented
-   * behaviour of appendData(overwriteInitialSeries = true), and the `false`
-   * case is not honoured for a separate, older reason: Data.parseData()
-   * re-captures initialSeries unconditionally on the re-render appendData
-   * triggers. Detaching would mean copying the data arrays, which is exactly
-   * the per-point cost this snapshot exists to avoid. The same exception
-   * applies to `initialConfig.series`, which is captured with the same shape.
+   * appendData() used to be the exception, growing the shared data array in
+   * place. It now replaces the array instead (`data = data.concat(newData)`):
+   * one array copy per call, against the per-point cost this snapshot exists
+   * to avoid. With that, no internal edit can reach a captured copy. The same
+   * holds for `initialConfig.series`, which is captured with the same shape.
    *
    * @param {Record<string, any>} globals
    */
@@ -7811,6 +8536,13 @@ class Base {
       //   carrier     = the series index the merged rows were written to
       //   hidden[]    = endpoint indices collapsed from the legend
       dumbbellData: null,
+      // Highlight filter parts (features/highlight-filter), built each parse:
+      //   active   = a part is present and the option is on
+      //   parts    = parts[i][j], null where a datum has none
+      //   ext      = the parts again when they may stretch the value axis
+      //   capture  = called by Series when it captures the outgoing frame
+      // null when the feature is not loaded.
+      highlightData: null,
       // Streamgraph bands, written by the streamgraph series transform
       // (features/streamgraph) each parse; null for every other chart type.
       //   names[k]     = band k's series name
@@ -8157,9 +8889,9 @@ class CoreUtils {
     if (w.seriesData.series.length === 0) return total;
     for (let i2 = 0; i2 < w.seriesData.series[w.globals.maxValsInArrayIndex].length; i2++) {
       let t2 = 0;
-      for (let j = 0; j < w.seriesData.series.length; j++) {
-        if (typeof w.seriesData.series[j][i2] !== "undefined" && excludedSeriesIndices.indexOf(j) === -1) {
-          t2 += w.seriesData.series[j][i2];
+      for (let j2 = 0; j2 < w.seriesData.series.length; j2++) {
+        if (typeof w.seriesData.series[j2][i2] !== "undefined" && excludedSeriesIndices.indexOf(j2) === -1) {
+          t2 += w.seriesData.series[j2][i2];
         }
       }
       total.push(t2);
@@ -8218,7 +8950,7 @@ class CoreUtils {
     let axisSeriesMap = [];
     const seriesYAxisReverseMap = [];
     const unassignedSeriesIndices = [];
-    const seriesNameArrayStyle = this.w.seriesData.series.length > cnf.yaxis.length || /**
+    const seriesNameArrayStyle = cnf.series.length > cnf.yaxis.length || /**
      * @param {ApexYAxis} a
      */
     cnf.yaxis.some((a2) => Array.isArray(a2.seriesName));
@@ -8322,16 +9054,19 @@ class CoreUtils {
    */
   isSeriesNull(index = null) {
     let r2 = [];
-    const series = (
-      /** @type {any[]} */
-      this.w.config.series
-    );
     if (index === null) {
+      const series = (
+        /** @type {any[]} */
+        this.w.config.series
+      );
       r2 = series.filter((d) => d !== null);
-    } else if (series[index] && Array.isArray(series[index].data)) {
-      r2 = series[index].data.filter((d) => d !== null);
     } else {
-      r2 = series[index] !== null && series[index] !== void 0 ? [series[index]] : [];
+      const seriesAtIndex = this.w.seriesData.series[index];
+      if (Array.isArray(seriesAtIndex)) {
+        r2 = seriesAtIndex.filter((d) => d !== null);
+      } else {
+        r2 = seriesAtIndex !== null && seriesAtIndex !== void 0 ? [seriesAtIndex] : [];
+      }
     }
     return r2.length === 0;
   }
@@ -8405,8 +9140,8 @@ class CoreUtils {
     w.globals.seriesTotals = w.seriesData.series.map((ser) => {
       let total = 0;
       if (Array.isArray(ser)) {
-        for (let j = 0; j < ser.length; j++) {
-          total += ser[j];
+        for (let j2 = 0; j2 < ser.length; j2++) {
+          total += ser[j2];
         }
       } else {
         total += ser;
@@ -8422,9 +9157,9 @@ class CoreUtils {
     const w = this.w;
     const seriesTotalsXRange = w.seriesData.series.map((ser, index) => {
       let total = 0;
-      for (let j = 0; j < ser.length; j++) {
-        if (w.seriesData.seriesX[index][j] > minX && w.seriesData.seriesX[index][j] < maxX) {
-          total += ser[j];
+      for (let j2 = 0; j2 < ser.length; j2++) {
+        if (w.seriesData.seriesX[index][j2] > minX && w.seriesData.seriesX[index][j2] < maxX) {
+          total += ser[j2];
         }
       }
       return total;
@@ -8439,14 +9174,21 @@ class CoreUtils {
    **/
   getPercentSeries() {
     const w = this.w;
+    const chartType = w.config.chart.type;
+    const isBarSeries = (s2) => s2.type ? s2.type === "bar" || s2.type === "column" : chartType === "bar" || chartType === "column";
+    const hasBars = w.config.series.some(isBarSeries);
+    const excluded = hasBars ? w.config.series.map(
+      (s2, i2) => isBarSeries(s2) ? -1 : i2
+    ).filter((i2) => i2 !== -1) : [];
+    const stackedTotals = excluded.length ? this.getStackedSeriesTotals(excluded) : w.seriesData.stackedSeriesTotals;
     w.globals.seriesPercent = w.seriesData.series.map((ser) => {
       const seriesPercent = [];
       if (Array.isArray(ser)) {
-        for (let j = 0; j < ser.length; j++) {
-          const total = w.seriesData.stackedSeriesTotals[j];
+        for (let j2 = 0; j2 < ser.length; j2++) {
+          const total = stackedTotals[j2];
           let percent = 0;
           if (total) {
-            percent = 100 * ser[j] / total;
+            percent = 100 * ser[j2] / total;
           }
           seriesPercent.push(percent);
         }
@@ -8716,10 +9458,10 @@ class Matrix {
    * @param {number} [e]
    * @param {number} [f]
    */
-  constructor(a2, b, c2, d, e2, f) {
+  constructor(a2, b, c, d, e2, f) {
     this.a = a2 != null ? a2 : 1;
     this.b = b != null ? b : 0;
-    this.c = c2 != null ? c2 : 0;
+    this.c = c != null ? c : 0;
     this.d = d != null ? d : 1;
     this.e = e2 != null ? e2 : 0;
     this.f = f != null ? f : 0;
@@ -8770,15 +9512,15 @@ class Box {
    * @param {number} w
    * @param {number} h
    */
-  constructor(x, y, w, h2) {
+  constructor(x, y, w, h) {
     this.x = x;
     this.y = y;
     this.w = w;
-    this.h = h2;
+    this.h = h;
     this.width = w;
-    this.height = h2;
+    this.height = h;
     this.x2 = x + w;
-    this.y2 = y + h2;
+    this.y2 = y + h;
   }
 }
 /*!
@@ -8811,54 +9553,54 @@ function parsePath(d) {
     const start = positions[i2] + letters[i2].length;
     const end = i2 + 1 < positions.length ? positions[i2 + 1] : d.length;
     const paramStr = d.substring(start, end);
-    const nums = [];
+    const nums2 = [];
     let numMatch;
     numRe.lastIndex = 0;
     while ((numMatch = numRe.exec(paramStr)) !== null) {
-      nums.push(parseFloat(numMatch[0]));
+      nums2.push(parseFloat(numMatch[0]));
     }
     const cmd = letters[i2].toUpperCase();
     if (cmd === "Z") {
       commands.push(["Z"]);
     } else if (cmd === "M" || cmd === "L" || cmd === "T") {
-      for (let j = 0; j < nums.length; j += 2) {
-        commands.push([cmd, nums[j], nums[j + 1]]);
+      for (let j2 = 0; j2 < nums2.length; j2 += 2) {
+        commands.push([cmd, nums2[j2], nums2[j2 + 1]]);
       }
     } else if (cmd === "H") {
-      for (let j = 0; j < nums.length; j++) {
-        commands.push([cmd, nums[j]]);
+      for (let j2 = 0; j2 < nums2.length; j2++) {
+        commands.push([cmd, nums2[j2]]);
       }
     } else if (cmd === "V") {
-      for (let j = 0; j < nums.length; j++) {
-        commands.push([cmd, nums[j]]);
+      for (let j2 = 0; j2 < nums2.length; j2++) {
+        commands.push([cmd, nums2[j2]]);
       }
     } else if (cmd === "C") {
-      for (let j = 0; j < nums.length; j += 6) {
+      for (let j2 = 0; j2 < nums2.length; j2 += 6) {
         commands.push([
           cmd,
-          nums[j],
-          nums[j + 1],
-          nums[j + 2],
-          nums[j + 3],
-          nums[j + 4],
-          nums[j + 5]
+          nums2[j2],
+          nums2[j2 + 1],
+          nums2[j2 + 2],
+          nums2[j2 + 3],
+          nums2[j2 + 4],
+          nums2[j2 + 5]
         ]);
       }
     } else if (cmd === "S" || cmd === "Q") {
-      for (let j = 0; j < nums.length; j += 4) {
-        commands.push([cmd, nums[j], nums[j + 1], nums[j + 2], nums[j + 3]]);
+      for (let j2 = 0; j2 < nums2.length; j2 += 4) {
+        commands.push([cmd, nums2[j2], nums2[j2 + 1], nums2[j2 + 2], nums2[j2 + 3]]);
       }
     } else if (cmd === "A") {
-      for (let j = 0; j < nums.length; j += 7) {
+      for (let j2 = 0; j2 < nums2.length; j2 += 7) {
         commands.push([
           cmd,
-          nums[j],
-          nums[j + 1],
-          nums[j + 2],
-          nums[j + 3],
-          nums[j + 4],
-          nums[j + 5],
-          nums[j + 6]
+          nums2[j2],
+          nums2[j2 + 1],
+          nums2[j2 + 2],
+          nums2[j2 + 3],
+          nums2[j2 + 4],
+          nums2[j2 + 5],
+          nums2[j2 + 6]
         ]);
       }
     }
@@ -8978,7 +9720,7 @@ function findNextM(arr, offset) {
   return false;
 }
 function arcToBezier(pos, val) {
-  var rx = Math.abs(val[1]), ry = Math.abs(val[2]), xAxisRotation = val[3] % 360, largeArcFlag = val[4], sweepFlag = val[5], x = val[6], y = val[7], A = new Point(pos[0], pos[1]), B = new Point(x, y), primedCoord, lambda, mat, k, c2, cSquare, t2, O, OA, OB, tetaStart, tetaEnd, deltaTeta, nbSectors, f, arcSegPoints, angle, sinAngle, cosAngle, pt, i2, il, retVal = [], x1, y1, x2, y2;
+  var rx = Math.abs(val[1]), ry = Math.abs(val[2]), xAxisRotation = val[3] % 360, largeArcFlag = val[4], sweepFlag = val[5], x = val[6], y = val[7], A = new Point(pos[0], pos[1]), B = new Point(x, y), primedCoord, lambda, mat, k, c, cSquare, t2, O, OA, OB, tetaStart, tetaEnd, deltaTeta, nbSectors, f, arcSegPoints, angle, sinAngle, cosAngle, pt, i2, il, retVal = [], x1, y1, x2, y2;
   if (rx === 0 || ry === 0 || A.x === B.x && A.y === B.y) {
     return [["C", A.x, A.y, B.x, B.y, B.x, B.y]];
   }
@@ -9002,9 +9744,9 @@ function arcToBezier(pos, val) {
   B = B.transform(mat);
   k = [B.x - A.x, B.y - A.y];
   cSquare = k[0] * k[0] + k[1] * k[1];
-  c2 = Math.sqrt(cSquare);
-  k[0] /= c2;
-  k[1] /= c2;
+  c = Math.sqrt(cSquare);
+  k[0] /= c;
+  k[1] /= c;
   t2 = cSquare < 4 ? Math.sqrt(1 - cSquare / 4) : 0;
   if (largeArcFlag === sweepFlag) {
     t2 *= -1;
@@ -9542,6 +10284,7 @@ function installAnimationMethods(ElementClass) {
 function easeInOutSine(t2) {
   return -Math.cos(t2 * Math.PI) / 2 + 0.5;
 }
+const DEFAULT_EASING_NAME = "easeInOutSine";
 function cubicBezier(x1, y1, x2, y2) {
   x1 = Math.min(Math.max(x1, 0), 1);
   x2 = Math.min(Math.max(x2, 0), 1);
@@ -9677,9 +10420,30 @@ function applyProgressiveReveal(el, x, w) {
 function applyAnimationPolicy(w) {
   const anim = w.config.chart.animations;
   if (!anim) return;
+  const dyn = anim.dynamicAnimation;
+  const gl = w.globals;
   if (anim.respectReducedMotion !== false && prefersReducedMotion()) {
+    if (!gl.reducedMotionLatch) {
+      gl.reducedMotionLatch = {
+        enabled: anim.enabled,
+        dynamicEnabled: dyn ? dyn.enabled : void 0
+      };
+    } else {
+      if (anim.enabled !== false) {
+        gl.reducedMotionLatch.enabled = anim.enabled;
+      }
+      if (dyn && dyn.enabled !== false) {
+        gl.reducedMotionLatch.dynamicEnabled = dyn.enabled;
+      }
+    }
     anim.enabled = false;
-    if (anim.dynamicAnimation) anim.dynamicAnimation.enabled = false;
+    if (dyn) dyn.enabled = false;
+  } else if (gl.reducedMotionLatch) {
+    anim.enabled = gl.reducedMotionLatch.enabled;
+    if (dyn && gl.reducedMotionLatch.dynamicEnabled !== void 0) {
+      dyn.enabled = gl.reducedMotionLatch.dynamicEnabled;
+    }
+    gl.reducedMotionLatch = null;
   }
   setDefaultEasing(resolveEasing(anim.easing));
 }
@@ -9706,6 +10470,7 @@ function computeStagger(opts) {
       return index * baseDelay;
   }
 }
+const chartByState = /* @__PURE__ */ new WeakMap();
 class Animations {
   /**
    * @param {import('../types/internal').ChartStateW} w
@@ -9714,6 +10479,7 @@ class Animations {
   constructor(w, ctx) {
     this.w = w;
     this.ctx = ctx;
+    if (ctx && w && !chartByState.has(w)) chartByState.set(w, ctx);
   }
   /**
    * @param {any} el
@@ -9791,7 +10557,7 @@ class Animations {
    */
   /** @param {any} el @param {any} from @param {any} to @param {any} speed @param {any} fn @param {number} [delay] */
   animateRect(el, from, to, speed, fn, delay = 0) {
-    el.attr(from).animate(speed, delay).attr(to).after(() => fn());
+    return el.attr(from).animate(speed, delay).attr(to).after(() => fn());
   }
   /**
    * @param {Record<string, any>} params
@@ -9800,7 +10566,7 @@ class Animations {
     const {
       el,
       realIndex,
-      j,
+      j: j2,
       fill,
       pathFrom,
       pathTo,
@@ -9821,7 +10587,7 @@ class Animations {
     me.morphSVG(
       el,
       realIndex,
-      j,
+      j2,
       w.config.chart.type === "line" && !w.globals.comboCharts ? "stroke" : fill,
       pathFrom,
       pathTo,
@@ -9834,10 +10600,10 @@ class Animations {
   /**
    * Opacity-fade reveal (see Graphics.renderPaths `revealViaFade`): hide this
    * path immediately, then reveal the whole series in a single CSS opacity fade
-   * once the synchronous draw pass has finished. Used for two cases that both
-   * want to avoid per-path morphs: the large-dataset bulk render (>
-   * largeDatasetThreshold) and candlestick/boxPlot data-change updates (where an
-   * index-based morph would slide candles around on zoom). Every faded path is
+   * once the synchronous draw pass has finished. Used by the large-dataset bulk
+   * render (> largeDatasetThreshold), where per-path morphs cost too much.
+   * (Candlestick/boxPlot data changes used to fade too; they now morph, keyed
+   * by datum, see Graphics.renderPaths.) Every faded path is
    * pushed to delayedElements, but only the first one schedules the reveal — a
    * lone requestAnimationFrame fires after all paths are in the DOM, so N paths
    * cost one frame callback instead of N morph timelines. The guard flag is
@@ -9849,6 +10615,7 @@ class Animations {
     const w = this.w;
     el.node.classList.add("apexcharts-element-hidden");
     w.globals.delayedElements.push({ el: el.node });
+    w.globals.fadeRevealEls.push(el.node);
     if (!Environment.isBrowser() || !w.globals.shouldAnimate) {
       this.animationCompleted(el);
       return;
@@ -9858,6 +10625,17 @@ class Animations {
       BrowserAPIs.requestAnimationFrame(() => {
         if (w.globals.isDestroyed) return;
         w.globals.bulkRevealScheduled = false;
+        const faded = w.globals.fadeRevealEls;
+        w.globals.fadeRevealEls = [];
+        const batch = w.globals.morphBatch;
+        if (batch && batch.pending > 0) {
+          faded.forEach((n2) => {
+            n2.classList.remove("apexcharts-element-hidden");
+            n2.classList.add("apexcharts-hidden-element-shown");
+          });
+          batch.onDone = () => this.animationCompleted(el);
+          return;
+        }
         this.animationCompleted(el);
       });
     }
@@ -9879,7 +10657,10 @@ class Animations {
     w.globals.animationEnded = true;
     this.showDelayedElements();
     if (typeof w.config.chart.events.animationEnd === "function") {
-      w.config.chart.events.animationEnd(this.ctx, { el, w });
+      w.config.chart.events.animationEnd(this.ctx || chartByState.get(w), {
+        el,
+        w
+      });
     }
   }
   /**
@@ -9897,7 +10678,7 @@ class Animations {
    * @param {any} el            - SVG.js path element
    * @param {{realIndex: number, j?: number, isFill: boolean, isLast: boolean, speed: number, delay: number, mask?: {type: 'rect'|'radial', cx?: number, cy?: number, r?: number}}} params
    */
-  animateDraw(el, { realIndex, j, isFill, isLast, speed, delay, mask: maskShape }) {
+  animateDraw(el, { realIndex, j: j2, isFill, isLast, speed, delay, mask: maskShape }) {
     const w = this.w;
     const me = this;
     const finalize = () => {
@@ -9918,7 +10699,7 @@ class Animations {
       const radialCx = maskShape && maskShape.cx || 0;
       const radialCy = maskShape && maskShape.cy || 0;
       const targetRadius = (maskShape && maskShape.r || w.layout.gridWidth / 2) + pad;
-      const maskId = `apexDrawMask${w.globals.cuid}-${realIndex}-${j != null ? j : 0}-${isFill ? "f" : "s"}`;
+      const maskId = `apexDrawMask${w.globals.cuid}-${realIndex}-${j2 != null ? j2 : 0}-${isFill ? "f" : "s"}`;
       const mask = BrowserAPIs.createElementNS(SVGNS, "mask");
       mask.setAttribute("id", maskId);
       mask.setAttribute("maskUnits", "userSpaceOnUse");
@@ -10030,7 +10811,7 @@ class Animations {
    *   pathTo (extra anchors sitting exactly on the final geometry) and snap to
    *   the clean pathTo at the end.
    */
-  morphSVG(el, realIndex, j, fill, pathFrom, pathTo, speed, delay, scrollMorph, pathToInterp) {
+  morphSVG(el, realIndex, j2, fill, pathFrom, pathTo, speed, delay, scrollMorph, pathToInterp) {
     var _a, _b;
     const w = this.w;
     if (!pathFrom) {
@@ -10069,6 +10850,9 @@ class Animations {
         morphEase = resolveEasing("linear");
       }
     }
+    const batch = w.globals.morphBatch;
+    if (batch) batch.pending++;
+    const landed = Animations.trackSeriesTween(w, realIndex);
     const runner = el.plot(pathFrom).animate(speed, delay);
     if (morphEase) {
       runner.ease(morphEase);
@@ -10078,9 +10862,9 @@ class Animations {
       morphAlgo,
       pathToInterp ? pathTo : void 0
     ).after(() => {
-      if (Utils$1.isNumber(j)) {
+      if (Utils$1.isNumber(j2)) {
         const maxSeries = w.seriesData.series[w.globals.maxValsInArrayIndex];
-        if (maxSeries && j === maxSeries.length - 2 && w.globals.shouldAnimate) {
+        if (maxSeries && j2 === maxSeries.length - 2 && w.globals.shouldAnimate) {
           this.animationCompleted(el);
         }
       } else if (fill !== "none" && w.globals.shouldAnimate) {
@@ -10089,7 +10873,49 @@ class Animations {
         }
       }
       this.showDelayedElements();
+      if (batch) {
+        batch.pending--;
+        if (batch.pending <= 0 && batch.onDone) {
+          const done = batch.onDone;
+          batch.onDone = null;
+          done();
+        }
+      }
+      landed();
     });
+  }
+  /**
+   * Count one tween of series `realIndex` in this render's batch, and return
+   * the call to make when it lands. A legend-hidden series is cleared the
+   * moment its LAST tween lands (Series.settleCollapsedShapes): a line that
+   * has flattened onto the baseline must not lie there waiting for a timer.
+   * @param {import('../types/internal').ChartStateW} w
+   * @param {any} realIndex
+   * @returns {() => void}
+   */
+  static trackSeriesTween(w, realIndex) {
+    var _a;
+    const series = (_a = w.globals.morphBatch) == null ? void 0 : _a.series;
+    if (!series || !Utils$1.isNumber(realIndex)) return () => {
+    };
+    let s2 = series.get(realIndex);
+    if (!s2) {
+      s2 = { pending: 0, onDone: null };
+      series.set(realIndex, s2);
+    }
+    const entry = s2;
+    entry.pending++;
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      entry.pending--;
+      if (entry.pending <= 0 && entry.onDone) {
+        const fn = entry.onDone;
+        entry.onDone = null;
+        fn();
+      }
+    };
   }
 }
 const DEFAULT_INTENSITY = { lighten: 0.15, darken: 0.35 };
@@ -10139,11 +10965,20 @@ class Filters {
    * drill it just triggered, which reads as a glitch rather than as motion.
    * The states.active filter comes back as the click feedback (it is instant,
    * so the re-render lands on top of it rather than fighting it).
+   *
+   * Only while the drilldown feature is loaded. Without it the click is not
+   * navigation (the chart warns about the missing feature instead), so the pie
+   * keeps the pull-out it would have had. Read off the shared feature registry
+   * because `w` is all this has; a registered feature is on every chart.
    * @param {any} w
    */
   static drilldownBlocksSliceOffset(w) {
     var _a;
-    return Filters.isSliceChart(w) && ((_a = w.config.drilldown) == null ? void 0 : _a.enabled) === true;
+    const features = (
+      /** @type {any} */
+      globalThis.__apexcharts_features_v1__
+    );
+    return Filters.isSliceChart(w) && ((_a = w.config.drilldown) == null ? void 0 : _a.enabled) === true && !!(features == null ? void 0 : features.has("drilldown"));
   }
   // create a re-usable filter which can be appended other filter effects and applied to multiple elements
   /**
@@ -10315,6 +11150,26 @@ class Filters {
     });
   }
 }
+function indexOfSeries(w, series) {
+  if (typeof series === "number") return series;
+  const list = w.config && w.config.series || [];
+  for (let i2 = 0; i2 < list.length; i2++) {
+    if (list[i2] && list[i2].name === series) return i2;
+  }
+  return -1;
+}
+function resolveClaimed(w, option, seriesIndex, fallback) {
+  if (!w || !w.weaveClaims) return fallback;
+  const list = w.weaveClaims.byOption.get(option);
+  if (!list || !list.length) return fallback;
+  let resolved = fallback;
+  for (const claim of list) {
+    for (const entry of claim.entries) {
+      if (indexOfSeries(w, entry.series) === seriesIndex) resolved = entry.value;
+    }
+  }
+  return resolved;
+}
 class Graphics {
   /**
    * @param {import('../types/internal').ChartStateW} w
@@ -10456,8 +11311,8 @@ class Graphics {
     } else {
       resultCommands = commands;
     }
-    return resultCommands.reduce(function(str, c2) {
-      return str + c2.join(" ") + " ";
+    return resultCommands.reduce(function(str, c) {
+      return str + c.join(" ") + " ";
     }, "");
   }
   /**
@@ -10522,11 +11377,11 @@ class Graphics {
   drawCircle(radius, attrs = null) {
     const w = this.w;
     if (radius < 0) radius = 0;
-    const c2 = w.dom.Paper.circle(radius * 2);
+    const c = w.dom.Paper.circle(radius * 2);
     if (attrs !== null) {
-      c2.attr(attrs);
+      c.attr(attrs);
     }
-    return c2;
+    return c;
   }
   /** @param {{ d?: string, stroke?: string, strokeWidth?: number, fill: any, fillOpacity?: number, strokeOpacity?: number, classes?: any, strokeLinecap?: any, strokeDashArray?: number }} opts */
   drawPath({
@@ -10653,7 +11508,7 @@ class Graphics {
    * @return {any} svg.js path object
    **/
   renderPaths({
-    j,
+    j: j2,
     realIndex,
     pathFrom,
     pathTo,
@@ -10671,7 +11526,8 @@ class Graphics {
     bindEventsOnPaths = true,
     drawShadow = true,
     drawMask = null,
-    scrollMorph = false
+    scrollMorph = false,
+    fadeReveal = false
   }) {
     var _a, _b, _c, _d;
     const w = this.w;
@@ -10687,16 +11543,15 @@ class Graphics {
     }
     let d;
     const crossTypeMorph = ((_c = (_b = this.ctx) == null ? void 0 : _b.morphTypeChange) == null ? void 0 : _c.isActive()) === true;
-    const shouldAnimate = !!(initialAnim && !w.globals.resized || dynamicAnim && w.globals.dataChanged && w.globals.shouldAnimate || crossTypeMorph && initialAnim && w.globals.shouldAnimate);
-    const isDrawableSeries = typeof className === "string" && (className.indexOf("apexcharts-line") > -1 || className.indexOf("apexcharts-area") > -1 || className.indexOf("apexcharts-rangeArea") > -1 || className.indexOf("apexcharts-radar") > -1);
+    const shouldAnimate = !!(initialAnim && !w.globals.resized && !w.globals.dataChanged || dynamicAnim && w.globals.dataChanged && w.globals.shouldAnimate || crossTypeMorph && initialAnim && w.globals.shouldAnimate);
+    const isDrawableSeries = typeof className === "string" && className.split(" ").some(
+      (c) => c === "apexcharts-line" || c === "apexcharts-area" || c === "apexcharts-rangeArea" || c === "apexcharts-radar"
+    );
     const useDrawMode = !!(initialAnim && !w.globals.resized && !w.globals.dataChanged && isDrawableSeries);
     const largeThreshold = (_d = w.config.chart.animations.largeDatasetThreshold) != null ? _d : 0;
     const bulkRender = !!(shouldAnimate && !useDrawMode && largeThreshold > 0 && w.globals.dataPoints > largeThreshold);
-    const isCandleOrBox = chartType === "candlestick" || chartType === "boxPlot";
-    const fadeOnDataChange = !!(isCandleOrBox && shouldAnimate && !useDrawMode && w.globals.dataChanged && // ...but a cross-type morph is a deliberate one-off with marks already
-    // paired, so it keeps its tween instead of fading.
-    !crossTypeMorph);
-    const revealViaFade = bulkRender || fadeOnDataChange;
+    const fadeOnUpdate = !!(fadeReveal && shouldAnimate && !useDrawMode && w.globals.dataChanged && !crossTypeMorph);
+    const revealViaFade = bulkRender || fadeOnUpdate;
     if (shouldAnimate && !useDrawMode && !revealViaFade) {
       d = pathFrom;
     } else {
@@ -10712,6 +11567,12 @@ class Graphics {
     } else {
       strokeDashArray = w.config.stroke.dashArray;
     }
+    strokeDashArray = resolveClaimed(
+      w,
+      "stroke.dashArray",
+      realIndex,
+      strokeDashArray
+    );
     const el = this.drawPath({
       d,
       stroke,
@@ -10748,7 +11609,7 @@ class Graphics {
     });
     const defaultAnimateOpts = {
       el,
-      j,
+      j: j2,
       realIndex,
       pathFrom,
       pathTo,
@@ -10766,7 +11627,7 @@ class Graphics {
         const isLast = w.globals.comboCharts ? true : realIndex === seriesCount - 1;
         anim.animateDraw(el, {
           realIndex,
-          j,
+          j: j2,
           isFill,
           isLast,
           speed: drawSpeed,
@@ -10779,7 +11640,7 @@ class Graphics {
         }));
       }
     } else {
-      if ((w.globals.resized || !w.globals.dataChanged) && !revealViaFade) {
+      if ((w.globals.resized || !w.globals.dataChanged || !shouldAnimate) && !revealViaFade) {
         anim.showDelayedElements();
       }
     }
@@ -11134,19 +11995,19 @@ class Graphics {
     const w = this.w;
     const filters = new Filters(this.w);
     const i2 = parseInt((_a = path.node.getAttribute("index")) != null ? _a : "", 10);
-    const j = parseInt((_b = path.node.getAttribute("j")) != null ? _b : "", 10);
-    if (isNaN(i2) || isNaN(j)) return;
+    const j2 = parseInt((_b = path.node.getAttribute("j")) != null ? _b : "", 10);
+    if (isNaN(i2) || isNaN(j2)) return;
     if (typeof w.config.chart.events.dataPointMouseEnter === "function") {
       w.config.chart.events.dataPointMouseEnter(e2, this.ctx, {
         seriesIndex: i2,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       });
     }
     Graphics._fireEvent(w, "dataPointMouseEnter", [
       e2,
       this.ctx,
-      { seriesIndex: i2, dataPointIndex: j, w }
+      { seriesIndex: i2, dataPointIndex: j2, w }
     ]);
     if (w.config.states.active.filter.type !== "none") {
       if (path.node.getAttribute("selected") === "true") {
@@ -11170,19 +12031,19 @@ class Graphics {
     const w = this.w;
     const filters = new Filters(this.w);
     const i2 = parseInt((_a = path.node.getAttribute("index")) != null ? _a : "", 10);
-    const j = parseInt((_b = path.node.getAttribute("j")) != null ? _b : "", 10);
-    if (isNaN(i2) || isNaN(j)) return;
+    const j2 = parseInt((_b = path.node.getAttribute("j")) != null ? _b : "", 10);
+    if (isNaN(i2) || isNaN(j2)) return;
     if (typeof w.config.chart.events.dataPointMouseLeave === "function") {
       w.config.chart.events.dataPointMouseLeave(e2, this.ctx, {
         seriesIndex: i2,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       });
     }
     Graphics._fireEvent(w, "dataPointMouseLeave", [
       e2,
       this.ctx,
-      { seriesIndex: i2, dataPointIndex: j, w }
+      { seriesIndex: i2, dataPointIndex: j2, w }
     ]);
     if (w.config.states.active.filter.type !== "none") {
       if (path.node.getAttribute("selected") === "true") {
@@ -11226,11 +12087,11 @@ class Graphics {
    * @param {any} path @param {any} filters @param {number} i @param {number} j
    * @returns {'true' | 'false'}
    */
-  _togglePointSelection(path, filters, i2, j) {
+  _togglePointSelection(path, filters, i2, j2) {
     const w = this.w;
     if (path.node.getAttribute("selected") === "true") {
       path.node.setAttribute("selected", "false");
-      const index = w.interact.selectedDataPoints[i2].indexOf(j);
+      const index = w.interact.selectedDataPoints[i2].indexOf(j2);
       if (index > -1) {
         w.interact.selectedDataPoints[i2].splice(index, 1);
       }
@@ -11243,7 +12104,7 @@ class Graphics {
     if (typeof w.interact.selectedDataPoints[i2] === "undefined") {
       w.interact.selectedDataPoints[i2] = [];
     }
-    w.interact.selectedDataPoints[i2].push(j);
+    w.interact.selectedDataPoints[i2].push(j2);
     return "true";
   }
   /**
@@ -11287,19 +12148,19 @@ class Graphics {
     const w = this.w;
     const filters = new Filters(this.w);
     const i2 = parseInt((_a = path.node.getAttribute("index")) != null ? _a : "", 10);
-    const j = parseInt((_b = path.node.getAttribute("j")) != null ? _b : "", 10);
-    if (isNaN(i2) || isNaN(j)) return;
+    const j2 = parseInt((_b = path.node.getAttribute("j")) != null ? _b : "", 10);
+    if (isNaN(i2) || isNaN(j2)) return;
     const link = w.config.chart.link;
     const crossfilterClick = !!(link && (typeof link.dimension === "function" || link.enabled));
     if (!crossfilterClick) {
-      const selected = this._togglePointSelection(path, filters, i2, j);
+      const selected = this._togglePointSelection(path, filters, i2, j2);
       this._applyPointSelectionFilter(path, filters, i2, selected);
     }
     if (typeof w.config.chart.events.dataPointSelection === "function") {
       w.config.chart.events.dataPointSelection(e2, this.ctx, {
         selectedDataPoints: w.interact.selectedDataPoints,
         seriesIndex: i2,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       });
     }
@@ -11310,7 +12171,7 @@ class Graphics {
         {
           selectedDataPoints: w.interact.selectedDataPoints,
           seriesIndex: i2,
-          dataPointIndex: j,
+          dataPointIndex: j2,
           w
         }
       ]);
@@ -12062,9 +12923,9 @@ class Markers {
         /** @type {Record<string, any>} */
         (_e = w.config.series[i2]) == null ? void 0 : _e.data
       );
-      for (let j = 0; j < series[i2].length; j++) {
-        if (series[i2][j] === null) hasNull = true;
-        const d = Array.isArray(data) ? data[j] : null;
+      for (let j2 = 0; j2 < series[i2].length; j2++) {
+        if (series[i2][j2] === null) hasNull = true;
+        const d = Array.isArray(data) ? data[j2] : null;
         if (d && (d.fillColor || d.strokeColor)) {
           perPointStyle = true;
           break;
@@ -12102,7 +12963,7 @@ class Markers {
   plotChartMarkers({
     pointsPos,
     seriesIndex,
-    j,
+    j: j2,
     pSize,
     alwaysDrawMarker = false,
     isVirtualPoint = false
@@ -12117,13 +12978,13 @@ class Markers {
     if (Array.isArray(p.x)) {
       for (let q = 0; q < p.x.length; q++) {
         let markerElement;
-        let dataPointIndex = j;
+        let dataPointIndex = j2;
         let invalidMarker = !Utils$1.isNumber(p.y[q]);
-        if (w.globals.markers.largestSize === 0 && w.globals.hasNullValues && w.seriesData.series[i2][j + 1] !== null && !isVirtualPoint) {
+        if (w.globals.markers.largestSize === 0 && w.globals.hasNullValues && w.seriesData.series[i2][j2 + 1] !== null && !isVirtualPoint) {
           invalidMarker = true;
         }
-        if (j === 1 && q === 0) dataPointIndex = 0;
-        if (j === 1 && q === 1) dataPointIndex = 1;
+        if (j2 === 1 && q === 0) dataPointIndex = 0;
+        if (j2 === 1 && q === 1) dataPointIndex = 1;
         let markerClasses = "apexcharts-marker";
         if (Markers.markersAreInert(w)) {
           markerClasses += " no-pointer-events";
@@ -12142,7 +13003,7 @@ class Markers {
           continue;
         }
         if (shouldMarkerDraw || alwaysDrawMarker || hasDiscreteMarkers) {
-          if (emit.kind === "canvas") {
+          if (emit.kind === "canvas" && (shouldMarkerDraw || hasDiscreteMarkers)) {
             if (typeof w.globals.pointsArray[seriesIndex] === "undefined") {
               w.globals.pointsArray[seriesIndex] = [];
             }
@@ -12428,7 +13289,7 @@ class Scatter {
    * @param {number} j
    * @param {Record<string, any>} opts
    */
-  draw(elSeries, j, opts) {
+  draw(elSeries, j2, opts) {
     const w = this.w;
     const graphics = this.graphics;
     const emit = seriesEmitter(this.ctx, graphics);
@@ -12453,10 +13314,10 @@ class Scatter {
     }
     if (Array.isArray(pointsPos.x)) {
       for (let q = 0; q < pointsPos.x.length; q++) {
-        let dataPointIndex = j + 1;
+        let dataPointIndex = j2 + 1;
         let shouldDraw = true;
-        if (j === 0 && q === 0) dataPointIndex = 0;
-        if (j === 0 && q === 1) dataPointIndex = 1;
+        if (j2 === 0 && q === 0) dataPointIndex = 0;
+        if (j2 === 0 && q === 1) dataPointIndex = 1;
         let radius = w.globals.markers.size[realIndex];
         if (zRatio !== Infinity) {
           const bubble = w.config.plotOptions.bubble;
@@ -12484,7 +13345,7 @@ class Scatter {
             radius,
             realIndex,
             dataPointIndex,
-            j
+            j2
           );
           elPointsWrap.add(point);
           if (emit.kind === "canvas") {
@@ -12535,7 +13396,7 @@ class Scatter {
    * @param {number} dataPointIndex
    * @param {number} j
    */
-  drawPoint(x, y, radius, realIndex, dataPointIndex, j) {
+  drawPoint(x, y, radius, realIndex, dataPointIndex, j2) {
     var _a;
     const w = this.w;
     const i2 = realIndex;
@@ -12588,7 +13449,7 @@ class Scatter {
         dataPointIndex,
         color: markerConfig.pointFillColor,
         patternUnits: "objectBoundingBox",
-        value: w.seriesData.series[realIndex][j]
+        value: w.seriesData.series[realIndex][j2]
       });
       if (ps.fillCacheable === void 0) {
         ps.fillCacheable = ps.canCacheConfig && fill.getFillType(realIndex) === "solid" && typeof markerConfig.pointFillColor === "string" && !!markerConfig.pointFillColor;
@@ -12671,6 +13532,98 @@ const resolveDataLabelOffset = (value, w, seriesIndex, dataPointIndex) => {
   });
   return Number.isFinite(resolved) ? resolved : 0;
 };
+function overlapY(a2, aShift, b, bShift) {
+  const aTop = a2.y + aShift;
+  const bTop = b.y + bShift;
+  return Math.min(aTop + a2.height, bTop + b.height) - Math.max(aTop, bTop);
+}
+function overlapX(a2, b) {
+  return Math.min(a2.x + a2.width, b.x + b.width) - Math.max(a2.x, b.x);
+}
+function resolveLabelOverlaps(boxes, opts) {
+  var _a;
+  const n2 = boxes.length;
+  const result = new Array(n2);
+  for (let i2 = 0; i2 < n2; i2++) result[i2] = { dy: 0, hidden: false };
+  if (n2 < 2) return result;
+  const { gap, maxShift, minY, maxY } = opts;
+  const iterations = (_a = opts.iterations) != null ? _a : 6;
+  const idx = boxes.map((_, i2) => i2).sort((a2, b) => boxes[a2].x - boxes[b].x);
+  const clampShift = (i2, d) => {
+    const b = boxes[i2];
+    if (b.fixed) return result[i2].dy;
+    const out = Math.max(-maxShift, Math.min(maxShift, d));
+    const canGoUp = Math.min(0, minY - b.y);
+    const canGoDown = Math.max(0, maxY - (b.y + b.height));
+    return Math.max(canGoUp, Math.min(canGoDown, out));
+  };
+  for (let pass = 0; pass < iterations; pass++) {
+    let moved = false;
+    for (let p = 0; p < idx.length; p++) {
+      const i2 = idx[p];
+      const a2 = boxes[i2];
+      if (result[i2].hidden) continue;
+      for (let q = p + 1; q < idx.length; q++) {
+        const j2 = idx[q];
+        const b = boxes[j2];
+        if (result[j2].hidden) continue;
+        if (b.x >= a2.x + a2.width) break;
+        if (overlapX(a2, b) <= 0) continue;
+        const oy = overlapY(a2, result[i2].dy, b, result[j2].dy);
+        if (oy <= -gap) continue;
+        const need = oy + gap;
+        const aCy = a2.y + result[i2].dy + a2.height / 2;
+        const bCy = b.y + result[j2].dy + b.height / 2;
+        const aUp = aCy === bCy ? a2.order <= b.order : aCy < bCy;
+        const upIdx = aUp ? i2 : j2;
+        const downIdx = aUp ? j2 : i2;
+        const wantUp = clampShift(upIdx, result[upIdx].dy - need / 2);
+        const wantDown = clampShift(downIdx, result[downIdx].dy + need / 2);
+        const gotUp = result[upIdx].dy - wantUp;
+        const gotDown = wantDown - result[downIdx].dy;
+        const shortfall = need - (gotUp + gotDown);
+        let finalUp = wantUp;
+        let finalDown = wantDown;
+        if (shortfall > 0.01) {
+          finalDown = clampShift(downIdx, wantDown + shortfall);
+          const stillShort = need - (gotUp + (finalDown - result[downIdx].dy));
+          if (stillShort > 0.01) {
+            finalUp = clampShift(upIdx, wantUp - stillShort);
+          }
+        }
+        if (finalUp !== result[upIdx].dy || finalDown !== result[downIdx].dy) {
+          result[upIdx].dy = finalUp;
+          result[downIdx].dy = finalDown;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  if (!opts.hide) return result;
+  for (let p = 0; p < idx.length; p++) {
+    const i2 = idx[p];
+    if (result[i2].hidden) continue;
+    const a2 = boxes[i2];
+    for (let q = p + 1; q < idx.length; q++) {
+      const j2 = idx[q];
+      if (result[j2].hidden) continue;
+      const b = boxes[j2];
+      if (b.x >= a2.x + a2.width) break;
+      if (overlapX(a2, b) <= 0) continue;
+      if (overlapY(a2, result[i2].dy, b, result[j2].dy) > 0) {
+        const first = a2.order <= b.order ? j2 : i2;
+        const second = first === i2 ? j2 : i2;
+        const loser = !boxes[first].fixed ? first : !boxes[second].fixed ? second : -1;
+        if (loser === -1) continue;
+        result[loser].hidden = true;
+        if (loser === i2) break;
+      }
+    }
+  }
+  return result;
+}
+const RADIAL_TYPES = ["radar", "pie", "donut", "polarArea", "radialBar"];
 class DataLabels {
   /**
    * @param {import('../types/internal').ChartStateW} w
@@ -12741,14 +13694,18 @@ class DataLabels {
       drawnextLabel
     };
   }
-  /** @param {{type: any, pos: any, i: any, j: any, isRangeStart: any, strokeWidth?: any}} opts */
-  drawDataLabel({ type, pos, i: i2, j, isRangeStart, strokeWidth = 2 }) {
+  /**
+   * `row` stands in for the series' values (the highlight filter labels its
+   * parts through here).
+   * @param {{type: any, pos: any, i: any, j: any, isRangeStart?: any, strokeWidth?: any, row?: any[]}} opts
+   */
+  drawDataLabel({ type, pos, i: i2, j: j2, isRangeStart, strokeWidth = 2, row }) {
     const w = this.w;
     const graphics = new Graphics(this.w);
     const dataLabelsConfig = w.config.dataLabels;
     let x = 0;
     let y = 0;
-    let dataPointIndex = j;
+    let dataPointIndex = j2;
     let elDataLabelsWrap = null;
     const seriesCollapsed = w.globals.collapsedSeriesIndices.indexOf(i2) !== -1;
     if (seriesCollapsed || !dataLabelsConfig.enabled || !Array.isArray(pos.x)) {
@@ -12758,12 +13715,12 @@ class DataLabels {
       class: "apexcharts-data-labels"
     });
     for (let q = 0; q < pos.x.length; q++) {
-      if (j === 1 && q === 0) dataPointIndex = 0;
-      if (j === 1 && q === 1) dataPointIndex = 1;
+      if (j2 === 1 && q === 0) dataPointIndex = 0;
+      if (j2 === 1 && q === 1) dataPointIndex = 1;
       x = pos.x[q] + resolveDataLabelOffset(dataLabelsConfig.offsetX, w, i2, dataPointIndex);
       y = pos.y[q] + resolveDataLabelOffset(dataLabelsConfig.offsetY, w, i2, dataPointIndex) + strokeWidth;
       if (!isNaN(x)) {
-        let val = w.seriesData.series[i2][dataPointIndex];
+        let val = (row || w.seriesData.series[i2])[dataPointIndex];
         if (type === "rangeArea") {
           if (isRangeStart) {
             val = w.rangeData.seriesRangeStart[i2][dataPointIndex];
@@ -12774,6 +13731,7 @@ class DataLabels {
         let text = "";
         const getText = (v) => {
           return w.config.dataLabels.formatter(v, {
+            ctx: this.ctx,
             seriesIndex: i2,
             dataPointIndex,
             w
@@ -12831,7 +13789,7 @@ class DataLabels {
       x,
       y,
       i: i2,
-      j,
+      j: j2,
       text,
       textAnchor,
       fontSize,
@@ -12844,13 +13802,17 @@ class DataLabels {
       // some callers (radar) reuse `j` for something other than the data point
       // index, so per-point offsets take these explicit indices when supplied
       seriesIndex = i2,
-      dataPointIndex = j
+      dataPointIndex = j2
     } = opts;
     let dataLabelText = null;
-    if (Array.isArray(w.config.dataLabels.enabledOnSeries)) {
-      if (w.config.dataLabels.enabledOnSeries.indexOf(i2) < 0) {
-        return dataLabelText;
-      }
+    const labelsOn = resolveClaimed(
+      w,
+      "dataLabels.enabledOnSeries",
+      i2,
+      Array.isArray(w.config.dataLabels.enabledOnSeries) ? w.config.dataLabels.enabledOnSeries.indexOf(i2) >= 0 : true
+    );
+    if (!labelsOn) {
+      return dataLabelText;
     }
     let correctedLabels = {
       x,
@@ -12864,7 +13826,7 @@ class DataLabels {
         y,
         text,
         i2,
-        j,
+        j2,
         alwaysDrawDataLabel,
         parseInt(
           /** @type {any} */
@@ -12887,14 +13849,14 @@ class DataLabels {
     }
     let dataLabelColor = w.globals.dataLabels.style.colors[i2];
     if ((w.config.chart.type === "bar" || w.config.chart.type === "rangeBar") && w.config.plotOptions.bar.distributed || w.config.dataLabels.distributed) {
-      dataLabelColor = w.globals.dataLabels.style.colors[j];
+      dataLabelColor = w.globals.dataLabels.style.colors[j2];
     }
     if (typeof dataLabelColor === "function") {
       dataLabelColor = /** @type {any} */
       dataLabelColor({
         series: w.seriesData.series,
         seriesIndex: i2,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       });
     }
@@ -12917,17 +13879,31 @@ class DataLabels {
     let offX = resolvedOffX;
     const offY = resolvedOffY;
     if (w.globals.isSlopeChart) {
-      if (j !== 0) {
+      if (j2 !== 0) {
         offX = resolvedOffX * -2 + 5;
       }
-      if (j !== 0 && j !== /** @type {Record<string,any>} */
+      if (j2 !== 0 && j2 !== /** @type {Record<string,any>} */
       w.config.series[i2].data.length - 1) {
         offX = 0;
       }
     }
     if (correctedLabels.drawnextLabel) {
-      if (textAnchor === "middle") {
-        if (x === w.layout.gridWidth) {
+      const renderedAnchor = textAnchor || dataLabelsConfig.textAnchor;
+      if (renderedAnchor === "middle" || renderedAnchor === "start") {
+        const measured = correctedLabels.textRects || /** @type {any} */
+        graphics.getTextRects(
+          text,
+          fontSize || dataLabelsConfig.style.fontSize,
+          dataLabelsConfig.style.fontFamily,
+          "",
+          true,
+          // Measuring a 600-weight label at 'regular' under-reports it, and
+          // an overflow test is only as good as the width it is given.
+          dataLabelsConfig.style.fontWeight
+        );
+        const overhang = renderedAnchor === "middle" ? measured.width / 2 : measured.width;
+        const canvasRight = w.globals.svgWidth - w.layout.translateX;
+        if (x + offX + overhang > canvasRight) {
           textAnchor = "end";
         }
       }
@@ -12956,7 +13932,7 @@ class DataLabels {
       if (typeof w.globals.lastDrawnDataLabelsIndexes[i2] === "undefined") {
         w.globals.lastDrawnDataLabelsIndexes[i2] = [];
       }
-      w.globals.lastDrawnDataLabelsIndexes[i2].push(j);
+      w.globals.lastDrawnDataLabelsIndexes[i2].push(j2);
     }
     return dataLabelText;
   }
@@ -12989,33 +13965,165 @@ class DataLabels {
     }
     return elRect;
   }
+  /**
+   * Separate data labels that landed on top of each other, across series.
+   *
+   * Runs after every series has drawn and before `dataLabelsBackground()`, for
+   * two reasons: the shift has to be applied to the text before a pill is cut
+   * around it, and only at this point does every label exist to be compared.
+   * `dataLabelsCorrection` cannot do this job - it runs while a single series
+   * is being plotted, so the labels it would collide with have not been drawn.
+   *
+   * On by default; `dataLabels.avoidOverlap: false` restores strict placement.
+   * The pass is a no-op on a chart whose labels already clear each other, so
+   * what it costs such a chart is the one measuring loop below.
+   */
+  avoidOverlaps() {
+    var _a, _b, _c, _d, _e, _f, _g;
+    const w = this.w;
+    const cfg = w.config.dataLabels.avoidOverlap;
+    if (!cfg) return;
+    if (RADIAL_TYPES.indexOf(w.config.chart.type) !== -1) return;
+    const opts = typeof cfg === "object" ? cfg : {};
+    const bCnf = w.config.dataLabels.background;
+    const nodes = w.dom.baseEl.querySelectorAll(
+      ".apexcharts-datalabels text.apexcharts-datalabel"
+    );
+    if (nodes.length < 2) return;
+    const measured = [];
+    let onScreen = false;
+    for (let i2 = 0; i2 < nodes.length; i2++) {
+      const el = (
+        /** @type {SVGGraphicsElement} */
+        nodes[i2]
+      );
+      const rect = el.getBoundingClientRect();
+      const ctm = (_a = el.getScreenCTM) == null ? void 0 : _a.call(el);
+      const screen2 = rect.width > 0 && rect.height > 0;
+      const box = screen2 ? rect : el.getBBox();
+      if (!box.width || !box.height) continue;
+      if (screen2) onScreen = true;
+      const rotated = !!ctm && (Math.abs(ctm.b) > 1e-6 || Math.abs(ctm.c) > 1e-6);
+      const scaleY = screen2 && ctm && ctm.d ? Math.abs(ctm.d) : 1;
+      const scaleX = screen2 && ctm && ctm.a ? Math.abs(ctm.a) : 1;
+      const padH = (bCnf.enabled ? bCnf.padding : 0) * scaleX;
+      const padV = (bCnf.enabled ? bCnf.padding / 2 : 0) * scaleY;
+      measured.push({
+        el,
+        scaleY,
+        box: {
+          x: (screen2 ? rect.left : box.x) - padH,
+          y: (screen2 ? rect.top : box.y) - padV / 2,
+          width: box.width + padH * 2,
+          height: box.height + padV,
+          order: measured.length,
+          fixed: rotated
+        }
+      });
+    }
+    if (measured.length < 2) return;
+    const horizontal = !!((_c = (_b = w.config.plotOptions) == null ? void 0 : _b.bar) == null ? void 0 : _c.horizontal);
+    const boxes = measured.map(
+      ({ box }) => horizontal ? {
+        x: box.y,
+        y: box.x,
+        width: box.height,
+        height: box.width,
+        order: box.order,
+        fixed: box.fixed
+      } : box
+    );
+    const m = onScreen ? (_f = (_e = (_d = w.dom.elGraphical) == null ? void 0 : _d.node) == null ? void 0 : _e.getScreenCTM) == null ? void 0 : _f.call(_e) : null;
+    const useScreen = !!m && m.a > 0 && m.d > 0;
+    const extent = boxes[0].height;
+    const unit = measured[0].scaleY;
+    const lo = useScreen ? horizontal ? m.e : m.f : 0;
+    const hi = useScreen ? horizontal ? m.e + w.layout.gridWidth * m.a : m.f + w.layout.gridHeight * m.d : horizontal ? w.layout.gridWidth : w.layout.gridHeight;
+    const resolved = resolveLabelOverlaps(boxes, {
+      gap: ((_g = opts.gap) != null ? _g : 2) * unit,
+      // Default budget is roughly one label's own extent in each direction:
+      // far enough to clear a coincident twin, near enough that the label is
+      // still unmistakably its mark's.
+      maxShift: opts.maxShift ? opts.maxShift * unit : Math.max(extent, 14),
+      // The plot itself, with no slack: past this edge the label is clipped,
+      // so pushing one out there trades an overlap for a truncated value. A
+      // label that already starts outside (the one above a bar that reaches
+      // the top of the grid) keeps its place - resolveLabelOverlaps treats
+      // these as a restriction on movement, never as a push.
+      minY: lo,
+      maxY: hi,
+      // Dropping a label is opt-in. This pass is on by default, and a default
+      // that silently deletes a value is worse than the overlap it set out to
+      // fix: on a crowded horizontal bar it removed eight of eighteen labels.
+      // Off, a pair that cannot be separated is simply left as it is today.
+      hide: opts.hide === true
+    });
+    const attr = horizontal ? "x" : "y";
+    const centreAttr = horizontal ? "cx" : "cy";
+    for (let i2 = 0; i2 < measured.length; i2++) {
+      const { el, scaleY } = measured[i2];
+      const { dy, hidden } = resolved[i2];
+      if (hidden) {
+        el.style.display = "none";
+        el.classList.add("apexcharts-datalabel-hidden");
+        continue;
+      }
+      if (!dy) continue;
+      const delta = dy / scaleY;
+      const v = parseFloat(el.getAttribute(attr) || "0");
+      el.setAttribute(attr, (v + delta).toString());
+      const c = el.getAttribute(centreAttr);
+      if (c !== null) {
+        el.setAttribute(centreAttr, (parseFloat(c) + delta).toString());
+      }
+    }
+  }
   dataLabelsBackground() {
-    var _a;
+    var _a, _b;
     const w = this.w;
     if (w.config.chart.type === "bubble") return;
     const elDataLabels = w.dom.baseEl.querySelectorAll(
       ".apexcharts-datalabels text"
     );
+    const measured = [];
     for (let i2 = 0; i2 < elDataLabels.length; i2++) {
       const el = elDataLabels[i2];
-      const coords = (
+      const bbox = (
         /** @type {SVGGraphicsElement} */
         el.getBBox()
       );
-      let elRect = null;
-      if (coords.width && coords.height) {
-        elRect = this.addBackgroundToDataLabel(el, coords);
+      if (bbox.width && bbox.height) {
+        measured.push({
+          el,
+          // copied out of the live SVGRect so nothing below can disturb it
+          coords: {
+            x: bbox.x,
+            y: bbox.y,
+            width: bbox.width,
+            height: bbox.height
+          },
+          // captured before the write pass overwrites the text's own fill
+          fill: el.getAttribute("fill")
+        });
       }
-      if (elRect) {
-        (_a = el.parentNode) == null ? void 0 : _a.insertBefore(elRect.node, el);
-        const background = w.config.dataLabels.background.backgroundColor || el.getAttribute("fill");
-        const shouldAnim = w.config.chart.animations.enabled && !w.globals.resized && !w.globals.dataChanged;
-        if (shouldAnim) {
-          elRect.animate().attr({ fill: background });
-        } else {
-          elRect.attr({ fill: background });
-        }
-        el.setAttribute("fill", w.config.dataLabels.background.foreColor);
+    }
+    const bCnf = w.config.dataLabels.background;
+    const largeThreshold = (_a = w.config.chart.animations.largeDatasetThreshold) != null ? _a : 0;
+    const bulkReveal = largeThreshold > 0 && measured.length > largeThreshold;
+    const shouldAnim = w.config.chart.animations.enabled && !w.globals.resized && !w.globals.dataChanged && !bulkReveal;
+    for (let i2 = 0; i2 < measured.length; i2++) {
+      const { el, coords, fill } = measured[i2];
+      const elRect = this.addBackgroundToDataLabel(el, coords);
+      if (!elRect) continue;
+      (_b = el.parentNode) == null ? void 0 : _b.insertBefore(elRect.node, el);
+      const background = bCnf.backgroundColor || fill;
+      if (shouldAnim) {
+        elRect.animate().attr({ fill: background });
+      } else {
+        elRect.attr({ fill: background });
+      }
+      el.setAttribute("fill", bCnf.foreColor);
+      if (!bulkReveal) {
         const cxAttr = el.getAttribute("cx");
         if (cxAttr !== null) {
           applyProgressiveReveal(elRect, parseFloat(cxAttr), w);
@@ -13377,6 +14485,40 @@ class AxesUtils {
         tY += labelsDivider;
       }
     }
+  }
+  /**
+   * Drop the `<title>` from every axis label that is already drawn in full.
+   *
+   * That `<title>` exists for one case (#2281): the label had to be shortened
+   * to fit, so the only way back to the full text is a hover. On a label that
+   * fits, it is an exact copy of what is already on screen, and a browser
+   * raises a native tooltip over it that repeats the visible text and cannot
+   * be turned off (#5318). It also takes over the `<text>`'s accessible name,
+   * which the text content would otherwise supply by itself.
+   *
+   * Labels are shortened in a later pass over the rendered DOM, not where the
+   * `<title>` is attached, so this can only run once every axis is drawn and
+   * corrected.
+   *
+   * @param {Element | null | undefined} baseEl
+   */
+  static pruneRedundantLabelTitles(baseEl) {
+    if (!baseEl) return;
+    const labels = baseEl.querySelectorAll(
+      ".apexcharts-xaxis-label, .apexcharts-xaxis-group-label, .apexcharts-yaxis-label"
+    );
+    labels.forEach((label) => {
+      var _a;
+      const title = label.querySelector("title");
+      if (!title) return;
+      const drawn = Array.prototype.filter.call(label.childNodes, (node) => node !== title).map((node) => {
+        var _a2;
+        return ((_a2 = node.textContent) != null ? _a2 : "").trim();
+      }).filter((part) => part !== "").join(" ");
+      if (drawn === ((_a = title.textContent) != null ? _a : "").trim()) {
+        title.remove();
+      }
+    });
   }
 }
 class XAxis {
@@ -13960,12 +15102,59 @@ class Grid {
     }
     return null;
   }
+  /**
+   * The rects of the three plot clips, in plot px (0,0 is the plot's corner):
+   * `grid` for lines and areas, `bar` for bar-like marks, which on a numeric
+   * x axis reaches `barPadForNumericAxis` past each side so the half of an
+   * edge column, candle, box or violin that hangs outside the plot stays
+   * drawn, and `marker` for markers. The canvas renderer paints through the
+   * same rects, so it shows what the SVG chart shows.
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {Record<'grid' | 'bar' | 'marker', { x: number, y: number, width: number, height: number }>}
+   */
+  static maskRects(w) {
+    const gl = w.globals;
+    const strokeSize = Array.isArray(w.config.stroke.width) ? Math.max(...w.config.stroke.width) : w.config.stroke.width;
+    const hasBar = ["bar", "rangeBar", "candlestick", "boxPlot", "violin"].includes(
+      w.config.chart.type
+    ) || gl.comboBarCount > 0;
+    let barWidthLeft = 0;
+    let barWidthRight = 0;
+    if (hasBar && w.axisFlags.isXNumeric && !gl.isBarHorizontal) {
+      barWidthLeft = Math.max(w.layout.gridPad.left, gl.barPadForNumericAxis);
+      barWidthRight = Math.max(w.layout.gridPad.right, gl.barPadForNumericAxis);
+    }
+    const markerSize = gl.markers.largestSize;
+    return {
+      grid: {
+        x: -strokeSize / 2 - 2,
+        y: -strokeSize / 2 - 2,
+        width: w.layout.gridWidth + strokeSize + 4,
+        height: w.layout.gridHeight + strokeSize + 4
+      },
+      bar: {
+        x: -strokeSize / 2 - barWidthLeft - 2,
+        y: -strokeSize / 2 - 2,
+        width: w.layout.gridWidth + strokeSize + barWidthRight + barWidthLeft + 4,
+        height: w.layout.gridHeight + strokeSize + 4
+      },
+      marker: {
+        x: Math.min(-strokeSize / 2 - barWidthLeft - 2, -markerSize),
+        y: -markerSize,
+        width: w.layout.gridWidth + Math.max(
+          strokeSize + barWidthRight + barWidthLeft + 4,
+          markerSize * 2
+        ),
+        height: w.layout.gridHeight + markerSize * 2
+      }
+    };
+  }
   createGridMask() {
     var _a, _b;
     const w = this.w;
     const gl = w.globals;
     const graphics = new Graphics(this.w);
-    const strokeSize = Array.isArray(w.config.stroke.width) ? Math.max(...w.config.stroke.width) : w.config.stroke.width;
     const createClipPath = (id) => {
       const clipPath = BrowserAPIs.createElementNS(SVGNS$1, "clipPath");
       clipPath.setAttribute("id", id);
@@ -13976,41 +15165,11 @@ class Grid {
     w.dom.elGridRectMarkerMask = createClipPath(`gridRectMarkerMask${gl.cuid}`);
     w.dom.elForecastMask = createClipPath(`forecastMask${gl.cuid}`);
     w.dom.elNonForecastMask = createClipPath(`nonForecastMask${gl.cuid}`);
-    const hasBar = ["bar", "rangeBar", "candlestick", "boxPlot", "violin"].includes(
-      w.config.chart.type
-    ) || w.globals.comboBarCount > 0;
-    let barWidthLeft = 0;
-    let barWidthRight = 0;
-    if (hasBar && w.axisFlags.isXNumeric && !w.globals.isBarHorizontal) {
-      barWidthLeft = Math.max(w.layout.gridPad.left, gl.barPadForNumericAxis);
-      barWidthRight = Math.max(w.layout.gridPad.right, gl.barPadForNumericAxis);
-    }
-    const xOffset = ((_b = (_a = w.config.grid) == null ? void 0 : _a.padding) == null ? void 0 : _b.ignoreBarPad) ? 0 : -strokeSize / 2 - 2;
-    w.dom.elGridRect = graphics.drawRect(
-      xOffset,
-      -strokeSize / 2 - 2,
-      w.layout.gridWidth + Math.abs(xOffset) * 2,
-      w.layout.gridHeight + strokeSize + 4,
-      0,
-      "#fff"
-    );
-    w.dom.elGridRectBar = graphics.drawRect(
-      -strokeSize / 2 - barWidthLeft - 2,
-      -strokeSize / 2 - 2,
-      w.layout.gridWidth + strokeSize + barWidthRight + barWidthLeft + 4,
-      w.layout.gridHeight + strokeSize + 4,
-      0,
-      "#fff"
-    );
-    const markerSize = w.globals.markers.largestSize;
-    w.dom.elGridRectMarker = graphics.drawRect(
-      Math.min(-strokeSize / 2 - barWidthLeft - 2, -markerSize),
-      -markerSize,
-      w.layout.gridWidth + Math.max(strokeSize + barWidthRight + barWidthLeft + 4, markerSize * 2),
-      w.layout.gridHeight + markerSize * 2,
-      0,
-      "#fff"
-    );
+    const rects = Grid.maskRects(w);
+    const drawClipRect = (r2) => graphics.drawRect(r2.x, r2.y, r2.width, r2.height, 0, "#fff");
+    w.dom.elGridRect = drawClipRect(rects.grid);
+    w.dom.elGridRectBar = drawClipRect(rects.bar);
+    w.dom.elGridRectMarker = drawClipRect(rects.marker);
     w.dom.elGridRectMask.appendChild(w.dom.elGridRect.node);
     w.dom.elGridRectBarMask.appendChild(w.dom.elGridRectBar.node);
     w.dom.elGridRectMarkerMask.appendChild(w.dom.elGridRectMarker.node);
@@ -14077,11 +15236,11 @@ class Grid {
     }
   }
   /** @param {{c: any, x1: any, y1: any, x2: any, y2: any, type: any}} opts */
-  _drawGridBandRect({ c: c2, x1, y1, x2, y2, type }) {
+  _drawGridBandRect({ c, x1, y1, x2, y2, type }) {
     const w = this.w;
     const graphics = new Graphics(this.w);
     const offX = w.globals.barPadForNumericAxis;
-    const color = w.config.grid[type].colors[c2];
+    const color = w.config.grid[type].colors[c];
     const rect = graphics.drawRect(
       x1 - (type === "row" ? offX : 0),
       y1,
@@ -14281,11 +15440,11 @@ class Grid {
     var _a, _b, _c, _d, _e;
     const w = this.w;
     const drawBands = (type, count, x1, y1, x2, y2) => {
-      for (let i2 = 0, c2 = 0; i2 < count; i2++, c2++) {
-        if (c2 >= w.config.grid[type].colors.length) {
-          c2 = 0;
+      for (let i2 = 0, c = 0; i2 < count; i2++, c++) {
+        if (c >= w.config.grid[type].colors.length) {
+          c = 0;
         }
-        this._drawGridBandRect({ c: c2, x1, y1, x2, y2, type });
+        this._drawGridBandRect({ c, x1, y1, x2, y2, type });
         y1 += w.layout.gridHeight / tickAmount;
       }
     };
@@ -14308,9 +15467,9 @@ class Grid {
       const y1 = 0;
       let x2 = w.globals.padHorizontal + w.layout.gridWidth / xc;
       const y2 = w.layout.gridHeight;
-      for (let i2 = 0, c2 = 0; i2 < xCount; i2++, c2++) {
-        if (c2 >= w.config.grid.column.colors.length) {
-          c2 = 0;
+      for (let i2 = 0, c = 0; i2 < xCount; i2++, c++) {
+        if (c >= w.config.grid.column.colors.length) {
+          c = 0;
         }
         if (w.config.xaxis.type === "datetime") {
           x1 = /** @type {any} */
@@ -14319,7 +15478,7 @@ class Grid {
           (((_e = this.xaxisLabels[i2 + 1]) == null ? void 0 : _e.position) || w.layout.gridWidth) - /** @type {any} */
           this.xaxisLabels[i2].position;
         }
-        this._drawGridBandRect({ c: c2, x1, y1, x2, y2, type: "column" });
+        this._drawGridBandRect({ c, x1, y1, x2, y2, type: "column" });
         x1 += w.layout.gridWidth / xc;
       }
     }
@@ -14865,14 +16024,14 @@ class Scales {
                   /** @type {Record<string,any>} */
                   cnf.series[si].group === gn
                 ) {
-                  for (let j = 0; j < this.w.seriesData.series[si].length; j++) {
-                    const val = this.w.seriesData.series[si][j];
+                  for (let j2 = 0; j2 < this.w.seriesData.series[si].length; j2++) {
+                    const val = this.w.seriesData.series[si][j2];
                     if (val >= 0) {
-                      posSeries[gni][j] += val;
+                      posSeries[gni][j2] += val;
                     } else {
-                      negSeries[gni][j] += val;
+                      negSeries[gni][j2] += val;
                     }
-                    sumSeries[gni][j] += val;
+                    sumSeries[gni][j2] += val;
                     lowestY = Math.min(lowestY, val);
                     highestY = Math.max(highestY, val);
                   }
@@ -15108,7 +16267,7 @@ class Range {
    * @returns {{minY: number, maxY: number, lowestY: number, highestY: number}}
    */
   getMinYMaxY(startingSeriesIndex, lowestY = Number.MAX_VALUE, highestY = -Number.MAX_VALUE, endingSeriesIndex = null) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
     const cnf = this.w.config;
     const gl = this.w.globals;
     let maxY = -Number.MAX_VALUE;
@@ -15154,7 +16313,7 @@ class Range {
        * @param {number} a
        * @param {number[]} c
        */
-      this.w.seriesData.series.reduce((a2, c2) => a2 + c2.length, 0) !== 0) {
+      this.w.seriesData.series.reduce((a2, c) => a2 + c.length, 0) !== 0) {
         gl.dataPoints = Math.max(gl.dataPoints, this.w.labelData.labels.length);
       }
       let firstXIndex = 0;
@@ -15185,11 +16344,22 @@ class Range {
           }
         }
       }
+      const hp = (_b = (_a = this.w.highlightData) == null ? void 0 : _a.ext) == null ? void 0 : _b[i2];
+      if (hp) {
+        for (let j2 = firstXIndex; j2 <= lastXIndex && j2 < hp.length; j2++) {
+          const v = hp[j2];
+          if (v != null) {
+            if (v > maxY) maxY = v;
+            if (v < lowestY) lowestY = v;
+            if (v < 0 && v < minY) minY = v;
+          }
+        }
+      }
       const plainNumeric = seriesMin === series && seriesMax === series && cnf.chart.type !== "boxPlot" && seriesType !== "candlestick" && seriesType !== "boxPlot" && seriesType !== "violin" && seriesType !== "rangeArea" && seriesType !== "rangeBar" && !(this.w.seriesData.seriesGoals[i2] && this.w.seriesData.seriesGoals[i2].length);
       if (plainNumeric) {
         const arr = series[i2];
         const jEnd = Math.min(lastXIndex, arr.length - 1);
-        const pe = (_a = this.w.seriesData._parsedExtrema) == null ? void 0 : _a[i2];
+        const pe = (_c = this.w.seriesData._parsedExtrema) == null ? void 0 : _c[i2];
         if (pe && pe.ref === arr && pe.len === arr.length && firstXIndex === 0 && jEnd === arr.length - 1) {
           if (pe.maxY > maxY) maxY = pe.maxY;
           if (pe.lowestY < lowestY) lowestY = pe.lowestY;
@@ -15199,8 +16369,8 @@ class Range {
         } else {
           let yDec = gl.yValueDecimal;
           let hasNulls = false;
-          for (let j = firstXIndex; j <= jEnd; j++) {
-            const val = arr[j];
+          for (let j2 = firstXIndex; j2 <= jEnd; j2++) {
+            const val = arr[j2];
             if (val !== null && typeof val === "number" && val === val && val !== Infinity && val !== -Infinity) {
               if (val > maxY) maxY = val;
               if (val < lowestY) lowestY = val;
@@ -15239,58 +16409,58 @@ class Range {
         }
         continue;
       }
-      for (let j = firstXIndex; j <= lastXIndex && j < this.w.seriesData.series[i2].length; j++) {
-        let val = series[i2][j];
+      for (let j2 = firstXIndex; j2 <= lastXIndex && j2 < this.w.seriesData.series[i2].length; j2++) {
+        let val = series[i2][j2];
         if (val !== null && Utils$1.isNumber(val)) {
-          if (typeof ((_b = seriesMax[i2]) == null ? void 0 : _b[j]) !== "undefined") {
-            maxY = Math.max(maxY, seriesMax[i2][j]);
-            lowestY = Math.min(lowestY, seriesMax[i2][j]);
+          if (typeof ((_d = seriesMax[i2]) == null ? void 0 : _d[j2]) !== "undefined") {
+            maxY = Math.max(maxY, seriesMax[i2][j2]);
+            lowestY = Math.min(lowestY, seriesMax[i2][j2]);
           }
-          if (typeof ((_c = seriesMin[i2]) == null ? void 0 : _c[j]) !== "undefined") {
-            lowestY = Math.min(lowestY, seriesMin[i2][j]);
-            highestY = Math.max(highestY, seriesMin[i2][j]);
+          if (typeof ((_e = seriesMin[i2]) == null ? void 0 : _e[j2]) !== "undefined") {
+            lowestY = Math.min(lowestY, seriesMin[i2][j2]);
+            highestY = Math.max(highestY, seriesMin[i2][j2]);
           }
           switch (seriesType) {
             case "candlestick":
               {
-                if (typeof this.w.candleData.seriesCandleC[i2][j] !== "undefined") {
-                  maxY = Math.max(maxY, this.w.candleData.seriesCandleH[i2][j]);
+                if (typeof this.w.candleData.seriesCandleC[i2][j2] !== "undefined") {
+                  maxY = Math.max(maxY, this.w.candleData.seriesCandleH[i2][j2]);
                   lowestY = Math.min(
                     lowestY,
-                    this.w.candleData.seriesCandleL[i2][j]
+                    this.w.candleData.seriesCandleL[i2][j2]
                   );
                 }
               }
               break;
             case "boxPlot":
               {
-                if (typeof this.w.candleData.seriesCandleC[i2][j] !== "undefined") {
-                  maxY = Math.max(maxY, this.w.candleData.seriesCandleC[i2][j]);
+                if (typeof this.w.candleData.seriesCandleC[i2][j2] !== "undefined") {
+                  maxY = Math.max(maxY, this.w.candleData.seriesCandleC[i2][j2]);
                   lowestY = Math.min(
                     lowestY,
-                    this.w.candleData.seriesCandleO[i2][j]
+                    this.w.candleData.seriesCandleO[i2][j2]
                   );
                 }
               }
               break;
             case "violin":
               {
-                if (typeof ((_d = this.w.violinData.seriesViolinMax[i2]) == null ? void 0 : _d[j]) !== "undefined") {
-                  maxY = Math.max(maxY, this.w.violinData.seriesViolinMax[i2][j]);
+                if (typeof ((_f = this.w.violinData.seriesViolinMax[i2]) == null ? void 0 : _f[j2]) !== "undefined") {
+                  maxY = Math.max(maxY, this.w.violinData.seriesViolinMax[i2][j2]);
                   lowestY = Math.min(
                     lowestY,
-                    this.w.violinData.seriesViolinMin[i2][j]
+                    this.w.violinData.seriesViolinMin[i2][j2]
                   );
                 }
               }
               break;
           }
           if (seriesType && seriesType !== "candlestick" && seriesType !== "boxPlot" && seriesType !== "violin" && seriesType !== "rangeArea" && seriesType !== "rangeBar") {
-            maxY = Math.max(maxY, this.w.seriesData.series[i2][j]);
-            lowestY = Math.min(lowestY, this.w.seriesData.series[i2][j]);
+            maxY = Math.max(maxY, this.w.seriesData.series[i2][j2]);
+            lowestY = Math.min(lowestY, this.w.seriesData.series[i2][j2]);
           }
-          if (this.w.seriesData.seriesGoals[i2] && this.w.seriesData.seriesGoals[i2][j] && Array.isArray(this.w.seriesData.seriesGoals[i2][j])) {
-            this.w.seriesData.seriesGoals[i2][j].forEach(
+          if (this.w.seriesData.seriesGoals[i2] && this.w.seriesData.seriesGoals[i2][j2] && Array.isArray(this.w.seriesData.seriesGoals[i2][j2])) {
+            this.w.seriesData.seriesGoals[i2][j2].forEach(
               (g) => {
                 maxY = Math.max(maxY, g.value);
                 lowestY = Math.min(lowestY, g.value);
@@ -15298,7 +16468,7 @@ class Range {
             );
           }
           if (this.w.config.chart.type === "boxPlot" || seriesType === "boxPlot") {
-            const boxPts = (_f = (_e = this.w.candleData.seriesBoxPoints) == null ? void 0 : _e[i2]) == null ? void 0 : _f[j];
+            const boxPts = (_h = (_g = this.w.candleData.seriesBoxPoints) == null ? void 0 : _g[i2]) == null ? void 0 : _h[j2];
             if (boxPts) {
               for (let p = 0; p < boxPts.length; p++) {
                 const pv = boxPts[p];
@@ -15317,8 +16487,8 @@ class Range {
               val.toString().split(".")[1].length
             );
           }
-          if (minY > ((_g = seriesMin[i2]) == null ? void 0 : _g[j]) && ((_h = seriesMin[i2]) == null ? void 0 : _h[j]) < 0) {
-            minY = seriesMin[i2][j];
+          if (minY > ((_i = seriesMin[i2]) == null ? void 0 : _i[j2]) && ((_j = seriesMin[i2]) == null ? void 0 : _j[j2]) < 0) {
+            minY = seriesMin[i2][j2];
           }
         } else {
           gl.hasNullValues = true;
@@ -15399,33 +16569,35 @@ class Range {
     if (cnf.chart.stacked) {
       this._setStackedMinMax();
     }
-    if (cnf.chart.type === "line" || cnf.chart.type === "area" || cnf.chart.type === "scatter" || cnf.chart.type === "candlestick" || cnf.chart.type === "boxPlot" || cnf.chart.type === "violin" || cnf.chart.type === "rangeBar" && !gl.isBarHorizontal) {
+    if (cnf.chart.type === "line" || cnf.chart.type === "area" || cnf.chart.type === "rangeArea" || cnf.chart.type === "scatter" || cnf.chart.type === "candlestick" || cnf.chart.type === "boxPlot" || cnf.chart.type === "violin" || cnf.chart.type === "rangeBar" && !gl.isBarHorizontal) {
       if (gl.minY === Number.MIN_VALUE && lowestYInAllSeries !== -Number.MAX_VALUE && lowestYInAllSeries !== gl.maxY) {
         gl.minY = lowestYInAllSeries;
       }
     } else {
       gl.minY = gl.minY !== Number.MIN_VALUE ? Math.min(minYMaxY.minY, gl.minY) : minYMaxY.minY;
     }
+    const resolveBound = (bound, computed) => {
+      if (typeof bound === "number") return bound;
+      if (typeof bound !== "function") return void 0;
+      const resolved = bound(computed);
+      return Utils$1.isNumber(resolved) ? resolved : void 0;
+    };
     cnf.yaxis.forEach((yaxe, index) => {
-      if (yaxe.max !== void 0) {
-        if (typeof yaxe.max === "number") {
-          gl.maxYArr[index] = yaxe.max;
-        } else if (typeof yaxe.max === "function") {
-          gl.maxYArr[index] = yaxe.max(
-            gl.isMultipleYAxis ? gl.maxYArr[index] : gl.maxY
-          );
-        }
-        gl.maxY = gl.maxYArr[index];
+      const max = resolveBound(
+        yaxe.max,
+        gl.isMultipleYAxis ? gl.maxYArr[index] : gl.maxY
+      );
+      if (max !== void 0) {
+        gl.maxYArr[index] = max;
+        gl.maxY = max;
       }
-      if (yaxe.min !== void 0) {
-        if (typeof yaxe.min === "number") {
-          gl.minYArr[index] = yaxe.min;
-        } else if (typeof yaxe.min === "function") {
-          gl.minYArr[index] = yaxe.min(
-            gl.isMultipleYAxis ? gl.minYArr[index] === Number.MIN_VALUE ? 0 : gl.minYArr[index] : gl.minY
-          );
-        }
-        gl.minY = gl.minYArr[index];
+      const min = resolveBound(
+        yaxe.min,
+        gl.isMultipleYAxis ? gl.minYArr[index] === Number.MIN_VALUE ? 0 : gl.minYArr[index] : gl.minY
+      );
+      if (min !== void 0) {
+        gl.minYArr[index] = min;
+        gl.minY = min;
       }
     });
     if (gl.isBarHorizontal) {
@@ -15499,8 +16671,8 @@ class Range {
           if (pe.minX < minX) minX = pe.minX;
           continue;
         }
-        for (let j = 0; j < lbls.length; j++) {
-          const v = lbls[j];
+        for (let j2 = 0; j2 < lbls.length; j2++) {
+          const v = lbls[j2];
           if (v !== null && typeof v === "number" && v === v) {
             if (v > maxX) maxX = v;
             if (v < minX) minX = v;
@@ -15529,7 +16701,17 @@ class Range {
       let ticks = 10;
       if (cnf.xaxis.tickAmount === void 0) {
         ticks = Math.round(gl.svgWidth / 150);
-        if (cnf.xaxis.type === "numeric" && gl.dataPoints < 30) {
+        const inferredNumericX = this.w.axisFlags.isXNumeric && this.w.axisFlags.dataFormatXNumeric && cnf.xaxis.type !== "datetime" && !cnf.xaxis.convertedCatToNumeric && !gl.isBarHorizontal;
+        const fontSize = parseFloat(cnf.xaxis.labels.style.fontSize) || 12;
+        const widestLabelLength = this.w.labelData.labels.reduce(
+          (widest, seriesLabels) => Array.isArray(seriesLabels) ? seriesLabels.reduce(
+            (seriesWidest, label) => Math.max(seriesWidest, String(label).length),
+            widest
+          ) : widest,
+          0
+        );
+        const allPointLabelsFit = gl.dataPoints * widestLabelLength * fontSize * 0.6 <= gl.svgWidth;
+        if ((cnf.xaxis.type === "numeric" || inferredNumericX && allPointLabelsFit) && gl.dataPoints < 30) {
           ticks = gl.dataPoints - 1;
         }
         if (ticks > gl.dataPoints && gl.dataPoints !== 0) {
@@ -15613,10 +16795,10 @@ class Range {
     if (!this.w.axisFlags.isDataXYZ) return;
     for (let i2 = 0; i2 < this.w.seriesData.series.length; i2++) {
       if (typeof this.w.seriesData.seriesZ[i2] !== "undefined") {
-        for (let j = 0; j < this.w.seriesData.seriesZ[i2].length; j++) {
-          if (this.w.seriesData.seriesZ[i2][j] !== null && Utils$1.isNumber(this.w.seriesData.seriesZ[i2][j])) {
-            gl.maxZ = Math.max(gl.maxZ, this.w.seriesData.seriesZ[i2][j]);
-            gl.minZ = Math.min(gl.minZ, this.w.seriesData.seriesZ[i2][j]);
+        for (let j2 = 0; j2 < this.w.seriesData.seriesZ[i2].length; j2++) {
+          if (this.w.seriesData.seriesZ[i2][j2] !== null && Utils$1.isNumber(this.w.seriesData.seriesZ[i2][j2])) {
+            gl.maxZ = Math.max(gl.maxZ, this.w.seriesData.seriesZ[i2][j2]);
+            gl.minZ = Math.min(gl.minZ, this.w.seriesData.seriesZ[i2][j2]);
           }
         }
       }
@@ -15678,8 +16860,8 @@ class Range {
           }
           let presorted = true;
           let minDiff = gl.minXDiff;
-          for (let j = 1; j < sX.length; j++) {
-            const d = sX[j] - sX[j - 1];
+          for (let j2 = 1; j2 < sX.length; j2++) {
+            const d = sX[j2] - sX[j2 - 1];
             if (d > 0) {
               if (d < minDiff) minDiff = d;
             } else if (d < 0) {
@@ -15696,9 +16878,9 @@ class Range {
           }
           const seriesX = sX.slice();
           seriesX.sort((a2, b) => a2 - b);
-          seriesX.forEach((s2, j) => {
-            if (j > 0) {
-              const xDiff = s2 - seriesX[j - 1];
+          seriesX.forEach((s2, j2) => {
+            if (j2 > 0) {
+              const xDiff = s2 - seriesX[j2 - 1];
               if (xDiff > 0) {
                 gl.minXDiff = Math.min(xDiff, gl.minXDiff);
               }
@@ -15732,19 +16914,19 @@ class Range {
         const bounds = windowed ? this._autoScaleXBounds(i2) : null;
         const xs = this.w.seriesData.seriesX[i2];
         const hasX = !!(bounds && xs && xs.length);
-        for (let j = 0; j < this.w.seriesData.series[gl.maxValsInArrayIndex].length; j++) {
-          if (hasX && (xs[j] < bounds.lo || xs[j] > bounds.hi)) continue;
-          if (typeof stackedPoss[group][j] === "undefined") {
-            stackedPoss[group][j] = 0;
-            stackedNegs[group][j] = 0;
+        for (let j2 = 0; j2 < this.w.seriesData.series[gl.maxValsInArrayIndex].length; j2++) {
+          if (hasX && (xs[j2] < bounds.lo || xs[j2] > bounds.hi)) continue;
+          if (typeof stackedPoss[group][j2] === "undefined") {
+            stackedPoss[group][j2] = 0;
+            stackedNegs[group][j2] = 0;
           }
           const stackSeries = this.w.config.chart.stacked && !gl.comboCharts || this.w.config.chart.stacked && gl.comboCharts && (!this.w.config.chart.stackOnlyBar || /** @type {Record<string,any>} */
           ((_b = (_a = this.w.config.series) == null ? void 0 : _a[i2]) == null ? void 0 : _b.type) === "bar" || /** @type {Record<string,any>} */
           ((_d = (_c = this.w.config.series) == null ? void 0 : _c[i2]) == null ? void 0 : _d.type) === "column");
           if (stackSeries) {
-            if (this.w.seriesData.series[i2][j] !== null && Utils$1.isNumber(this.w.seriesData.series[i2][j])) {
-              this.w.seriesData.series[i2][j] > 0 ? stackedPoss[group][j] += parseFloat(String(this.w.seriesData.series[i2][j])) + 1e-4 : stackedNegs[group][j] += parseFloat(
-                String(this.w.seriesData.series[i2][j])
+            if (this.w.seriesData.series[i2][j2] !== null && Utils$1.isNumber(this.w.seriesData.series[i2][j2])) {
+              this.w.seriesData.series[i2][j2] > 0 ? stackedPoss[group][j2] += parseFloat(String(this.w.seriesData.series[i2][j2])) + 1e-4 : stackedNegs[group][j2] += parseFloat(
+                String(this.w.seriesData.series[i2][j2])
               );
             }
           }
@@ -16224,42 +17406,30 @@ class YAxis {
   }
   setYAxisTextAlignments() {
     const w = this.w;
-    const yaxis = Array.from(
-      w.dom.baseEl.getElementsByClassName("apexcharts-yaxis")
-    );
-    yaxis.forEach((y, index) => {
-      const yaxe = w.config.yaxis[index];
+    w.config.yaxis.forEach((yaxe, index) => {
       if (yaxe && !yaxe.floating && yaxe.labels.align !== void 0) {
         const yAxisInner = w.dom.baseEl.querySelector(
           `.apexcharts-yaxis[rel='${index}'] .apexcharts-yaxis-texts-g`
         );
+        if (!yAxisInner) return;
         const yAxisTexts = Array.from(
           w.dom.baseEl.querySelectorAll(
             `.apexcharts-yaxis[rel='${index}'] .apexcharts-yaxis-label`
           )
         );
-        const rect = (
-          /** @type {Element} */
-          yAxisInner.getBoundingClientRect()
-        );
+        const rect = yAxisInner.getBoundingClientRect();
         yAxisTexts.forEach((label) => {
           label.setAttribute("text-anchor", yaxe.labels.align);
         });
         if (yaxe.labels.align === "left" && !yaxe.opposite) {
-          yAxisInner.setAttribute(
-            "transform",
-            `translate(-${rect.width}, 0)`
-          );
+          yAxisInner.setAttribute("transform", `translate(-${rect.width}, 0)`);
         } else if (yaxe.labels.align === "center") {
           yAxisInner.setAttribute(
             "transform",
             `translate(${rect.width / 2 * (!yaxe.opposite ? -1 : 1)}, 0)`
           );
         } else if (yaxe.labels.align === "right" && yaxe.opposite) {
-          yAxisInner.setAttribute(
-            "transform",
-            `translate(${rect.width}, 0)`
-          );
+          yAxisInner.setAttribute("transform", `translate(${rect.width}, 0)`);
         }
       }
     });
@@ -16417,7 +17587,7 @@ class Localization {
       locales = this.w.config.chart.locales.concat(globalApex.chart.locales);
     }
     const selectedLocale = locales.filter(
-      (c2) => c2.name === localeName
+      (c) => c.name === localeName
     )[0];
     if (selectedLocale) {
       const ret = Utils$1.extend(en, selectedLocale);
@@ -16697,15 +17867,15 @@ function captureStreamFrame(w) {
     w.dom.baseEl.querySelectorAll(".apexcharts-marker").forEach((node) => {
       var _a2, _b2, _c2, _d, _e;
       const ri = parseInt((_a2 = node.getAttribute("index")) != null ? _a2 : "", 10);
-      const j = parseInt(
+      const j2 = parseInt(
         (_c2 = (_b2 = node.getAttribute("j")) != null ? _b2 : node.getAttribute("rel")) != null ? _c2 : "",
         10
       );
       const r2 = parseFloat(
         (_e = (_d = node.getAttribute("r")) != null ? _d : node.getAttribute("default-marker-size")) != null ? _e : ""
       );
-      if (isFinite(ri) && isFinite(j) && isFinite(r2)) {
-        (rPixels[ri] = rPixels[ri] || [])[j] = r2;
+      if (isFinite(ri) && isFinite(j2) && isFinite(r2)) {
+        (rPixels[ri] = rPixels[ri] || [])[j2] = r2;
       }
     });
   }
@@ -16749,6 +17919,295 @@ function trimStreamingSeries(newSeries, w) {
     if (idx > 0) s2.data = data.slice(idx);
   });
 }
+function readTranslate(el) {
+  const t2 = (el.getAttribute("transform") || "").trim();
+  if (!t2) return [0, 0];
+  const m = /^translate\(\s*([-+.\deE]+)(?:[\s,]+([-+.\deE]+))?\s*\)$/.exec(t2);
+  if (!m) return null;
+  const x = parseFloat(m[1]);
+  const y = m[2] === void 0 ? 0 : parseFloat(m[2]);
+  return Number.isFinite(x) && Number.isFinite(y) ? [x, y] : null;
+}
+function currentPlotRect(w) {
+  var _a, _b, _c;
+  const live = w.globals.layoutTween;
+  if (live && live.graphical === ((_a = w.dom.elGraphical) == null ? void 0 : _a.node)) return __spreadValues({}, live.rect);
+  const l2 = w.layout;
+  return {
+    x: (_b = l2.translateX) != null ? _b : 0,
+    y: (_c = l2.translateY) != null ? _c : 0,
+    w: l2.gridWidth,
+    h: l2.gridHeight
+  };
+}
+function pendingUntilPaint(frame) {
+  const held = (
+    /** @type {T & {pending: boolean}} */
+    __spreadProps(__spreadValues({}, frame), { pending: true })
+  );
+  BrowserAPIs.requestAnimationFrame(() => {
+    held.pending = false;
+  });
+  return held;
+}
+const GESTURES = ["pointerdown", "touchstart", "wheel", "keydown"];
+function landOnGesture(w, finish) {
+  const wrap = w.dom.elWrap;
+  const land = (e2) => {
+    var _a;
+    const t2 = (
+      /** @type {Element | null} */
+      e2.target
+    );
+    if ((_a = t2 == null ? void 0 : t2.closest) == null ? void 0 : _a.call(t2, ".apexcharts-legend, .apexcharts-toolbar, .apexcharts-menu")) {
+      return;
+    }
+    finish();
+  };
+  GESTURES.forEach((t2) => wrap == null ? void 0 : wrap.addEventListener(t2, land, true));
+  return () => GESTURES.forEach((t2) => wrap == null ? void 0 : wrap.removeEventListener(t2, land, true));
+}
+function nums(el, attrs) {
+  if (!el) return void 0;
+  const v = attrs.map((a2) => parseFloat(el.getAttribute(a2) || ""));
+  return v.every(Number.isFinite) ? v : void 0;
+}
+function lineGroup(line) {
+  const parent = (
+    /** @type {Element | null} */
+    line.parentNode
+  );
+  return ((parent == null ? void 0 : parent.getAttribute("class")) || "").split(" ")[0];
+}
+function captureLayout(w) {
+  var _a;
+  const shifts = {};
+  w.dom.baseEl.querySelectorAll(".apexcharts-yaxis[rel]").forEach((g2) => {
+    const t2 = readTranslate(g2);
+    if (t2) shifts[`g${g2.getAttribute("rel")}`] = t2;
+  });
+  const ends = {};
+  const g = (_a = w.dom.elGraphical) == null ? void 0 : _a.node;
+  if (g) {
+    g.querySelectorAll(
+      ".apexcharts-grid line:not(.apexcharts-tick-ghost), .apexcharts-grid-borders line"
+    ).forEach((ln) => {
+      const p = nums(ln, ["x1", "y1", "x2", "y2"]);
+      if (!p) return;
+      const k = lineGroup(ln);
+      if (!ends[`h:${k}`] && p[1] === p[3]) ends[`h:${k}`] = [p[0], p[2]];
+      if (!ends[`v:${k}`] && p[0] === p[2]) ends[`v:${k}`] = [p[1], p[3]];
+    });
+    const row = nums(g.querySelector(".apexcharts-grid-row"), ["x", "width"]);
+    if (row) ends.row = row;
+    const col = nums(g.querySelector(".apexcharts-grid-column"), ["y", "height"]);
+    if (col) ends.col = col;
+    const xl = nums(g.querySelector(".apexcharts-xaxis > line"), ["x1", "x2"]);
+    if (xl) ends.xline = xl;
+  }
+  const CLIP = ["x", "y", "width", "height"];
+  [w.dom.elGridRect, w.dom.elGridRectBar, w.dom.elGridRectMarker].forEach((r2, k) => {
+    const v = nums(r2 == null ? void 0 : r2.node, CLIP);
+    if (v) ends[`clip${k}`] = v;
+  });
+  return { rect: currentPlotRect(w), shifts, ends };
+}
+function transitionLayout(w, from, { driven, duration, ease }) {
+  var _a, _b, _c, _d;
+  const gl = w.globals;
+  if (gl.layoutTween) gl.layoutTween.finish();
+  const graphical = (_a = w.dom.elGraphical) == null ? void 0 : _a.node;
+  if (!from || !from.rect || !graphical) return;
+  const l2 = w.layout;
+  const to = {
+    x: (_b = l2.translateX) != null ? _b : 0,
+    y: (_c = l2.translateY) != null ? _c : 0,
+    w: l2.gridWidth,
+    h: l2.gridHeight
+  };
+  const r0 = from.rect;
+  const sane = (r2) => [r2.x, r2.y, r2.w, r2.h].every(Number.isFinite) && r2.w > 0 && r2.h > 0;
+  if (!sane(to) || !sane(r0)) return;
+  const root = w.dom.baseEl;
+  const writers = [];
+  const finals = [];
+  let travel = Math.max(
+    Math.abs(r0.x - to.x),
+    Math.abs(r0.y - to.y),
+    Math.abs(r0.w - to.w),
+    Math.abs(r0.h - to.h)
+  );
+  const drive = (el, attrs, map) => {
+    const raw = attrs.map((a2) => el.getAttribute(a2));
+    const fin = raw.map((v) => parseFloat(v != null ? v : ""));
+    if (!fin.every(Number.isFinite)) return;
+    writers.push(
+      (R, e2) => attrs.forEach((a2, k) => el.setAttribute(a2, String(map(fin[k], R, e2, k))))
+    );
+    finals.push(
+      () => attrs.forEach((a2, k) => el.setAttribute(
+        a2,
+        /** @type {string} */
+        raw[k]
+      ))
+    );
+  };
+  const easeFrom = (el, attrs, was, fallback) => {
+    if (!was) return drive(el, attrs, fallback);
+    attrs.forEach((a2, k) => {
+      const v = parseFloat(el.getAttribute(a2) || "");
+      if (Number.isFinite(v)) travel = Math.max(travel, Math.abs(v - was[k]));
+    });
+    drive(el, attrs, (v, _, e2, k) => was[k] + (v - was[k]) * e2);
+  };
+  const ends = from.ends || {};
+  const nudge = (el, offset) => {
+    const base = el.getAttribute("transform");
+    writers.push((R) => {
+      const [dx, dy] = offset(R);
+      el.setAttribute("transform", `translate(${dx}, ${dy}) ${base || ""}`.trim());
+    });
+    finals.push(() => {
+      if (base) el.setAttribute("transform", base);
+      else el.removeAttribute("transform");
+    });
+  };
+  const slide = (el, was) => {
+    const now = readTranslate(el);
+    if (!was || !now) return;
+    const d = Math.max(Math.abs(was[0] - now[0]), Math.abs(was[1] - now[1]));
+    if (d < 0.5) return;
+    travel = Math.max(travel, d);
+    const base = el.getAttribute("transform");
+    writers.push((_, e2) => {
+      const x = was[0] + (now[0] - was[0]) * e2;
+      const y = was[1] + (now[1] - was[1]) * e2;
+      el.setAttribute("transform", `translate(${x}, ${y})`);
+    });
+    finals.push(() => {
+      if (base) el.setAttribute("transform", base);
+      else el.removeAttribute("transform");
+    });
+  };
+  const sx = (v, R) => v * R.w / to.w;
+  const sy = (v, R) => v * R.h / to.h;
+  const dW = (R) => R.w - to.w;
+  const dH = (R) => R.h - to.h;
+  writers.push((R) => graphical.setAttribute("transform", `translate(${R.x}, ${R.y})`));
+  const graphicalBase = graphical.getAttribute("transform");
+  finals.push(() => {
+    if (graphicalBase) graphical.setAttribute("transform", graphicalBase);
+  });
+  [w.dom.elGridRect, w.dom.elGridRectBar, w.dom.elGridRectMarker].forEach((r2, k) => {
+    const el = r2 == null ? void 0 : r2.node;
+    if (!el) return;
+    const was = ends[`clip${k}`];
+    if (was) easeFrom(el, ["x", "y", "width", "height"], was, (v) => v);
+    else {
+      drive(el, ["width"], (v, R) => v + dW(R));
+      drive(el, ["height"], (v, R) => v + dH(R));
+    }
+  });
+  graphical.querySelectorAll(
+    ".apexcharts-grid line:not(.apexcharts-tick-ghost), .apexcharts-grid-borders line"
+  ).forEach((line) => {
+    const horizontal = line.getAttribute("y1") === line.getAttribute("y2");
+    const vertical = line.getAttribute("x1") === line.getAttribute("x2");
+    const owned = driven.has(line);
+    const k = lineGroup(line);
+    if (horizontal) easeFrom(line, ["x1", "x2"], ends[`h:${k}`], sx);
+    else if (!owned) drive(line, ["x1", "x2"], sx);
+    if (vertical) easeFrom(line, ["y1", "y2"], ends[`v:${k}`], sy);
+    else if (!owned) drive(line, ["y1", "y2"], sy);
+  });
+  graphical.querySelectorAll(".apexcharts-grid rect").forEach((rect) => {
+    const row = rect.classList.contains("apexcharts-grid-row");
+    const col = rect.classList.contains("apexcharts-grid-column");
+    if (row) easeFrom(rect, ["x", "width"], ends.row, sx);
+    else drive(rect, ["x", "width"], sx);
+    if (col) easeFrom(rect, ["y", "height"], ends.col, sy);
+    else drive(rect, ["y", "height"], sy);
+  });
+  const bottom = w.config.xaxis.position !== "top";
+  graphical.querySelectorAll(".apexcharts-xaxis-tick").forEach((tick) => {
+    drive(tick, ["x1", "x2"], sx);
+    if (bottom) drive(tick, ["y1", "y2"], (v, R) => v + dH(R));
+  });
+  graphical.querySelectorAll(".apexcharts-xaxis").forEach((g) => {
+    if (g.closest(".apexcharts-radar-series")) return;
+    if (bottom) nudge(g, (R) => [0, dH(R)]);
+    g.querySelectorAll(":scope > line").forEach(
+      (line) => easeFrom(line, ["x1", "x2"], ends.xline, sx)
+    );
+    g.querySelectorAll(":scope > .apexcharts-xaxis-title").forEach(
+      (t2) => nudge(t2, (R) => [dW(R) / 2, 0])
+    );
+  });
+  if (gl.isBarHorizontal && ((_d = w.config.yaxis[0]) == null ? void 0 : _d.opposite)) {
+    graphical.querySelectorAll(
+      ".apexcharts-xaxis-inversed-texts-g, .apexcharts-xaxis-title-inversed"
+    ).forEach((g) => nudge(g, (R) => [dW(R), 0]));
+  }
+  root.querySelectorAll(".apexcharts-yaxis[rel]").forEach((g) => {
+    slide(g, from.shifts[`g${g.getAttribute("rel")}`]);
+    const local = !!g.closest(".apexcharts-graphical");
+    const mapY = local ? sy : (v, R) => R.y + (v - to.y) * R.h / to.h;
+    g.querySelectorAll(":scope > line").forEach(
+      (line) => drive(line, ["y1", "y2"], mapY)
+    );
+    g.querySelectorAll(":scope > .apexcharts-yaxis-title").forEach(
+      (t2) => nudge(t2, (R) => [0, (local ? 0 : R.y - to.y) + dH(R) / 2])
+    );
+  });
+  if (travel < 0.5) return;
+  const lerp = (a2, b, e2) => a2 + (b - a2) * e2;
+  let unlisten = () => {
+  };
+  const token = {
+    graphical,
+    rect: __spreadValues({}, r0),
+    done: false,
+    finish() {
+      if (token.done) return;
+      token.done = true;
+      unlisten();
+      finals.forEach((f) => f());
+      if (gl.layoutTween === token) gl.layoutTween = null;
+    }
+  };
+  const paint = (e2) => {
+    const R = {
+      x: lerp(r0.x, to.x, e2),
+      y: lerp(r0.y, to.y, e2),
+      w: lerp(r0.w, to.w, e2),
+      h: lerp(r0.h, to.h, e2)
+    };
+    token.rect = R;
+    writers.forEach((fn) => fn(R, e2));
+  };
+  gl.layoutTween = token;
+  unlisten = landOnGesture(w, () => token.finish());
+  paint(0);
+  const startAt = performance.now();
+  const step = (now) => {
+    var _a2;
+    if (token.done) return;
+    if (gl.isDestroyed || ((_a2 = w.dom.elGraphical) == null ? void 0 : _a2.node) !== graphical) {
+      token.done = true;
+      unlisten();
+      if (gl.layoutTween === token) gl.layoutTween = null;
+      return;
+    }
+    const raw = Math.max(0, Math.min(1, (now - startAt) / duration));
+    if (raw < 1) {
+      paint(ease(raw));
+      BrowserAPIs.requestAnimationFrame(step);
+    } else {
+      token.finish();
+    }
+  };
+  BrowserAPIs.requestAnimationFrame(step);
+}
 function lengthTransitionEnabled(w) {
   var _a;
   const anim = w.config.chart.animations;
@@ -16760,29 +18219,29 @@ function lengthTransitionEnabled(w) {
   if (largeThreshold > 0 && w.globals.dataPoints > largeThreshold) return false;
   return !!(Environment.isBrowser() && w.globals.dataChanged && w.globals.shouldAnimate);
 }
-function datumKey(w, realIndex, j) {
+function datumKey(w, realIndex, j2) {
   var _a, _b, _c, _d;
   if ((_a = w.axisFlags) == null ? void 0 : _a.isXNumeric) {
     const sx = (_c = (_b = w.seriesData) == null ? void 0 : _b.seriesX) == null ? void 0 : _c[realIndex];
-    if (sx && sx.length && sx[j] != null) return "x:" + sx[j];
+    if (sx && sx.length && sx[j2] != null) return "x:" + sx[j2];
   }
-  const lbl = (_d = w.globals.labels) == null ? void 0 : _d[j];
+  const lbl = (_d = w.globals.labels) == null ? void 0 : _d[j2];
   if (lbl != null && String(lbl) !== "") {
     return "c:" + (Array.isArray(lbl) ? lbl.join(" ") : String(lbl));
   }
-  return "j:" + j;
+  return "j:" + j2;
 }
-function frameDatumKey(frame, realIndex, j) {
+function frameDatumKey(frame, realIndex, j2) {
   var _a, _b;
   if (frame.isXNumeric) {
     const sx = (_a = frame.seriesX) == null ? void 0 : _a[realIndex];
-    if (sx && sx.length && sx[j] != null) return "x:" + sx[j];
+    if (sx && sx.length && sx[j2] != null) return "x:" + sx[j2];
   }
-  const lbl = (_b = frame.labels) == null ? void 0 : _b[j];
+  const lbl = (_b = frame.labels) == null ? void 0 : _b[j2];
   if (lbl != null && String(lbl) !== "") {
     return "c:" + (Array.isArray(lbl) ? lbl.join(" ") : String(lbl));
   }
-  return "j:" + j;
+  return "j:" + j2;
 }
 function joinKeys(oldKeys, newKeys) {
   const oldIndex = /* @__PURE__ */ new Map();
@@ -16828,9 +18287,9 @@ function seriesJoin(w, realIndex, includeIdentity = false, allowReorder = false)
   if (!Array.isArray(oldY) || !Array.isArray(newY)) return null;
   if (!oldY.length || !newY.length) return null;
   const oldKeys = uniquifyKeys(
-    oldY.map((_, j) => frameDatumKey(frame, realIndex, j))
+    oldY.map((_, j2) => frameDatumKey(frame, realIndex, j2))
   );
-  const newKeys = uniquifyKeys(newY.map((_, j) => datumKey(w, realIndex, j)));
+  const newKeys = uniquifyKeys(newY.map((_, j2) => datumKey(w, realIndex, j2)));
   const join = joinKeys(oldKeys, newKeys);
   if (!join.ordered && !allowReorder) return null;
   if (!join.changed && !includeIdentity) return null;
@@ -16930,14 +18389,16 @@ function composeYMap(o2, n2) {
   };
 }
 function captureAxisChrome(w) {
+  var _a;
   const gl = w.globals;
+  if ((_a = gl.prevChromeFrame) == null ? void 0 : _a.pending) return;
   gl.prevChromeFrame = null;
   if (!gl.axisCharts || !Environment.isBrowser()) return;
   const root = w.dom.baseEl;
   if (!Utils$1.elementExists(root)) return;
   try {
     const yLabels = grabLabels(root, Y_LABELS_SEL, "y");
-    gl.prevChromeFrame = {
+    gl.prevChromeFrame = pendingUntilPaint({
       xLabels: grabLabels(root, X_LABELS_SEL, "x"),
       yLabels,
       vGrid: grabLines(root, V_GRID_SEL, "x1"),
@@ -16947,11 +18408,41 @@ function captureAxisChrome(w) {
       // re-projected: new ticks slide in from where their value sat, old
       // ticks ghost out to where their value lands.
       xScale: currentXScale(w),
-      yAnchors: currentYAnchors(w, yLabels)
-    };
+      yAnchors: currentYAnchors(w, yLabels),
+      // Where the plot sat and how big it was, so a layout change (axes
+      // needing more or less room) eases instead of jumping. See
+      // LayoutTransition.
+      layout: captureLayout(w)
+    });
   } catch (_) {
     gl.prevChromeFrame = null;
   }
+}
+function chromeTween(w, duration, ease, onFrame, onDone) {
+  if (!w.globals.chromeTweens) w.globals.chromeTweens = /* @__PURE__ */ new Set();
+  const live = w.globals.chromeTweens;
+  let over = false;
+  const finish = () => {
+    if (over) return;
+    over = true;
+    live.delete(finish);
+    onDone();
+  };
+  live.add(finish);
+  rafTween(
+    w,
+    duration,
+    ease,
+    (eased) => {
+      if (!over) onFrame(eased);
+    },
+    finish
+  );
+}
+function finishChromeTweens(w) {
+  const live = w.globals.chromeTweens;
+  if (!live || !live.size) return;
+  [...live].forEach((finish) => finish());
 }
 function fadeIn$1(w, node, duration, ease) {
   const style = (
@@ -16959,7 +18450,7 @@ function fadeIn$1(w, node, duration, ease) {
     node.style
   );
   style.opacity = "0";
-  rafTween(
+  chromeTween(
     w,
     duration,
     ease,
@@ -16973,7 +18464,7 @@ function fadeIn$1(w, node, duration, ease) {
 }
 function tweenPos(w, node, attrs, from, to, duration, ease) {
   attrs.forEach((a2) => node.setAttribute(a2, String(from)));
-  rafTween(
+  chromeTween(
     w,
     duration,
     ease,
@@ -17010,7 +18501,7 @@ function spawnGhost(w, { template, display, attrs, from, to, duration, ease }) {
   );
   style.opacity = "1";
   parent.appendChild(ghost);
-  rafTween(
+  chromeTween(
     w,
     duration,
     ease,
@@ -17034,7 +18525,8 @@ function transitionAxis(w, {
   lineAttrs,
   duration,
   ease,
-  project
+  project,
+  driven
 }) {
   const oldByText = /* @__PURE__ */ new Map();
   oldLabels.forEach((l2, i2) => {
@@ -17055,6 +18547,7 @@ function transitionAxis(w, {
     const lineTo = parseFloat(line.getAttribute(lineAttrs[0]) || "");
     const lineFrom = oldLines[old.i];
     if (isFinite(lineTo) && isFinite(lineFrom)) {
+      driven.add(line);
       tweenPos(w, line, lineAttrs, lineFrom, lineTo, duration, ease);
     }
   };
@@ -17069,8 +18562,12 @@ function transitionAxis(w, {
         if (project && isFinite(to) && !labelTransform) {
           const from = isFinite(project.toOld(to)) ? clamp(project.toOld(to)) : NaN;
           if (isFinite(from) && Math.abs(from - to) > 0.5) {
+            driven.add(label);
             tweenPos(w, label, [posAttr], from, to, duration, ease);
-            if (line) tweenPos(w, line, lineAttrs, from, to, duration, ease);
+            if (line) {
+              driven.add(line);
+              tweenPos(w, line, lineAttrs, from, to, duration, ease);
+            }
           }
         }
         fadeIn$1(w, label, duration, ease);
@@ -17082,8 +18579,9 @@ function transitionAxis(w, {
     if (labelTransform || old.transform) {
       const delta = old.pos - to;
       if (isFinite(delta)) {
+        driven.add(label);
         const base = labelTransform || "";
-        rafTween(
+        chromeTween(
           w,
           duration,
           ease,
@@ -17101,6 +18599,7 @@ function transitionAxis(w, {
       tweenPairedLine(line, old);
       return;
     }
+    driven.add(label);
     tweenPos(w, label, [posAttr], old.pos, to, duration, ease);
     tweenPairedLine(line, old);
   });
@@ -17134,11 +18633,11 @@ function transitionAxis(w, {
     }
   });
 }
-function applyAxisTransition(w) {
+function applyAxisTransition(w, { layout = true } = {}) {
   const gl = w.globals;
   const chrome = gl.prevChromeFrame;
   gl.prevChromeFrame = null;
-  if (!chrome || !gl.axisCharts || !Environment.isBrowser()) return;
+  if (!(chrome == null ? void 0 : chrome.pending) || !gl.axisCharts || !Environment.isBrowser()) return;
   if (!lengthTransitionEnabled(w)) return;
   const anyMotion = (w.seriesData.series || []).some(
     (_, i2) => seriesJoin(w, i2, true, true) !== null
@@ -17148,7 +18647,9 @@ function applyAxisTransition(w) {
   if (!Utils$1.elementExists(root)) return;
   const duration = Math.max(1, w.config.chart.animations.dynamicAnimation.speed || 1);
   const ease = morphEasing(w);
+  const driven = /* @__PURE__ */ new Set();
   try {
+    finishChromeTweens(w);
     const newYLabels = [...root.querySelectorAll(Y_LABELS_SEL)];
     const projX = composeXMap(chrome.xScale, currentXScale(w));
     const projY = composeYMap(
@@ -17169,7 +18670,8 @@ function applyAxisTransition(w) {
       lineAttrs: ["x1", "x2"],
       duration,
       ease,
-      project: projX
+      project: projX,
+      driven
     });
     transitionAxis(w, {
       newLabels: newYLabels,
@@ -17180,10 +18682,299 @@ function applyAxisTransition(w) {
       lineAttrs: ["y1", "y2"],
       duration,
       ease,
-      project: projY
+      project: projY,
+      driven
     });
+    if (layout) transitionLayout(w, chrome.layout, { driven, duration, ease });
   } catch (_) {
   }
+}
+function currentCircle(w, geom) {
+  const live = w.globals.circleTween;
+  if (live && !live.done && live.node === geom.node) return __spreadValues({}, live.circle);
+  return { cx: geom.cx, cy: geom.cy, r: geom.r };
+}
+function toPlot(el, graphical) {
+  var _a, _b;
+  const m = (
+    /** @type {SVGGraphicsElement} */
+    (_a = el.getCTM) == null ? void 0 : _a.call(el)
+  );
+  const g = (
+    /** @type {SVGGraphicsElement} */
+    (_b = graphical.getCTM) == null ? void 0 : _b.call(graphical)
+  );
+  if (!m || !g) return null;
+  const r2 = g.inverse().multiply(m);
+  return new DOMMatrix([r2.a, r2.b, r2.c, r2.d, r2.e, r2.f]);
+}
+function textAt(el, graphical) {
+  var _a;
+  try {
+    const m = toPlot(el, graphical);
+    const b = (
+      /** @type {SVGGraphicsElement} */
+      el.getBBox()
+    );
+    if (!m || !(b.width > 0 || b.height > 0)) return null;
+    const p = new DOMPoint(b.x + b.width / 2, b.y + b.height / 2).matrixTransform(m);
+    const k = Math.hypot(m.a, m.b);
+    const own = parseFloat((_a = el.getAttribute("opacity")) != null ? _a : "");
+    const o2 = Number.isFinite(own) ? own : 1;
+    return [p.x, p.y, k].every(Number.isFinite) && k > 0 ? { x: p.x, y: p.y, k, o: o2 } : null;
+  } catch (_) {
+    return null;
+  }
+}
+function readTexts(node, graphical, each) {
+  const out = /* @__PURE__ */ new Map();
+  const seen = {};
+  node.querySelectorAll("text").forEach((el) => {
+    var _a, _b;
+    const owner = el.closest("[data\\:slice], [rel]");
+    const id = owner && node.contains(owner) ? (_a = owner.getAttribute("data:slice")) != null ? _a : owner.getAttribute("rel") : "";
+    const cls = `${el.getAttribute("class") || ""}|${id}`;
+    seen[cls] = ((_b = seen[cls]) != null ? _b : -1) + 1;
+    const key = `${cls}#${seen[cls]}`;
+    const at = textAt(el, graphical);
+    if (at) out.set(key, at);
+    if (each) each(el, key);
+  });
+  return out;
+}
+function drawnBox(node, graphical) {
+  const svg = (
+    /** @type {SVGGraphicsElement} */
+    graphical.ownerSVGElement
+  );
+  if (!svg) return null;
+  const s2 = svg.getBoundingClientRect();
+  const b = node.getBoundingClientRect();
+  if (!(b.width > 0 && b.height > 0 && s2.width > 0 && s2.height > 0)) return null;
+  return {
+    l: b.left - s2.left,
+    t: b.top - s2.top,
+    r: b.right - s2.left,
+    b: b.bottom - s2.top,
+    W: s2.width,
+    H: s2.height
+  };
+}
+function captureCircle(w) {
+  var _a, _b;
+  const gl = w.globals;
+  if ((_a = gl.prevCircleFrame) == null ? void 0 : _a.pending) return;
+  gl.prevCircleFrame = null;
+  const geom = gl.circleGeometry;
+  const graphical = (_b = w.dom.elGraphical) == null ? void 0 : _b.node;
+  if (!geom || !graphical || !Environment.isBrowser()) return;
+  if (!graphical.contains(geom.node)) return;
+  try {
+    const plot = captureLayout(w);
+    gl.prevCircleFrame = pendingUntilPaint({
+      type: w.config.chart.type,
+      circle: currentCircle(w, geom),
+      // As rendered, without any tween: what the previous render's own
+      // pixels (a radar's polygons) were measured against.
+      rendered: { cx: geom.cx, cy: geom.cy, r: geom.r },
+      // Where the plot sat, which the circle is measured from.
+      origin: { x: plot.rect.x, y: plot.rect.y },
+      // What the circle drew, against the svg it was drawn in.
+      drawn: drawnBox(geom.node, graphical),
+      // An axis chart's plot rect is captured with its axis chrome.
+      layout: gl.axisCharts ? null : plot,
+      texts: readTexts(geom.node, graphical)
+    });
+  } catch (_) {
+    gl.prevCircleFrame = null;
+  }
+}
+function applyCircleTransition(w, { layout = true } = {}) {
+  var _a;
+  const gl = w.globals;
+  const from = gl.prevCircleFrame;
+  gl.prevCircleFrame = null;
+  const to = gl.circleGeometry;
+  if (gl.circleTween && gl.circleTween.node !== (to == null ? void 0 : to.node)) gl.circleTween.finish();
+  if (!(from == null ? void 0 : from.pending) || !layout || !Environment.isBrowser()) return;
+  if (!lengthTransitionEnabled(w)) return;
+  const graphical = (_a = w.dom.elGraphical) == null ? void 0 : _a.node;
+  if (!to || !graphical || !graphical.contains(to.node)) return;
+  if (!fitsTheChart(from, graphical)) return;
+  const duration = Math.max(1, w.config.chart.animations.dynamicAnimation.speed || 1);
+  const ease = morphEasing(w);
+  try {
+    if (!gl.axisCharts && from.layout) {
+      transitionLayout(w, from.layout, { driven: /* @__PURE__ */ new Set(), duration, ease });
+    }
+    tweenCircle(w, {
+      from: from.circle,
+      texts: from.texts,
+      to,
+      graphical,
+      duration,
+      ease
+    });
+  } catch (_) {
+    if (gl.circleTween && !gl.circleTween.done) gl.circleTween.finish();
+  }
+}
+function fitsTheChart(from, graphical) {
+  const d = from.drawn;
+  const svg = (
+    /** @type {SVGGraphicsElement} */
+    graphical.ownerSVGElement
+  );
+  if (!d || !svg) return true;
+  const s2 = svg.getBoundingClientRect();
+  if (!(s2.width > 0 && s2.height > 0)) return true;
+  const TOL = 2;
+  const over = (was, now) => now <= Math.max(0, was) + TOL;
+  return over(-d.l, -d.l) && over(-d.t, -d.t) && over(d.r - d.W, d.r - s2.width) && over(d.b - d.H, d.b - s2.height);
+}
+function tweenCircle(w, { from: c0, texts, to, graphical, duration, ease }) {
+  const gl = w.globals;
+  const node = to.node;
+  const c1 = { cx: to.cx, cy: to.cy, r: to.r };
+  const sane = (c) => [c.cx, c.cy, c.r].every(Number.isFinite) && c.r > 0;
+  if (!sane(c0) || !sane(c1)) return;
+  const travel = Math.max(
+    Math.abs(c0.cx - c1.cx),
+    Math.abs(c0.cy - c1.cy),
+    Math.abs(c0.r - c1.r)
+  );
+  if (travel < 0.5) return;
+  const lerp = (a2, b, e2) => a2 + (b - a2) * e2;
+  const base = node.getAttribute("transform");
+  const finals = [];
+  const writers = [];
+  const restore = (el, was) => {
+    if (was) el.setAttribute("transform", was);
+    else el.removeAttribute("transform");
+  };
+  const s0 = c0.r / c1.r;
+  readTexts(node, graphical, (el, key) => {
+    const parent = (
+      /** @type {Element | null} */
+      el.parentNode
+    );
+    const M = parent ? toPlot(parent, graphical) : null;
+    const now = textAt(el, graphical);
+    if (!M || !now) return;
+    const at = texts.get(key);
+    const P0 = at != null ? at : {
+      x: c0.cx + s0 * (now.x - c1.cx),
+      y: c0.cy + s0 * (now.y - c1.cy),
+      k: now.k
+    };
+    const own = el.getAttribute("transform");
+    const opacity = el.getAttribute("opacity");
+    const Minv = M.inverse();
+    const origin = (el.getAttribute("transform-origin") || "").split(/[\s,]+/).map((v) => parseFloat(v));
+    const [ox, oy] = origin.length === 2 && origin.every(Number.isFinite) ? origin : [0, 0];
+    const fadeFrom = at ? at.o : 0;
+    writers.push((c, s2, e2) => {
+      const P = { x: lerp(P0.x, now.x, e2), y: lerp(P0.y, now.y, e2) };
+      const sigma = lerp(P0.k / now.k, 1, e2);
+      const E = new DOMMatrix([
+        sigma / s2,
+        0,
+        0,
+        sigma / s2,
+        c1.cx + (P.x - c.cx - sigma * now.x) / s2,
+        c1.cy + (P.y - c.cy - sigma * now.y) / s2
+      ]);
+      let X = Minv.multiply(E).multiply(M);
+      if (ox || oy) {
+        X = new DOMMatrix().translate(-ox, -oy).multiply(X).translate(ox, oy);
+      }
+      el.setAttribute(
+        "transform",
+        `matrix(${X.a}, ${X.b}, ${X.c}, ${X.d}, ${X.e}, ${X.f}) ${own || ""}`.trim()
+      );
+      if (fadeFrom < 0.999) el.setAttribute("opacity", String(lerp(fadeFrom, 1, e2)));
+    });
+    finals.push(() => {
+      restore(el, own);
+      if (fadeFrom < 0.999) {
+        if (opacity === null) el.removeAttribute("opacity");
+        else el.setAttribute("opacity", opacity);
+      }
+    });
+  });
+  node.querySelectorAll(".apexcharts-slices path[transform]").forEach((el) => {
+    const own = el.getAttribute("transform") || "";
+    const m = /^translate\(\s*([-+.\deE]+)[\s,]+([-+.\deE]+)\s*\)$/.exec(own.trim());
+    if (!m) return;
+    const dx = parseFloat(m[1]);
+    const dy = parseFloat(m[2]);
+    let wrote = own;
+    let ours = true;
+    writers.push((_, s2) => {
+      if (!ours) return;
+      if (el.getAttribute("transform") !== wrote) {
+        ours = false;
+        return;
+      }
+      wrote = `translate(${dx / s2} ${dy / s2})`;
+      el.setAttribute("transform", wrote);
+    });
+    finals.push(() => {
+      if (ours && el.getAttribute("transform") === wrote) el.setAttribute("transform", own);
+    });
+  });
+  let unlisten = () => {
+  };
+  const token = {
+    node,
+    circle: __spreadValues({}, c0),
+    target: __spreadValues({}, c1),
+    done: false,
+    finish() {
+      if (token.done) return;
+      token.done = true;
+      unlisten();
+      restore(node, base);
+      finals.forEach((f) => f());
+      if (gl.circleTween === token) gl.circleTween = null;
+    }
+  };
+  const paint = (e2) => {
+    const c = {
+      cx: lerp(c0.cx, c1.cx, e2),
+      cy: lerp(c0.cy, c1.cy, e2),
+      r: lerp(c0.r, c1.r, e2)
+    };
+    token.circle = c;
+    const s2 = c.r / c1.r;
+    node.setAttribute(
+      "transform",
+      `translate(${c.cx}, ${c.cy}) scale(${s2}) translate(${-c1.cx}, ${-c1.cy}) ${base || ""}`.trim()
+    );
+    writers.forEach((fn) => fn(c, s2, e2));
+  };
+  gl.circleTween = token;
+  unlisten = landOnGesture(w, () => token.finish());
+  paint(0);
+  const startAt = performance.now();
+  const step = (now) => {
+    var _a;
+    if (token.done) return;
+    if (gl.isDestroyed || ((_a = w.dom.elGraphical) == null ? void 0 : _a.node) !== graphical || !graphical.contains(node)) {
+      token.done = true;
+      unlisten();
+      if (gl.circleTween === token) gl.circleTween = null;
+      return;
+    }
+    const raw = Math.max(0, Math.min(1, (now - startAt) / duration));
+    if (raw < 1) {
+      paint(ease(raw));
+      BrowserAPIs.requestAnimationFrame(step);
+    } else {
+      token.finish();
+    }
+  };
+  BrowserAPIs.requestAnimationFrame(step);
 }
 const DL_GROUP_SEL = ".apexcharts-data-labels[data\\:dlKey]";
 const DL_TEXT_SEL = ".apexcharts-datalabel";
@@ -17246,6 +19037,208 @@ function captureDataLabels(w) {
     gl.prevDataLabels = null;
   }
 }
+function captureExitLabels(w) {
+  const gl = w.globals;
+  gl.exitLabels = null;
+  gl.riseLabels = null;
+  const hiding = gl.collapsingSeriesIndices || [];
+  const rising = gl.risingSeries || [];
+  if (!hiding.length && !rising.length) return;
+  if (!gl.axisCharts || !Environment.isBrowser()) return;
+  if (!lengthTransitionEnabled(w)) return;
+  const root = w.dom.baseEl;
+  if (!Utils$1.elementExists(root)) return;
+  const frame = gl.prevStreamFrame;
+  const out = [];
+  const rise = /* @__PURE__ */ new Map();
+  rising.forEach((ri) => {
+    var _a, _b;
+    const g = root.querySelector(`.apexcharts-series[data\\:realIndex="${ri}"]`);
+    if (!g || !g.classList.contains("apexcharts-series-collapsed")) return;
+    const oldX = (_a = frame == null ? void 0 : frame.xPixels) == null ? void 0 : _a[ri];
+    const oldY = (_b = frame == null ? void 0 : frame.yPixels) == null ? void 0 : _b[ri];
+    if (Array.isArray(oldX) && Array.isArray(oldY) && oldX.length) {
+      rise.set(ri, { oldX: oldX.slice(), oldY: oldY.slice() });
+    }
+  });
+  gl.riseLabels = rise.size ? rise : null;
+  try {
+    hiding.forEach((ri) => {
+      root.querySelectorAll(
+        `.apexcharts-datalabels[data\\:realIndex="${ri}"] .apexcharts-data-labels`
+      ).forEach((group) => {
+        var _a, _b;
+        if (!group.querySelector(DL_TEXT_SEL)) return;
+        out.push({
+          realIndex: ri,
+          node: (
+            /** @type {Element} */
+            group.cloneNode(true)
+          ),
+          key: group.getAttribute("data:dlKey"),
+          oldX: (((_a = frame == null ? void 0 : frame.xPixels) == null ? void 0 : _a[ri]) || []).slice(),
+          oldY: (((_b = frame == null ? void 0 : frame.yPixels) == null ? void 0 : _b[ri]) || []).slice()
+        });
+      });
+    });
+  } catch (_) {
+    gl.exitLabels = null;
+    return;
+  }
+  gl.exitLabels = out.length ? out : null;
+}
+const px = (v) => typeof v === "number" ? v : NaN;
+function nearestIndex(xs, x) {
+  let best = -1;
+  let dist = Infinity;
+  for (let k = 0; k < xs.length; k++) {
+    const v = xs[k];
+    if (v == null) continue;
+    const d = Math.abs(v - x);
+    if (d < dist) {
+      dist = d;
+      best = k;
+    }
+  }
+  return best;
+}
+function riseLabels(w, rises) {
+  const gl = w.globals;
+  const root = w.dom.baseEl;
+  if (!Utils$1.elementExists(root)) return;
+  const speed = Math.max(1, w.config.chart.animations.dynamicAnimation.speed || 1);
+  const ease = morphEasing(w);
+  try {
+    rises.forEach(({ oldX, oldY }, ri) => {
+      var _a, _b;
+      const newX = ((_a = gl.seriesXvalues) == null ? void 0 : _a[ri]) || [];
+      const newY = ((_b = gl.seriesYvalues) == null ? void 0 : _b[ri]) || [];
+      root.querySelectorAll(
+        `.apexcharts-datalabels[data\\:realIndex="${ri}"] .apexcharts-data-labels:not([data\\:dlKey]) ${DL_TEXT_SEL}`
+      ).forEach((text) => {
+        const j2 = nearestIndex(newX, parseFloat(text.getAttribute("cx") || ""));
+        const dx = px(oldX[j2]) - px(newX[j2]);
+        const dy = px(oldY[j2]) - px(newY[j2]);
+        if (j2 < 0 || !isFinite(dx) || !isFinite(dy)) return;
+        const prev = text.previousElementSibling;
+        const els = prev && prev.tagName.toLowerCase() === "rect" ? [prev, text] : [text];
+        const bases = els.map((el) => el.getAttribute("transform") || "");
+        const place = (eased) => els.forEach((el, k) => {
+          const t2 = 1 - eased;
+          el.setAttribute(
+            "transform",
+            `translate(${dx * t2} ${dy * t2}) ${bases[k]}`.trim()
+          );
+          el.setAttribute("opacity", String(eased));
+        });
+        place(0);
+        rafTween(
+          w,
+          speed,
+          ease,
+          place,
+          () => els.forEach((el, k) => {
+            if (bases[k]) el.setAttribute("transform", bases[k]);
+            else el.removeAttribute("transform");
+            el.removeAttribute("opacity");
+          })
+        );
+      });
+    });
+  } catch (_) {
+  }
+}
+function playExitLabels(w) {
+  var _a;
+  const gl = w.globals;
+  const labels = gl.exitLabels;
+  const rises = gl.riseLabels;
+  gl.exitLabels = null;
+  gl.riseLabels = null;
+  if (!Environment.isBrowser()) return;
+  if (rises) riseLabels(w, rises);
+  if (!labels) return;
+  const graphical = (_a = w.dom.elGraphical) == null ? void 0 : _a.node;
+  if (!graphical) return;
+  const root = w.dom.baseEl;
+  const wrap = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  wrap.setAttribute("class", "apexcharts-label-exit");
+  wrap.setAttribute("pointer-events", "none");
+  graphical.appendChild(wrap);
+  const speed = Math.max(1, w.config.chart.animations.dynamicAnimation.speed || 1);
+  const morphEase = morphEasing(w);
+  const ghostEase = (t2) => 1 - Math.pow(1 - t2, 3);
+  const isHorizontal = !!w.globals.isBarHorizontal;
+  let pending = 0;
+  const done = () => {
+    if (--pending <= 0) wrap.remove();
+  };
+  try {
+    labels.forEach(({ realIndex, node, key, oldX, oldY }) => {
+      var _a2, _b, _c;
+      if (root.querySelector(
+        `.apexcharts-datalabels[data\\:realIndex="${realIndex}"] .apexcharts-data-labels`
+      )) {
+        return;
+      }
+      wrap.appendChild(node);
+      const parts = [...node.querySelectorAll(DL_TEXT_SEL)].map((text) => {
+        const prev = text.previousElementSibling;
+        return prev && prev.tagName.toLowerCase() === "rect" ? [prev, text] : [text];
+      });
+      const moves = [];
+      let ease = morphEase;
+      const ghost = key ? root.querySelector(`.apexcharts-bar-ghost[data\\:ghostKey="${key}"]`) : null;
+      const edge = parseFloat((_a2 = ghost == null ? void 0 : ghost.getAttribute("data:ghostEdge")) != null ? _a2 : "");
+      if (ghost && isFinite(edge)) {
+        ease = ghostEase;
+        parts.forEach((els) => {
+          const text = els[els.length - 1];
+          const c = parseFloat(text.getAttribute(isHorizontal ? "cx" : "cy") || "");
+          if (!isFinite(c)) return;
+          const d = edge - c;
+          moves.push({ els, dx: isHorizontal ? d : 0, dy: isHorizontal ? 0 : d });
+        });
+      } else if (!key) {
+        const newX = ((_b = gl.seriesXvalues) == null ? void 0 : _b[realIndex]) || [];
+        const newY = ((_c = gl.seriesYvalues) == null ? void 0 : _c[realIndex]) || [];
+        parts.forEach((els) => {
+          const text = els[els.length - 1];
+          const j2 = nearestIndex(oldX, parseFloat(text.getAttribute("cx") || ""));
+          const dx = px(newX[j2]) - px(oldX[j2]);
+          const dy = px(newY[j2]) - px(oldY[j2]);
+          if (j2 < 0 || !isFinite(dx) || !isFinite(dy)) return;
+          moves.push({ els, dx, dy });
+        });
+      }
+      const bases = moves.flatMap(
+        ({ els }) => els.map((el) => ({ el, base: el.getAttribute("transform") || "" }))
+      );
+      pending++;
+      rafTween(
+        w,
+        speed,
+        ease,
+        (eased) => {
+          node.setAttribute("opacity", String(1 - eased));
+          let k = 0;
+          moves.forEach(({ els, dx, dy }) => {
+            els.forEach((el) => {
+              const { base } = bases[k++];
+              el.setAttribute(
+                "transform",
+                `translate(${dx * eased} ${dy * eased}) ${base}`.trim()
+              );
+            });
+          });
+        },
+        done
+      );
+    });
+  } catch (_) {
+  }
+  if (!pending) wrap.remove();
+}
 function fadeIn(w, node, duration, ease) {
   const style = (
     /** @type {any} */
@@ -17285,8 +19278,8 @@ function rideTo(w, { el, oldCx, oldCy, duration, ease, delay = 0 }) {
       else el.removeAttribute("transform");
     }
   );
+  el.setAttribute("transform", `translate(${dx} ${dy}) ${base}`.trim());
   if (delay > 0) {
-    el.setAttribute("transform", `translate(${dx} ${dy}) ${base}`.trim());
     setTimeout(() => {
       if (w.globals.isDestroyed) return;
       start();
@@ -17322,8 +19315,8 @@ function countUpText(w, { el, from, to, formatter, fmtOpts, duration, ease, dela
       writeLabel(el, format(to));
     }
   );
+  writeLabel(el, format(from));
   if (delay > 0) {
-    writeLabel(el, format(from));
     setTimeout(() => {
       if (w.globals.isDestroyed) return;
       start();
@@ -17372,7 +19365,7 @@ function applyDataLabelTransition(w) {
       }
       if (countUp && old) {
         const realIndex = parseInt(key, 10);
-        const j = parseInt(group.getAttribute("data:dlJ") || "", 10);
+        const j2 = parseInt(group.getAttribute("data:dlJ") || "", 10);
         countUpText(w, {
           el: textEl,
           from: old.val,
@@ -17383,7 +19376,7 @@ function applyDataLabelTransition(w) {
           // of `w` on every frame. Same shape the bar formatter gets.
           fmtOpts: __spreadProps(__spreadValues({}, w), {
             seriesIndex: realIndex,
-            dataPointIndex: isFinite(j) ? j : 0,
+            dataPointIndex: isFinite(j2) ? j2 : 0,
             w
           }),
           duration,
@@ -17422,7 +19415,7 @@ function applyDataLabelTransition(w) {
   } catch (_) {
   }
 }
-class Series {
+const _Series = class _Series {
   /**
    * @param {import('../types/internal').ChartStateW} w
    * @param {{ toggleDataSeries?: Function, revertDefaultAxisMinMax?: Function, updateSeries?: Function }} [callbacks]
@@ -17475,7 +19468,8 @@ class Series {
       targetElement
     );
     const realIndex = parseInt((_a = el.getAttribute("data:realIndex")) != null ? _a : "0", 10);
-    const isHidden = el.classList.contains("apexcharts-series-collapsed");
+    const gl = this.w.globals;
+    const isHidden = el.classList.contains("apexcharts-series-collapsed") || gl.collapsedSeriesIndices.includes(realIndex) || gl.ancillaryCollapsedSeriesIndices.includes(realIndex);
     return { isHidden, realIndex };
   }
   /**
@@ -17483,7 +19477,7 @@ class Series {
    * @param {number} index
    */
   addCollapsedClassToSeries(elSeries, index) {
-    Series.addCollapsedClassToSeries(this.w, elSeries, index);
+    _Series.addCollapsedClassToSeries(this.w, elSeries, index);
   }
   /**
    * @param {import('../types/internal').ChartStateW} w
@@ -17512,6 +19506,117 @@ class Series {
       if (w.globals.isDestroyed) return;
       elSeries.node.classList.remove("apexcharts-series-collapsing");
     }, hold);
+  }
+  /**
+   * What a treemap tile's label shows: its text, its size, and whether it is
+   * turned to fit. Two renders that agree on this draw the same label, so it
+   * can ride from one to the other; when they differ the two cross-fade.
+   * Empty for a label that shows nothing.
+   * @param {Element} el the label's group
+   * @returns {string}
+   */
+  static treemapLabelLook(el) {
+    const t2 = el.querySelector("text");
+    const text = ((t2 == null ? void 0 : t2.textContent) || "").trim();
+    if (!t2 || !text) return "";
+    const turned = /rotate\(/.test(
+      `${el.getAttribute("transform") || ""} ${t2.getAttribute("transform") || ""}`
+    );
+    return `${text}|${t2.getAttribute("font-size")}|${turned}`;
+  }
+  /**
+   * How a treemap container's header text reads, the same way: its text and
+   * its size (a zoom moves a container to another depth, which sets both).
+   * @param {Element | null | undefined} el the header's text
+   * @returns {string}
+   */
+  static treemapHeaderLook(el) {
+    return el ? `${el.textContent}|${el.getAttribute("font-size")}` : "";
+  }
+  /**
+   * Once a legend-hidden series has finished leaving, leave nothing behind.
+   * (Also removes marks that only slid out of view, see Bar._wasOnScreen.)
+   *
+   * A hidden series is drawn to its exit target so that hiding animates (a
+   * line flattens onto the baseline, a stacked layer onto its neighbour, a
+   * radar into its center, points shrink away). At rest that shape used to
+   * stay in the DOM, unpainted only through the stylesheet's `opacity: 0`:
+   * it still lay there, and an export (which cannot rely on the stylesheet)
+   * drew it. So once the exit is over its geometry is cleared: every path's
+   * `d` is emptied and exit-only ghosts are removed.
+   *
+   * `pathTo` is kept. It is what the next render reads as this series'
+   * previous shape (getPreviousPaths), so showing the series again still
+   * rises from its exit target instead of popping in.
+   *
+   * Runs after every render, not only the one that hid the series: a chart
+   * re-rendered while the series is hidden (a resize, a data update) morphs
+   * the hidden shape again, invisibly, and that morph must finish first.
+   * @param {import('../types/internal').ChartStateW} w
+   * @param {any} graphs the renderer output: one element or an array
+   */
+  static settleCollapsedShapes(w, graphs) {
+    var _a;
+    const roots = (Array.isArray(graphs) ? graphs : [graphs]).map((g) => g && g.node ? g.node : g).filter((n2) => n2 && typeof n2.querySelectorAll === "function");
+    const groups = [];
+    const leaving = [];
+    roots.forEach((r2) => {
+      r2.querySelectorAll(".apexcharts-series-collapsed").forEach(
+        (g) => groups.push(g)
+      );
+      r2.querySelectorAll(".apexcharts-leaving").forEach(
+        (el) => leaving.push(el)
+      );
+    });
+    if (!groups.length && !leaving.length) return;
+    const clearGroup = (g) => {
+      if (w.globals.isDestroyed) return;
+      g.classList.remove("apexcharts-series-collapsing");
+      g.querySelectorAll(".apexcharts-marker-exit, .apexcharts-bar-ghost").forEach(
+        (el) => el.remove()
+      );
+      g.querySelectorAll("path").forEach((p) => {
+        p.setAttribute("d", "");
+      });
+    };
+    const clearLeaving = () => {
+      if (w.globals.isDestroyed) return;
+      leaving.forEach((el) => el.remove());
+    };
+    const anim = w.config.chart.animations;
+    const animating = Environment.isBrowser() && anim.enabled && w.globals.shouldAnimate !== false && (!w.globals.dataChanged || anim.dynamicAnimation.enabled);
+    if (!animating) {
+      clearLeaving();
+      groups.forEach(clearGroup);
+      return;
+    }
+    const tweens = (_a = w.globals.morphBatch) == null ? void 0 : _a.series;
+    const timed = [];
+    groups.forEach((g) => {
+      const ri = g.getAttribute("data:realIndex");
+      const s2 = ri === null ? null : tweens == null ? void 0 : tweens.get(Number(ri));
+      if (!s2 || s2.pending <= 0) {
+        timed.push(g);
+        return;
+      }
+      const before = s2.onDone;
+      s2.onDone = () => {
+        before == null ? void 0 : before();
+        clearGroup(g);
+      };
+    });
+    const hold = (anim.dynamicAnimation.speed || 0) + (anim.speed || 0) + 100;
+    setTimeout(() => {
+      clearLeaving();
+      timed.forEach(clearGroup);
+    }, hold);
+  }
+  /**
+   * Instance entry point for the render pipeline; see the static.
+   * @param {any} graphs
+   */
+  settleCollapsedShapes(graphs) {
+    _Series.settleCollapsedShapes(this.w, graphs);
   }
   /**
    * @param {string} seriesName
@@ -17544,21 +19649,41 @@ class Series {
   }
   /**
    * Cheap pre-update reset for the data-replacement paths (updateSeries /
-   * appendSeries). Clears the same bookkeeping resetSeries() clears (series
-   * cache, previous paths, collapsed-series state) WITHOUT restoring
-   * config.series from the initialSeries snapshot: the caller is about to
-   * replace the series anyway (parseData assigns config.series = newSeries),
-   * so materializing and cloning the snapshot per update is pure waste (two
-   * O(n) deep clones per streaming tick at 50k points).
+   * appendSeries). Clears the series cache and previous paths WITHOUT
+   * restoring config.series from the initialSeries snapshot: the caller is
+   * about to replace the series anyway (parseData assigns config.series =
+   * newSeries), so materializing and cloning the snapshot per update is pure
+   * waste (two O(n) deep clones per streaming tick at 50k points).
+   *
+   * It used to clear the collapsed-series bookkeeping here as well, which made
+   * updateSeries() disagree with updateOptions({ series }) about a legend
+   * collapse: the options path reconciles hides by name, this one dropped
+   * them, so a viewer's legend click was undone by the next data refresh and
+   * every series came back on a polling dashboard. An axis chart's records are
+   * now kept and reconciled in _updateSeries, the same way and by the same
+   * code. A genuine reset still clears them: that is resetSeries(), which does
+   * its own clearing and is the call that means "put everything back".
+   *
+   * A non-axis chart still clears here, and has to. Its collapses are recorded
+   * per SLICE: the index points into the slice container (which for an
+   * object-form pie or unit chart is series[0].data, not config.series) and
+   * the stored data is one slice's value rather than a series' rows. Nothing
+   * about that reconciles against an incoming series list, and running the
+   * by-name reconcile over it overwrote each record's slice value with a whole
+   * series object, so a legend click could hide a category and never bring it
+   * back. Persisting those across a data update needs its own slice-level
+   * reconcile, which is a separate piece of work.
    */
   prepareDataUpdate() {
     const w = this.w;
     this.clearSeriesCache();
     w.globals.previousPaths = [];
-    w.globals.collapsedSeries = [];
-    w.globals.ancillaryCollapsedSeries = [];
-    w.globals.collapsedSeriesIndices = [];
-    w.globals.ancillaryCollapsedSeriesIndices = [];
+    if (!w.globals.axisCharts) {
+      w.globals.collapsedSeries = [];
+      w.globals.ancillaryCollapsedSeries = [];
+      w.globals.collapsedSeriesIndices = [];
+      w.globals.ancillaryCollapsedSeriesIndices = [];
+    }
   }
   resetSeries(shouldUpdateChart = true, shouldResetZoom = true, shouldResetCollapsed = true) {
     var _a, _b;
@@ -17611,11 +19736,12 @@ class Series {
    * Series display names for the CURRENT `w.config` (post-merge), derived the
    * same way the parser does: an object series' own `name`, else the matching
    * `labels` entry (non-axis / pie / unit), else a generated `series-N`.
+   * @param {any[]} [list] the series to name, defaulting to the live config.
    * @returns {string[]}
    */
-  _deriveSeriesNames() {
+  _deriveSeriesNames(list) {
     const w = this.w;
-    const series = w.config.series || [];
+    const series = list || w.config.series || [];
     const labels = w.config.labels || [];
     return series.map((s2, i2) => {
       if (s2 && typeof s2 === "object" && s2.name != null) return String(s2.name);
@@ -17631,25 +19757,38 @@ class Series {
    *   - a category the update dropped/regrouped away is un-hidden (it no longer
    *     exists, so it must reappear as part of the new grouping).
    * Records without a stored name (older collapses) fall back to their index.
+   *
+   * @param {any[]} [list] the series being written, defaulting to the live
+   *   `w.config.series`. updateSeries()/appendSeries() pass the INCOMING array
+   *   instead, because the reconcile has to happen before that array is
+   *   parsed: parsing a collapsed row that still carries its values puts them
+   *   back into the axis range, and the chart rescales to fit a series nobody
+   *   can see. Pass a copy, not the caller's own objects: collapsed rows are
+   *   emptied in place at the end of this.
    */
-  reconcileCollapsedByName() {
+  reconcileCollapsedByName(list) {
     const w = this.w;
     const gl = w.globals;
-    const newNames = this._deriveSeriesNames();
+    const target = list || w.config.series;
+    const newNames = this._deriveSeriesNames(target);
     const reconcile = (records) => {
       const nextRecords = [];
       const nextIndices = [];
       records.forEach((rec) => {
-        const j = rec && rec.name != null ? newNames.indexOf(rec.name) : rec.index;
-        if (j == null || j < 0 || j >= w.config.series.length) return;
+        const j2 = rec && rec.name != null ? newNames.indexOf(rec.name) : rec.index;
+        if (j2 == null || j2 < 0 || j2 >= target.length) return;
         const s2 = (
           /** @type {any} */
-          w.config.series[j]
+          target[j2]
         );
-        rec.index = j;
-        rec.data = gl.axisCharts ? s2 && s2.data ? s2.data.slice() : [] : s2;
+        rec.index = j2;
+        if (gl.axisCharts) {
+          if (s2 && Array.isArray(s2.data) && s2.data.length) rec.data = s2.data.slice();
+        } else {
+          rec.data = s2;
+        }
         nextRecords.push(rec);
-        nextIndices.push(j);
+        nextIndices.push(j2);
       });
       return { records: nextRecords, indices: nextIndices };
     };
@@ -17659,8 +19798,8 @@ class Series {
     const anc = reconcile(gl.ancillaryCollapsedSeries);
     gl.ancillaryCollapsedSeries = anc.records;
     gl.ancillaryCollapsedSeriesIndices = anc.indices;
-    gl.allSeriesCollapsed = gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length === w.config.series.length;
-    this.emptyCollapsedSeries(w.config.series);
+    gl.allSeriesCollapsed = gl.collapsedSeries.length + gl.ancillaryCollapsedSeries.length === target.length;
+    this.emptyCollapsedSeries(target);
   }
   /**
    * @param {string} seriesName
@@ -17893,11 +20032,29 @@ class Series {
     });
   }
   getPreviousPaths() {
-    var _a, _b, _c, _d;
+    const gl = (
+      /** @type {Record<string, any>} */
+      this.w.globals
+    );
+    const held = gl.pendingCapture;
+    if (held == null ? void 0 : held.pending) {
+      _Series.HELD.forEach((k) => {
+        gl[k] = held[k];
+      });
+      return;
+    }
+    this.capturePreviousPaths();
+    gl.pendingCapture = Environment.isBrowser() ? pendingUntilPaint(Object.fromEntries(_Series.HELD.map((k) => [k, gl[k]]))) : null;
+  }
+  capturePreviousPaths() {
+    var _a, _b, _c, _d, _e, _f, _g;
     const w = this.w;
     captureStreamFrame(w);
     captureAxisChrome(w);
+    captureCircle(w);
     captureDataLabels(w);
+    captureExitLabels(w);
+    (_a = w.highlightData) == null ? void 0 : _a.capture();
     if (!w.globals.axisCharts) {
       w.globals.previousPaths = w.seriesData.series;
       return;
@@ -17917,14 +20074,14 @@ class Series {
         ),
         realIndex: seriesEls[i2].getAttribute("data:realIndex")
       };
-      for (let j = 0; j < paths.length; j++) {
-        if (paths[j].hasAttribute("pathTo")) {
-          const d = paths[j].getAttribute("pathTo");
+      for (let j2 = 0; j2 < paths.length; j2++) {
+        if (paths[j2].hasAttribute("pathTo")) {
+          const d = (type === "line" || type === "area") && paths[j2].getAttribute("d") || paths[j2].getAttribute("pathTo");
           dArr.paths.push({
             d,
-            key: paths[j].getAttribute("data:pathKey"),
-            fill: paths[j].getAttribute("fill"),
-            flip: paths[j].classList.contains("apexcharts-flip-y") || paths[j].classList.contains("apexcharts-flip-x")
+            key: paths[j2].getAttribute("data:pathKey"),
+            fill: paths[j2].getAttribute("fill"),
+            flip: paths[j2].classList.contains("apexcharts-flip-y") || paths[j2].classList.contains("apexcharts-flip-x")
           });
         }
       }
@@ -17942,6 +20099,7 @@ class Series {
       "rangebar",
       "rangeArea",
       "candlestick",
+      "boxPlot",
       "radar"
     ];
     chartTypes.forEach((type) => {
@@ -17954,12 +20112,21 @@ class Series {
       `.apexcharts-${w.config.chart.type} .apexcharts-series`
     );
     if (heatTreeSeries.length > 0) {
-      for (let h2 = 0; h2 < heatTreeSeries.length; h2++) {
-        const base = `.apexcharts-${w.config.chart.type} .apexcharts-series[data\\:realIndex='${h2}']`;
+      for (let h = 0; h < heatTreeSeries.length; h++) {
+        const base = `.apexcharts-${w.config.chart.type} .apexcharts-series[data\\:realIndex='${h}']`;
         const seriesEls = w.dom.baseEl.querySelectorAll(
-          `${base} rect, ${base} path.apexcharts-heatmap-rect`
+          `${base} .apexcharts-${w.config.chart.type}-rect`
         );
         const dArr = [];
+        const labelled = /* @__PURE__ */ new Map();
+        const fading = /* @__PURE__ */ new Set();
+        w.dom.baseEl.querySelectorAll(`${base} .apexcharts-data-labels[data\\:key]`).forEach((el) => {
+          var _a2;
+          labelled.set(el.getAttribute("data:key"), _Series.treemapLabelLook(el));
+          if (parseFloat((_a2 = el.getAttribute("opacity")) != null ? _a2 : "1") < 0.999) {
+            fading.add(el.getAttribute("data:key"));
+          }
+        });
         for (let i2 = 0; i2 < seriesEls.length; i2++) {
           const getAttr = (x) => {
             return (
@@ -17968,17 +20135,105 @@ class Series {
             );
           };
           const rect = {
-            x: parseFloat((_a = getAttr("x")) != null ? _a : "0"),
-            y: parseFloat((_b = getAttr("y")) != null ? _b : "0"),
-            width: parseFloat((_c = getAttr("width")) != null ? _c : "0"),
-            height: parseFloat((_d = getAttr("height")) != null ? _d : "0")
+            x: parseFloat((_b = getAttr("x")) != null ? _b : "0"),
+            y: parseFloat((_c = getAttr("y")) != null ? _c : "0"),
+            width: parseFloat((_d = getAttr("width")) != null ? _d : "0"),
+            height: parseFloat((_e = getAttr("height")) != null ? _e : "0")
           };
-          dArr.push({
+          const entry = {
             rect,
-            color: seriesEls[i2].getAttribute("color")
-          });
+            color: seriesEls[i2].getAttribute("color"),
+            fill: seriesEls[i2].getAttribute("fill"),
+            label: (_f = labelled.get(getAttr("data:key"))) != null ? _f : "",
+            // Still fading in (a move was under way): its successor fades in
+            // too, rather than appearing at full strength.
+            labelFading: fading.has(getAttr("data:key"))
+          };
+          const j2 = parseInt((_g = getAttr("j")) != null ? _g : "", 10);
+          if (Number.isFinite(j2) && j2 >= 0) dArr[j2] = entry;
+          else dArr.push(entry);
         }
         w.globals.previousPaths.push(dArr);
+      }
+    }
+    const parents = /* @__PURE__ */ new Map();
+    if (w.config.chart.type === "treemap") {
+      w.dom.baseEl.querySelectorAll(".apexcharts-treemap-parent-rect[data\\:key]").forEach((el) => {
+        var _a2, _b2, _c2, _d2;
+        const box = ["x", "y", "width", "height"].map(
+          (a2) => {
+            var _a3;
+            return parseFloat((_a3 = el.getAttribute(a2)) != null ? _a3 : "");
+          }
+        );
+        const ri = (_a2 = el.closest(".apexcharts-series")) == null ? void 0 : _a2.getAttribute("data:realIndex");
+        const head = (_b2 = el.parentElement) == null ? void 0 : _b2.querySelector(
+          ".apexcharts-treemap-parent-header"
+        );
+        const hb = head ? ["x", "y", "width", "height"].map(
+          (a2) => {
+            var _a3;
+            return parseFloat((_a3 = head.getAttribute(a2)) != null ? _a3 : "");
+          }
+        ) : null;
+        if (box.every(Number.isFinite) && ri != null) {
+          parents.set(`${ri}|${(_c2 = el.getAttribute("data:key")) != null ? _c2 : ""}`, {
+            x: box[0],
+            y: box[1],
+            width: box[2],
+            height: box[3],
+            fill: el.getAttribute("fill"),
+            header: head && hb && hb.every(Number.isFinite) ? {
+              x: hb[0],
+              y: hb[1],
+              width: hb[2],
+              height: hb[3],
+              fill: head.getAttribute("fill"),
+              look: _Series.treemapHeaderLook(
+                (_d2 = el.parentElement) == null ? void 0 : _d2.querySelector(
+                  ".apexcharts-treemap-parent-label"
+                )
+              )
+            } : null
+          });
+        }
+      });
+    }
+    w.globals.prevTreemapParents = parents.size ? parents : null;
+    w.globals.prevTreemapView = null;
+    if (w.config.chart.type === "treemap" && w.globals.treemapZoom) {
+      const view = w.dom.baseEl.querySelector(".apexcharts-treemap");
+      if (view) {
+        const copy = (
+          /** @type {Element} */
+          view.cloneNode(true)
+        );
+        const tag = `zoom${++_Series.ghostDefs}`;
+        const defs = /* @__PURE__ */ new Map();
+        copy.querySelectorAll('[fill^="url("], [stroke^="url("], [filter^="url("]').forEach((el) => {
+          ["fill", "stroke", "filter"].forEach((a2) => {
+            const m = /^url\(#([^)]+)\)$/.exec(el.getAttribute(a2) || "");
+            if (!m) return;
+            if (!defs.has(m[1])) {
+              const src = w.dom.baseEl.querySelector(`[id="${m[1]}"]`);
+              if (!src) return;
+              const c = (
+                /** @type {Element} */
+                src.cloneNode(true)
+              );
+              c.setAttribute("id", `${m[1]}-${tag}`);
+              defs.set(m[1], c);
+            }
+            el.setAttribute(a2, `url(#${m[1]}-${tag})`);
+          });
+        });
+        if (defs.size) {
+          const holder = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+          holder.setAttribute("class", "apexcharts-treemap-ghost-defs");
+          defs.forEach((c) => holder.appendChild(c));
+          copy.appendChild(holder);
+        }
+        w.globals.prevTreemapView = copy;
       }
     }
   }
@@ -18035,7 +20290,7 @@ class Series {
     const w = this.w;
     for (let sl = 0; sl < series.length; sl++) {
       if (series[sl].length === 0) {
-        for (let j = 0; j < series[w.globals.maxValsInArrayIndex].length; j++) {
+        for (let j2 = 0; j2 < series[w.globals.maxValsInArrayIndex].length; j2++) {
           series[sl].push(0);
         }
       }
@@ -18062,7 +20317,28 @@ class Series {
     );
     return filteredSeriesX;
   }
-}
+};
+/**
+ * Everything a capture of the screen writes (getPreviousPaths), plus the
+ * polar stash the renderer leaves for the next render: what a second update
+ * in the same frame is handed again.
+ */
+/** A counter keeping the ids of copied zoom defs apart. */
+__publicField(_Series, "ghostDefs", 0);
+__publicField(_Series, "HELD", [
+  "previousPaths",
+  "prevStreamFrame",
+  "prevChromeFrame",
+  "prevCircleFrame",
+  "prevDataLabels",
+  "exitLabels",
+  "riseLabels",
+  "prevTreemapParents",
+  "prevTreemapView",
+  "prevPolarAngles",
+  "prevPolarSizes"
+]);
+let Series = _Series;
 const TOKEN_MAP = {
   accent: "--apx-accent",
   fore: "--apx-fore",
@@ -18338,13 +20614,13 @@ class Theme {
     if (Array.isArray(configColors) && configColors.length > 0 && typeof configColors[0] === "function") {
       this.isColorFn = true;
       return w.config.series.map((s2, i2) => {
-        const c2 = configColors[i2] || configColors[0];
-        return typeof c2 === "function" ? c2({
+        const c = configColors[i2] || configColors[0];
+        return typeof c === "function" ? c({
           value: w.globals.axisCharts ? w.seriesData.series[i2][0] || 0 : w.seriesData.series[i2],
           seriesIndex: i2,
           dataPointIndex: i2,
           w: this.w
-        }) : c2;
+        }) : c;
       });
     }
     return configColors;
@@ -18354,9 +20630,9 @@ class Theme {
    * @param {any[]} globalsColors
    */
   applySeriesColors(seriesColors, globalsColors) {
-    seriesColors.forEach((c2, i2) => {
-      if (c2) {
-        globalsColors[i2] = c2;
+    seriesColors.forEach((c, i2) => {
+      if (c) {
+        globalsColors[i2] = c;
       }
     });
   }
@@ -18382,11 +20658,11 @@ class Theme {
    */
   applyColorTypes(colorTypes, defaultColors) {
     const w = this.w;
-    colorTypes.forEach((c2) => {
-      w.globals[c2].colors = w.config[c2].colors === void 0 ? this.isColorFn ? w.config.colors : defaultColors : w.config[c2].colors.slice();
+    colorTypes.forEach((c) => {
+      w.globals[c].colors = w.config[c].colors === void 0 ? this.isColorFn ? w.config.colors : defaultColors : w.config[c].colors.slice();
       this.pushExtraColors(
         /** @type {Record<string,any>} */
-        w.globals[c2].colors
+        w.globals[c].colors
       );
     });
   }
@@ -18456,8 +20732,8 @@ class Theme {
     options2.chart = options2.chart || {};
     options2.tooltip = options2.tooltip || {};
     const mode = options2.theme.mode;
-    const palette = mode === "dark" ? "palette4" : mode === "light" ? "palette1" : options2.theme.palette || "palette1";
-    const foreColor = mode === "dark" ? "#f6f7f8" : mode === "light" ? "#373d3f" : options2.chart.foreColor || "#373d3f";
+    const palette = options2.theme.palette || (mode === "dark" ? "palette4" : "palette1");
+    const foreColor = options2.chart.foreColor || (mode === "dark" ? "#f6f7f8" : "#373d3f");
     options2.tooltip.theme = mode || "light";
     options2.chart.foreColor = foreColor;
     options2.theme.palette = palette;
@@ -19170,8 +21446,8 @@ class DimGrid {
     if (gl.comboBarCount > 0) {
       seriesLen = gl.comboBarCount;
     }
-    gl.collapsedSeries.forEach((c2) => {
-      if (hasBar(c2.type)) {
+    gl.collapsedSeries.forEach((c) => {
+      if (hasBar(c.type)) {
         seriesLen -= 1;
       }
     });
@@ -19225,8 +21501,8 @@ class DimGrid {
     if (!totals.length) return;
     const formatter = totalConfig.formatter || w.config.dataLabels.formatter;
     const labels = totals.map(
-      (val, j) => String(
-        formatter ? formatter(val, __spreadProps(__spreadValues({}, w), { seriesIndex: 0, dataPointIndex: j, w })) : val
+      (val, j2) => String(
+        formatter ? formatter(val, __spreadProps(__spreadValues({}, w), { seriesIndex: 0, dataPointIndex: j2, w })) : val
       )
     );
     const graphics = new Graphics(w);
@@ -19360,10 +21636,10 @@ class Dimensions {
       const strokeW = w.config.stroke.show ? Array.isArray(w.config.stroke.width) ? Math.max(...w.config.stroke.width) : w.config.stroke.width : 0;
       const mx = strokeW / 2 + 6;
       const my = strokeW / 2;
-      const px = (gw + 4 * cols * mx) / (4 * cols + 2);
+      const px2 = (gw + 4 * cols * mx) / (4 * cols + 2);
       const py = (gh + 6 * rows * my) / (6 * rows + 2);
-      this.gridPad.left = Math.max(px, this.gridPad.left);
-      this.gridPad.right = Math.max(px, this.gridPad.right);
+      this.gridPad.left = Math.max(px2, this.gridPad.left);
+      this.gridPad.right = Math.max(px2, this.gridPad.right);
       this.gridPad.top = Math.max(py, this.gridPad.top);
       this.gridPad.bottom = Math.max(py, this.gridPad.bottom);
     }
@@ -19408,7 +21684,7 @@ class Dimensions {
    * around its presence would reflow every tile on each zoom.
    */
   gridPadForBreadcrumb() {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const w = this.w;
     const isTreemap = w.config.chart.type === "treemap";
     if (isTreemap) {
@@ -19419,11 +21695,17 @@ class Dimensions {
         return;
       }
     }
+    if (w.config.chart.type === "icicle") {
+      if (((_d = (_c = w.config.plotOptions) == null ? void 0 : _c.icicle) == null ? void 0 : _d.zoomOnClick) === false) return;
+      if (breadcrumbConfig(w).show === false) return;
+      this.gridPad.top += BREADCRUMB_HEIGHT + 4;
+      return;
+    }
     if (!w.globals.axisCharts) return;
     if (!this.ctx.drilldown) return;
     if (!w.config.drilldown || !w.config.drilldown.enabled) return;
     if (breadcrumbConfig(w).show === false) return;
-    const labelFs = parseFloat(String((_f = (_e = (_d = (_c = w.config.yaxis) == null ? void 0 : _c[0]) == null ? void 0 : _d.labels) == null ? void 0 : _e.style) == null ? void 0 : _f.fontSize)) || 11;
+    const labelFs = parseFloat(String((_h = (_g = (_f = (_e = w.config.yaxis) == null ? void 0 : _e[0]) == null ? void 0 : _f.labels) == null ? void 0 : _g.style) == null ? void 0 : _h.fontSize)) || 11;
     const yLabelOverhang = isTreemap ? 0 : Math.ceil(labelFs * LINE_HEIGHT_RATIO / 2);
     const needed = BREADCRUMB_HEIGHT_FULL + 1 + yLabelOverhang;
     const alreadyFree = isTreemap ? 0 : this.titleBlockPad || 0;
@@ -19540,7 +21822,7 @@ class Dimensions {
     if (w.config.legend.show && !w.config.legend.floating) {
       xPad = 20;
     }
-    if (cnf.chart.type === "unit") {
+    if (cnf.chart.type === "unit" || cnf.chart.type === "icicle") {
       const legendVisible = cnf.legend.show && !cnf.legend.floating;
       const pos = cnf.legend.position;
       let top = 0;
@@ -19924,53 +22206,6 @@ function pickInterval(span, targetCount) {
   }
   return best;
 }
-const REGISTRY_KEY$1 = "__apexcharts_registry__";
-const CUSTOM_KEY = "__apexcharts_custom_types__";
-if (!/** @type {any} */
-globalThis[REGISTRY_KEY$1]) {
-  globalThis[REGISTRY_KEY$1] = {};
-}
-if (!/** @type {any} */
-globalThis[CUSTOM_KEY]) {
-  globalThis[CUSTOM_KEY] = /* @__PURE__ */ new Set();
-}
-function getRegistry$1() {
-  return (
-    /** @type {any} */
-    globalThis[REGISTRY_KEY$1]
-  );
-}
-function getCustomTypes() {
-  return (
-    /** @type {any} */
-    globalThis[CUSTOM_KEY]
-  );
-}
-function markCustom(name2) {
-  getCustomTypes().add(name2);
-}
-function isCustom(name2) {
-  return getCustomTypes().has(name2);
-}
-function hasChartClass(type) {
-  return !!getRegistry$1()[type];
-}
-function unregister(name2) {
-  delete getRegistry$1()[name2];
-  getCustomTypes().delete(name2);
-}
-function register(typeMap) {
-  Object.assign(getRegistry$1(), typeMap);
-}
-function getChartClass(type) {
-  const Cls = getRegistry$1()[type];
-  if (!Cls) {
-    throw new Error(
-      `ApexCharts: chart type "${type}" is not registered. Bundler: import 'apexcharts/${type}'. Script tag: add <script src=".../dist/${type}.js"> after apexcharts.core.js, or load the full apexcharts.js instead.`
-    );
-  }
-  return Cls;
-}
 class Core {
   /**
    * @param {Element} el
@@ -19983,29 +22218,12 @@ class Core {
     this.el = el;
   }
   setupElements() {
+    var _a;
     const { globals: gl, config: cnf } = this.w;
     const ct = cnf.chart.type;
-    const xyChartsArrTypes = [
-      "line",
-      "area",
-      "bar",
-      "rangeBar",
-      "rangeArea",
-      "candlestick",
-      "boxPlot",
-      "violin",
-      "scatter",
-      "bubble"
-    ];
-    const axisChartsArrTypes = [
-      ...xyChartsArrTypes,
-      "radar",
-      "heatmap",
-      "treemap"
-    ];
-    const isCustomType = !axisChartsArrTypes.includes(ct) && !["pie", "donut", "polarArea", "radialBar"].includes(ct) && isCustom(ct);
-    gl.axisCharts = axisChartsArrTypes.includes(ct) || isCustomType;
-    gl.xyCharts = xyChartsArrTypes.includes(ct) || isCustomType;
+    const isCustomType = !BUILTIN_TYPES.includes(ct) && isCustom(ct);
+    gl.axisCharts = AXIS_TYPES.includes(ct) || isCustomType;
+    gl.xyCharts = XY_TYPES.includes(ct) || isCustomType;
     gl.isBarHorizontal = ["bar", "rangeBar", "boxPlot", "violin"].includes(ct) && cnf.plotOptions.bar.horizontal;
     gl.chartClass = `.apexcharts${gl.chartID}`;
     this.w.dom.baseEl = this.el;
@@ -20013,9 +22231,10 @@ class Core {
       "http://www.w3.org/1999/xhtml",
       "div"
     );
+    const ignoreReducedMotion = ((_a = cnf.chart.animations) == null ? void 0 : _a.respectReducedMotion) === false;
     Graphics.setAttrs(this.w.dom.elWrap, {
       id: gl.chartClass.substring(1),
-      class: `apexcharts-canvas ${gl.chartClass.substring(1)}`
+      class: `apexcharts-canvas ${gl.chartClass.substring(1)}` + (ignoreReducedMotion ? " apexcharts-ignore-reduced-motion" : "")
     });
     this.el.appendChild(this.w.dom.elWrap);
     const SVG2 = (
@@ -20125,17 +22344,7 @@ class Core {
         }
         st_[seriesType].i.push(st);
         if (seriesType === "bar") w.globals.columnSeries = seriesTypes.bar;
-      } else if ([
-        "heatmap",
-        "treemap",
-        "pie",
-        "donut",
-        "polarArea",
-        "radialBar",
-        "radar",
-        "unit",
-        "sunburst"
-      ].includes(seriesType)) {
+      } else if (SOLO_TYPES.includes(seriesType)) {
         nonComboType = seriesType;
       } else if (isCustom(seriesType)) {
         if (!customBuckets[seriesType]) {
@@ -20175,7 +22384,10 @@ class Core {
   plotChartType(ser, xyRatios) {
     const { w, ctx } = this;
     const canvasMode = ctx.renderer && ctx.renderer.kind === "canvas";
-    if (canvasMode) ctx.renderer.beginSeries();
+    if (canvasMode) {
+      ctx.renderer.beginSeries();
+      w.globals.barCanvasCoords = null;
+    }
     const { seriesTypes, customBuckets } = this._classifySeriesByType(ser);
     const renderers = this._instantiateSeriesRenderers(seriesTypes, xyRatios);
     const elGraph = this._assembleSeriesGraphics(
@@ -20185,6 +22397,7 @@ class Core {
       xyRatios
     );
     if (canvasMode) {
+      new Animations(w).showDelayedElements();
       const rr = (
         /** @type {any} */
         ctx.renderer
@@ -20235,15 +22448,27 @@ class Core {
     const needsLine = seriesTypes.line.series.length > 0 || seriesTypes.area.series.length > 0 || seriesTypes.scatter.series.length > 0 || seriesTypes.bubble.series.length > 0 || seriesTypes.rangeArea.series.length > 0 || !gl.comboCharts && ["line", "area", "scatter", "bubble", "rangeArea"].includes(
       cnf.chart.type
     );
-    const line = needsLine ? new (getChartClass("line"))(ctx.w, ctx, xyRatios) : null;
+    const line = needsLine ? new (getChartClass("line", cnf.chart.requestedType))(
+      ctx.w,
+      ctx,
+      xyRatios
+    ) : null;
     const needsCandlestick = seriesTypes.candlestick.series.length > 0 || seriesTypes.boxPlot.series.length > 0 || !gl.comboCharts && ["candlestick", "boxPlot"].includes(cnf.chart.type);
     const boxCandlestick = needsCandlestick ? new (getChartClass("candlestick"))(ctx.w, ctx, xyRatios) : null;
     const needsViolin = seriesTypes.violin.series.length > 0 || !gl.comboCharts && cnf.chart.type === "violin";
-    const violin = needsViolin ? new (getChartClass("violin"))(ctx.w, ctx, xyRatios) : null;
+    const violin = needsViolin ? new (getChartClass("violin", cnf.chart.requestedType))(
+      ctx.w,
+      ctx,
+      xyRatios
+    ) : null;
     const needsPie = !gl.comboCharts && ["pie", "donut", "polarArea"].includes(cnf.chart.type);
     ctx.pie = needsPie ? new (getChartClass("pie"))(ctx.w, ctx) : null;
     const needsRangeBar = seriesTypes.rangeBar.series.length > 0 || !gl.comboCharts && cnf.chart.type === "rangeBar";
-    ctx.rangeBar = needsRangeBar ? new (getChartClass("rangeBar"))(ctx.w, ctx, xyRatios) : null;
+    ctx.rangeBar = needsRangeBar ? new (getChartClass("rangeBar", cnf.chart.requestedType))(
+      ctx.w,
+      ctx,
+      xyRatios
+    ) : null;
     return { line, boxCandlestick, violin };
   }
   /**
@@ -20389,14 +22614,17 @@ class Core {
           break;
         case "bar":
           if (cnf.chart.stacked) {
-            const barStacked = new (getChartClass("barStacked"))(
+            const barStacked = new (getChartClass(
+              "barStacked",
+              cnf.chart.requestedType
+            ))(ctx.w, ctx, xyRatios);
+            elGraph = barStacked.draw(this.w.seriesData.series);
+          } else {
+            ctx.bar = new (getChartClass("bar", cnf.chart.requestedType))(
               ctx.w,
               ctx,
               xyRatios
             );
-            elGraph = barStacked.draw(this.w.seriesData.series);
-          } else {
-            ctx.bar = new (getChartClass("bar"))(ctx.w, ctx, xyRatios);
             elGraph = ctx.bar.draw(this.w.seriesData.series);
           }
           break;
@@ -20431,13 +22659,24 @@ class Core {
           break;
         }
         case "unit": {
-          const unit = new (getChartClass("unit"))(ctx.w, ctx);
+          const unit = new (getChartClass(
+            "unit",
+            this.w.config.chart.requestedType
+          ))(ctx.w, ctx);
           elGraph = unit.draw(this.w.seriesData.series);
           break;
         }
         case "sunburst": {
-          const sunburst = new (getChartClass("sunburst"))(ctx.w, ctx);
+          const sunburst = new (getChartClass(
+            "sunburst",
+            this.w.config.chart.requestedType
+          ))(ctx.w, ctx);
           elGraph = sunburst.draw(this.w.seriesData.series);
+          break;
+        }
+        case "icicle": {
+          const icicle = new (getChartClass("icicle"))(ctx.w, ctx);
+          elGraph = icicle.draw(this.w.seriesData.series);
           break;
         }
         case "pie":
@@ -20459,8 +22698,12 @@ class Core {
           if (isCustom(type)) {
             const cs = new (getChartClass(type))(ctx.w, ctx, xyRatios);
             elGraph = cs.draw(this.w.seriesData.series, type);
-          } else {
+          } else if (line) {
             elGraph = line.draw(this.w.seriesData.series);
+          } else {
+            throw new Error(
+              `ApexCharts: no renderer for chart.type "${type}".`
+            );
           }
       }
     }
@@ -20509,6 +22752,7 @@ class Core {
     } else {
       gl.svgHeight = gl.axisCharts ? gl.svgWidth / 1.61 : gl.svgWidth / 1.2;
     }
+    this._applyWeaveReservation(gl);
     gl.svgWidth = Math.max(gl.svgWidth, 0);
     gl.svgHeight = Math.max(gl.svgHeight, 0);
     Graphics.setAttrs(this.w.dom.Paper.node, {
@@ -20530,6 +22774,39 @@ class Core {
     gl.lastResizeSignature = this.getResizeSignature();
   }
   /**
+   * Take off the space Weave plugins have reserved for their own UI.
+   *
+   * The container keeps the size the caller gave it; only the drawing box
+   * shrinks, so a plugin can dock a panel inside the container without the
+   * chart being drawn underneath it. See `api.reserve` in weave/PluginAPI.
+   *
+   * Applied here, after the height block above, on purpose. An auto height is
+   * derived from the width, so subtracting a right-hand gutter before that
+   * point would make the chart shorter as well as narrower, and everything
+   * below the chart would jump every time a panel opened. Taking it off
+   * afterwards means a side panel narrows the chart and moves nothing else.
+   *
+   * Clamped to half the box on each axis: a plugin may not shrink the chart it
+   * is annotating to nothing, and a UI that needs more room than that should
+   * render below the chart, where it never needed to ask.
+   *
+   * @param {any} gl w.globals
+   */
+  _applyWeaveReservation(gl) {
+    const weave = this.ctx && this.ctx.weave;
+    if (!weave || typeof weave.reservedBox !== "function") return;
+    const box = weave.reservedBox();
+    const x = box.left + box.right;
+    const y = box.top + box.bottom;
+    if (!x && !y) return;
+    if (x && Number.isFinite(gl.svgWidth)) {
+      gl.svgWidth -= Math.min(x, gl.svgWidth / 2);
+    }
+    if (y && Number.isFinite(gl.svgHeight)) {
+      gl.svgHeight -= Math.min(y, gl.svgHeight / 2);
+    }
+  }
+  /**
    * A stable fingerprint of the container measurements that actually feed the
    * chart's rendered dimensions, given the width/height config. Only inputs that
    * a resize can change are included: the element width when the width is a
@@ -20545,16 +22822,16 @@ class Core {
     const rawWidth = (cnf.chart.width || "100%").toString().trim();
     const rawHeight = (cnf.chart.height || "auto").toString().trim();
     let w = 0;
-    let h2 = 0;
+    let h = 0;
     if (rawWidth.endsWith("%")) {
       let elDim = Utils$1.getDimensions(this.el);
       if (!elDim[0]) elDim = Utils$1.getDimensions(this.el.parentNode);
       w = elDim[0] || 0;
     }
     if (rawHeight.endsWith("%")) {
-      h2 = Utils$1.getDimensions(this.el.parentNode)[1] || 0;
+      h = Utils$1.getDimensions(this.el.parentNode)[1] || 0;
     }
-    const sig = { w: Math.round(w), h: Math.round(h2) };
+    const sig = { w: Math.round(w), h: Math.round(h) };
     if (cnf.responsive && cnf.responsive.length && Environment.isBrowser()) {
       sig.iw = window.innerWidth;
     }
@@ -20601,9 +22878,9 @@ class Core {
         if (tag === "text" || tag === "tspan") return;
         const children = Array.from((_d2 = node.children) != null ? _d2 : []);
         if (children.length > 0) {
-          children.forEach((c2) => accumulate(
+          children.forEach((c) => accumulate(
             /** @type {Element} */
-            c2
+            c
           ));
           return;
         }
@@ -20617,9 +22894,9 @@ class Core {
         }
       };
       Array.from((_c = el.children) != null ? _c : []).forEach(
-        (c2) => accumulate(
+        (c) => accumulate(
           /** @type {Element} */
-          c2
+          c
         )
       );
       if (!Number.isFinite(arcTopFromSVGTop)) arcTopFromSVGTop = 0;
@@ -20863,6 +23140,18 @@ function getSeriesTransform(name2) {
   if (!name2) return null;
   return getTransforms()[name2] || null;
 }
+function warnMissingFeature(subject, feature, opts = {}) {
+  const {
+    module = `features/${feature}`,
+    entry,
+    scripts = [`features/${feature}.js`],
+    tail
+  } = opts;
+  const tags = scripts.map((f) => `<script src='.../dist/${f}'>`).join(" and ");
+  globalThis.console.warn(
+    `ApexCharts: ${subject} requires the ${feature} feature, which is not in this bundle. Bundler: import 'apexcharts/${module}'` + (entry ? ` (or from 'apexcharts/${entry}')` : "") + `. Script tag: add ${tags} after the ApexCharts script, or load apexcharts.full.min.js instead.` + (tail ? ` ${tail}` : "")
+  );
+}
 function drilldownById(w, id) {
   const dd = w.config.drilldown;
   const list = dd && Array.isArray(dd.series) ? dd.series : [];
@@ -20887,7 +23176,7 @@ function toNode(w, d, i2, paletteFromParent, parentKey, seenIds = null, opts = {
   if (opts.keepDatum) node._datum = d;
   if (isObj && Array.isArray(d.children) && d.children.length) {
     node.children = d.children.map(
-      (c2, j) => toNode(w, c2, j, null, node._key, seenIds, opts)
+      (c, j2) => toNode(w, c, j2, null, node._key, seenIds, opts)
     );
   } else if (isObj && d.drilldown != null && opts.expandDrilldown !== false) {
     const visited = seenIds || /* @__PURE__ */ new Set();
@@ -20898,7 +23187,7 @@ function toNode(w, d, i2, paletteFromParent, parentKey, seenIds = null, opts = {
         nextSeen.add(d.drilldown);
         const palette = Array.isArray(dd.colors) ? dd.colors : null;
         node.children = dd.data.map(
-          (c2, j) => toNode(w, c2, j, palette, node._key, nextSeen, opts)
+          (c, j2) => toNode(w, c, j2, palette, node._key, nextSeen, opts)
         );
       }
     }
@@ -20922,7 +23211,7 @@ function buildSeriesRoots(w, series, opts = {}) {
       _key: key,
       _seriesIndex: i2,
       children: data.map(
-        (d, j) => toNode(w, d, j, null, key, null, opts)
+        (d, j2) => toNode(w, d, j2, null, key, null, opts)
       )
     };
     return root;
@@ -20930,10 +23219,10 @@ function buildSeriesRoots(w, series, opts = {}) {
 }
 function fillValues(node) {
   if (node.children && node.children.length) {
-    node.children.forEach((c2) => fillValues(c2));
+    node.children.forEach((c) => fillValues(c));
     if (node.value == null || isNaN(node.value)) {
       node.value = node.children.reduce(
-        (s2, c2) => s2 + Math.max(0, c2.value || 0),
+        (s2, c) => s2 + Math.max(0, c.value || 0),
         0
       );
     }
@@ -20946,8 +23235,8 @@ function hasNesting(series, opts = {}) {
   for (let i2 = 0; i2 < series.length; i2++) {
     const data = series[i2] && series[i2].data;
     if (!Array.isArray(data)) continue;
-    for (let j = 0; j < data.length; j++) {
-      const d = data[j];
+    for (let j2 = 0; j2 < data.length; j2++) {
+      const d = data[j2];
       if (!d || typeof d !== "object") continue;
       if (Array.isArray(d.children) && d.children.length) return true;
       if (countDrilldown && d.drilldown != null) return true;
@@ -20982,7 +23271,7 @@ function annotate(roots) {
       } else {
         node._di = -1;
         node.children.forEach(
-          (c2) => walk(c2, depth + 1, node)
+          (c) => walk(c, depth + 1, node)
         );
       }
     };
@@ -21012,22 +23301,62 @@ function resolveTreemapTree(w, series) {
   }));
   return { roots, leafSeries, maxDepth };
 }
-const RAW_SAMPLE_FEATURES = { histogram: "stats", raincloud: "raincloud" };
+const RAW_SAMPLE_TYPES = (
+  /** @type {Record<string, boolean>} */
+  {
+    boxPlot: false,
+    violin: true
+  }
+);
+function isRawSample(d, name2, flatY) {
+  var _a, _b, _c;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return false;
+  if (name2 === "boxPlot" && Array.isArray(d.y) && d.y.length === 5) {
+    return false;
+  }
+  if (name2 === "violin" && Array.isArray((_a = d.y) == null ? void 0 : _a.density) && d.y.density.length) {
+    return false;
+  }
+  if (name2 === "violin" && Array.isArray((_b = d.y) == null ? void 0 : _b.summary) && d.y.summary.length === 5) {
+    return false;
+  }
+  const raw = Array.isArray(d.points) ? d.points : Array.isArray((_c = d.y) == null ? void 0 : _c.points) ? d.y.points : flatY && Array.isArray(d.y) && typeof d.y[0] === "number" ? d.y : null;
+  return !!raw && raw.some((v) => {
+    const n2 = Utils$1.parseNumber(v);
+    return n2 !== null && isFinite(n2);
+  });
+}
+function subtreeTotal(d) {
+  if (!d || typeof d !== "object") return Utils$1.parseNumber(d) || 0;
+  if (d.y !== void 0) return Utils$1.parseNumber(d.y) || 0;
+  if (!Array.isArray(d.children)) return 0;
+  return d.children.reduce(
+    (s2, c) => s2 + subtreeTotal(c),
+    0
+  );
+}
 class Data {
   /**
    * @param {import('../types/internal').ChartStateW} w
+   * @param {{resetGlobals?: () => any, isMultipleY?: () => any, highlight?: () => any}} [hooks]
    */
-  constructor(w, { resetGlobals = () => {
-  }, isMultipleY = () => {
-  } } = {}) {
+  constructor(w, {
+    resetGlobals = () => {
+    },
+    isMultipleY = () => {
+    },
+    highlight = () => null
+  } = {}) {
     this.w = w;
     this.resetGlobals = resetGlobals;
     this.isMultipleY = isMultipleY;
+    this.highlight = highlight;
+    this._warnedHighlight = false;
     this.twoDSeries = [];
     this.threeDSeries = [];
     this.twoDSeriesX = [];
     this.seriesGoals = [];
-    this._warnedMissingTransform = false;
+    this._warnedFeatures = /* @__PURE__ */ new Set();
     this.coreUtils = new CoreUtils(this.w);
     this.activeSeriesIndex = 0;
   }
@@ -21104,8 +23433,8 @@ class Data {
     let xSorted = true;
     let minXDiff = Infinity;
     let prevX = NaN;
-    for (let j = 0; j < n2; j++) {
-      const point = data[j];
+    for (let j2 = 0; j2 < n2; j2++) {
+      const point = data[j2];
       if (!Array.isArray(point) || point.length > 2) return false;
       const x = point[0];
       const y = point[1];
@@ -21153,8 +23482,8 @@ class Data {
       } else {
         return false;
       }
-      ys[j] = y;
-      xs[j] = x;
+      ys[j2] = y;
+      xs[j2] = x;
     }
     this.twoDSeries = ys;
     this.twoDSeriesX = xs;
@@ -21182,15 +23511,25 @@ class Data {
    * @param {number} i
    */
   handleFormat2DArray(ser, i2) {
+    var _a;
     const cnf = this.w.config;
     const data = ser[i2].data;
-    const isBoxPlot = cnf.chart.type === "boxPlot" || /** @type {any} */
-    cnf.series[i2].type === "boxPlot";
+    if (data.length === 0 && this._isCollapsedIndex(i2)) {
+      const activeData = ((_a = ser[this.activeSeriesIndex]) == null ? void 0 : _a.data) || [];
+      for (let j2 = 0; j2 < activeData.length; j2++) {
+        const x = Array.isArray(activeData[j2]) ? activeData[j2][0] : void 0;
+        this.twoDSeriesX.push(
+          cnf.xaxis.type === "datetime" ? new Date(x).getTime() : x
+        );
+      }
+      return;
+    }
+    const isBoxPlot = this._isBoxPlotSeries(i2);
     if (!isBoxPlot && cnf.xaxis.type !== "datetime" && this._fast2DArrayParse(data, i2)) {
       return;
     }
-    for (let j = 0; j < data.length; j++) {
-      const point = data[j];
+    for (let j2 = 0; j2 < data.length; j2++) {
+      const point = data[j2];
       const x = point[0];
       const y = point[1];
       const z = point[2];
@@ -21210,11 +23549,57 @@ class Data {
       } else {
         this.twoDSeriesX.push(x);
       }
-      if (typeof z !== "undefined") {
-        this.threeDSeries.push(z);
-        this.w.axisFlags.isDataXYZ = true;
-      }
+      this.pushZ(z, j2);
     }
+  }
+  /**
+   * Record one point's `z`, the third dimension a bubble sizes itself by and
+   * the tooltip reports as "Size".
+   *
+   * Two rules, both of which used to be broken (#5323):
+   *
+   * 1. The slot is positional. `seriesZ[i][j]` is read by data-point index, so
+   *    a point WITHOUT `z` still owns its slot. Otherwise a series where only
+   *    some points carry `z` reports the previous point's value for every
+   *    point after the first gap. Nothing is allocated for a series that
+   *    carries no `z` at all: the backfill only runs once the first `z` shows
+   *    up, so an ordinary line chart pays nothing.
+   *
+   * 2. Only a MEASURABLE value makes the chart three-dimensional. `z: NaN`,
+   *    `z: ''` and `z: null` are the shapes a missing value arrives in from a
+   *    database or a CSV, and they used to set `isDataXYZ` just by being
+   *    present, which grew a stray "Size:" row on charts that have no third
+   *    dimension. A numeric string goes the other way and is coerced, the way
+   *    `y` already is, so `z: '99'` sizes a bubble instead of sitting in
+   *    `seriesZ` as a string that `Range.setZRange` then skips. Anything else
+   *    is stored as given, since a custom `tooltip.z.formatter` may still want
+   *    it; it just cannot be what declares the chart 3-D.
+   *
+   * @param {any} z the point's raw `z`, or undefined when it has none
+   * @param {number} j the point's index within the series
+   */
+  pushZ(z, j2) {
+    if (typeof z === "undefined") {
+      if (this.threeDSeries.length) this.threeDSeries.push(null);
+      return;
+    }
+    const num = typeof z === "string" && z.trim() !== "" ? Number(z) : z;
+    const measurable = Utils$1.isNumber(num);
+    while (this.threeDSeries.length < j2) this.threeDSeries.push(null);
+    this.threeDSeries.push(measurable ? num : z);
+    if (measurable) {
+      this.w.axisFlags.isDataXYZ = true;
+    }
+  }
+  /**
+   * Hidden through the legend, either outright or as an ancillary series whose
+   * y axis stays drawn (`yaxis.showAlways`). Both empty the series' data.
+   * @param {number} i
+   * @returns {boolean}
+   */
+  _isCollapsedIndex(i2) {
+    const gl = this.w.globals;
+    return gl.collapsedSeriesIndices.indexOf(i2) > -1 || gl.ancillaryCollapsedSeriesIndices.indexOf(i2) > -1;
   }
   /**
    * @param {any[]} ser
@@ -21226,12 +23611,12 @@ class Data {
     const dt = new DateTime(this.w);
     const data = ser[i2].data;
     let activeI = i2;
-    if (gl.collapsedSeriesIndices.indexOf(i2) > -1) {
+    if (this._isCollapsedIndex(i2)) {
       activeI = this.activeSeriesIndex;
     }
     const activeData = ser[activeI].data;
-    for (let j = 0; j < data.length; j++) {
-      const point = data[j];
+    for (let j2 = 0; j2 < data.length; j2++) {
+      const point = data[j2];
       if (typeof point.y !== "undefined") {
         const val = Array.isArray(point.y) ? Utils$1.parseNumber(point.y[point.y.length - 1]) : Utils$1.parseNumber(point.y);
         this.twoDSeries.push(val);
@@ -21244,13 +23629,10 @@ class Data {
       } else {
         this.seriesGoals[i2].push(null);
       }
-      if (typeof point.z !== "undefined") {
-        this.threeDSeries.push(point.z);
-        this.w.axisFlags.isDataXYZ = true;
-      }
+      this.pushZ(point.z, j2);
     }
-    for (let j = 0; j < activeData.length; j++) {
-      const point = activeData[j];
+    for (let j2 = 0; j2 < activeData.length; j2++) {
+      const point = activeData[j2];
       const x = point.x;
       const isXString = typeof x === "string";
       const isXArr = Array.isArray(x);
@@ -21357,16 +23739,16 @@ class Data {
     const data = ser[i2].data || [];
     const start = [];
     const end = [];
-    for (let j = 0; j < data.length; j++) {
-      const datum = data[j];
+    for (let j2 = 0; j2 < data.length; j2++) {
+      const datum = data[j2];
       let lo;
       let hi;
       if (typeof yExtent === "function") {
-        let ext = yExtent(datum, j);
+        let ext = yExtent(datum, j2);
         if (!Array.isArray(ext)) ext = [ext];
-        const nums = ext.map((v) => Utils$1.parseNumber(v)).filter((v) => v !== null && !isNaN(v));
-        lo = nums.length ? Math.min(...nums) : null;
-        hi = nums.length ? Math.max(...nums) : null;
+        const nums2 = ext.map((v) => Utils$1.parseNumber(v)).filter((v) => v !== null && !isNaN(v));
+        lo = nums2.length ? Math.min(...nums2) : null;
+        hi = nums2.length ? Math.max(...nums2) : null;
       } else {
         const y = datum == null ? null : datum.y;
         if (Array.isArray(y)) {
@@ -21429,8 +23811,8 @@ class Data {
     const minArr = [];
     const maxArr = [];
     const placeholders = [];
-    for (let j = 0; j < data.length; j++) {
-      const d = data[j];
+    for (let j2 = 0; j2 < data.length; j2++) {
+      const d = data[j2];
       const dens = (_c = (_b = (_a = d == null ? void 0 : d.y) == null ? void 0 : _a.density) != null ? _b : d == null ? void 0 : d[1]) != null ? _c : [];
       const pts = (_f = (_e = (_d = d == null ? void 0 : d.y) == null ? void 0 : _d.points) != null ? _e : d == null ? void 0 : d[2]) != null ? _f : [];
       const summary = this._parseViolinSummary((_h = (_g = d == null ? void 0 : d.y) == null ? void 0 : _g.summary) != null ? _h : d == null ? void 0 : d[3]);
@@ -21522,29 +23904,29 @@ class Data {
       }
     });
     if (format === "array") {
-      for (let j = 0; j < ser[i2].data.length; j++) {
-        if (Array.isArray(ser[i2].data[j])) {
-          rangeStart.push(ser[i2].data[j][1][0]);
-          rangeEnd.push(ser[i2].data[j][1][1]);
+      for (let j2 = 0; j2 < ser[i2].data.length; j2++) {
+        if (Array.isArray(ser[i2].data[j2])) {
+          rangeStart.push(ser[i2].data[j2][1][0]);
+          rangeEnd.push(ser[i2].data[j2][1][1]);
         } else {
-          rangeStart.push(ser[i2].data[j]);
-          rangeEnd.push(ser[i2].data[j]);
+          rangeStart.push(ser[i2].data[j2]);
+          rangeEnd.push(ser[i2].data[j2]);
         }
       }
     } else if (format === "xy") {
-      for (let j = 0; j < ser[i2].data.length; j++) {
-        const isDataPoint2D = Array.isArray(ser[i2].data[j].y);
+      for (let j2 = 0; j2 < ser[i2].data.length; j2++) {
+        const isDataPoint2D = Array.isArray(ser[i2].data[j2].y);
         const id = Utils$1.randomId();
-        const x = ser[i2].data[j].x;
+        const x = ser[i2].data[j2].x;
         const y = {
-          y1: isDataPoint2D ? ser[i2].data[j].y[0] : ser[i2].data[j].y,
-          y2: isDataPoint2D ? ser[i2].data[j].y[1] : ser[i2].data[j].y,
+          y1: isDataPoint2D ? ser[i2].data[j2].y[0] : ser[i2].data[j2].y,
+          y2: isDataPoint2D ? ser[i2].data[j2].y[1] : ser[i2].data[j2].y,
           rangeName: id
         };
         const gl = this.w.globals;
         if (!gl.seriesRangeName) gl.seriesRangeName = {};
         if (!gl.seriesRangeName[i2]) gl.seriesRangeName[i2] = {};
-        gl.seriesRangeName[i2][j] = id;
+        gl.seriesRangeName[i2][j2] = id;
         const keyObj = uniqueKeysMap.get(x);
         if (keyObj) {
           keyObj.y.push(y);
@@ -21560,14 +23942,29 @@ class Data {
     };
   }
   /**
+   * Is series `i` read as a box plot (o, q1, median, q3, c) rather than as
+   * candles (o, h, l, c)? A box or candle series is read as its own type, as
+   * BoxCandleStick draws it, so a candlestick series in a 'boxPlot' chart is
+   * read as candles. Any other series goes by the chart's type, as before.
+   * @param {number} i
+   * @returns {boolean}
+   */
+  _isBoxPlotSeries(i2) {
+    var _a;
+    const own = (
+      /** @type {any} */
+      (_a = this.w.config.series[i2]) == null ? void 0 : _a.type
+    );
+    if (own === "boxPlot" || own === "candlestick") return own === "boxPlot";
+    return this.w.config.chart.type === "boxPlot";
+  }
+  /**
    * @param {string} format
    * @param {any[]} ser
    * @param {number} i
    */
   handleCandleStickBoxDataFormat(format, ser, i2) {
-    const w = this.w;
-    const isBoxPlot = w.config.chart.type === "boxPlot" || /** @type {Record<string,any>} */
-    w.config.series[i2].type === "boxPlot";
+    const isBoxPlot = this._isBoxPlotSeries(i2);
     const serO = [];
     const serH = [];
     const serM = [];
@@ -21587,8 +23984,8 @@ class Data {
     } else {
       getVals = (d) => Array.isArray(d.y) ? d.y : [];
     }
-    for (let j = 0; j < data.length; j++) {
-      const vals = getVals(data[j]);
+    for (let j2 = 0; j2 < data.length; j2++) {
+      const vals = getVals(data[j2]);
       if (vals && vals.length >= 2) {
         serO.push(vals[0]);
         serH.push(vals[1]);
@@ -21601,8 +23998,8 @@ class Data {
           serC.push(vals[3]);
         }
       }
-      const pts = data[j] && /** @type {any} */
-      data[j].points;
+      const pts = data[j2] && /** @type {any} */
+      data[j2].points;
       serPoints.push(Array.isArray(pts) ? pts : []);
     }
     return {
@@ -21650,18 +24047,18 @@ class Data {
     });
     this.w.labelData.seriesGroups = buckets;
     const handleDates = () => {
-      for (let j = 0; j < xlabels.length; j++) {
-        if (typeof xlabels[j] === "string") {
-          const isDate = dt.isValidDate(xlabels[j]);
+      for (let j2 = 0; j2 < xlabels.length; j2++) {
+        if (typeof xlabels[j2] === "string") {
+          const isDate = dt.isValidDate(xlabels[j2]);
           if (isDate) {
-            this.twoDSeriesX.push(dt.parseDate(xlabels[j]));
+            this.twoDSeriesX.push(dt.parseDate(xlabels[j2]));
           } else {
             throw new Error(
               "You have provided invalid Date format. Please provide a valid JavaScript Date"
             );
           }
         } else {
-          this.twoDSeriesX.push(xlabels[j]);
+          this.twoDSeriesX.push(xlabels[j2]);
         }
       }
     };
@@ -21910,6 +24307,9 @@ class Data {
           if (dataPoint.x !== void 0 && dataPoint.y !== void 0) {
             labels.push(String(dataPoint.x));
             values.push(Utils$1.parseNumber(dataPoint.y));
+          } else if (dataPoint.x !== void 0 && Array.isArray(dataPoint.children)) {
+            labels.push(String(dataPoint.x));
+            values.push(subtreeTotal(dataPoint));
           } else {
             console.warn(
               "ApexCharts: Invalid data point format for pie chart. Expected {x, y} format:",
@@ -21990,7 +24390,7 @@ class Data {
             }
           );
           const len = seriesDataFiltered.reduce(
-            (p, c2, i2, a2) => a2[p].length > c2.length ? p : i2,
+            (p, c, i2, a2) => a2[p].length > c.length ? p : i2,
             0
           );
           for (let i2 = 0; i2 < seriesDataFiltered[len].length; i2++) {
@@ -22204,18 +24604,68 @@ class Data {
     }
     const transform = getSeriesTransform(name2);
     if (transform) return transform(ser, this.w);
+    if (Array.isArray(ser) && name2 in RAW_SAMPLE_TYPES) {
+      return this._withoutStats(ser, name2);
+    }
     const feature = (
       /** @type {Record<string,string>} */
-      RAW_SAMPLE_FEATURES[name2]
+      TYPE_FEATURES[name2]
     );
     if (!Array.isArray(ser) || !feature) return ser;
-    if (!this._warnedMissingTransform) {
-      this._warnedMissingTransform = true;
-      console.warn(
-        `ApexCharts: chart.type '${name2}' requires the ${feature} feature, which is not in this bundle. Bundler: import 'apexcharts/features/${feature}' (or from 'apexcharts/${name2}'). Script tag: add <script src='.../dist/features/${feature}.js'> after apexcharts.js.`
+    if (!this._warnedFeatures.has(feature)) {
+      this._warnedFeatures.add(feature);
+      const base = TYPE_ALIASES[name2];
+      warnMissingFeature(
+        `chart.type '${name2}'`,
+        feature,
+        hasChartClass(base) ? {} : {
+          module: name2,
+          scripts: [
+            `${RENDERER_ENTRIES[base] || base}.js`,
+            `features/${feature}.js`
+          ]
+        }
       );
     }
     return ser.map((s2) => __spreadProps(__spreadValues({}, s2), { data: [] }));
+  }
+  /**
+   * A boxPlot or violin on a page without the stats feature. Precomputed input
+   * (a five-number `y`, a density profile) draws as it always has. Raw
+   * observations are what the feature turns into that input, so without it
+   * the renderer got no summary and no density and drew a sliver or nothing,
+   * with no word as to why. That only happens off the default bundle, which
+   * has the feature: the lean core, or a page assembled from type entries.
+   *
+   * Said, not blanked. Unlike a TYPE_FEATURES type, nothing here draws a WRONG
+   * chart, and the series stays as given: parseData writes it back to the
+   * config, so a stats feature that registers later (a deferred import, an
+   * async script tag) finds the observations on the next render.
+   *
+   * Only series that are this type: a combo's other series (a precomputed
+   * boxPlot in a violin chart, a rangeArea's `y: [lo, hi]`) are not samples.
+   *
+   * @param {any[]} ser
+   * @param {string} name 'boxPlot' or 'violin'
+   * @returns {any[]}
+   */
+  _withoutStats(ser, name2) {
+    if (this._warnedFeatures.has("stats")) return ser;
+    const flatY = RAW_SAMPLE_TYPES[name2];
+    const raw = ser.some(
+      (s2) => ((s2 == null ? void 0 : s2.type) || name2) === name2 && Array.isArray(s2 == null ? void 0 : s2.data) && s2.data.some((d) => isRawSample(d, name2, flatY))
+    );
+    if (raw) {
+      this._warnedFeatures.add("stats");
+      warnMissingFeature(
+        `chart.type '${name2}' with raw observations (\`points\`${flatY ? ", or a flat number array as `y`" : ""})`,
+        "stats",
+        {
+          tail: "Precomputed input draws without it; raw series draw nothing until it loads and the chart renders again."
+        }
+      );
+    }
+    return ser;
   }
   /**
    * Nested treemap: resolve a `children` hierarchy into the tree the renderer
@@ -22404,9 +24854,12 @@ class Data {
   // Segregate user provided data into appropriate vars
   /**
    * @param {any[]} ser
+   * @param {boolean} [overwriteInitialSeries=true] false when the caller hands
+   *   back the series the chart already has (an internal re-render), so the
+   *   baseline resetSeries() restores must not move.
    */
-  parseData(ser) {
-    var _a, _b, _c, _d, _e, _f, _g;
+  parseData(ser, overwriteInitialSeries = true) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const w = this.w;
     const cnf = w.config;
     const gl = w.globals;
@@ -22438,7 +24891,8 @@ class Data {
       ser = ser.map((s2) => __spreadValues({}, s2));
     }
     cnf.series = ser;
-    if (gl.dataReducerRawSeries && ((_g = cnf.chart.dataReducer) == null ? void 0 : _g.enabled)) {
+    if (!overwriteInitialSeries) ;
+    else if (gl.dataReducerRawSeries && ((_g = cnf.chart.dataReducer) == null ? void 0 : _g.enabled)) {
       const stash = gl.dataReducerRawSeries;
       gl.initialSeries = ser.map((s2, i2) => {
         var _a2, _b2, _c2;
@@ -22503,6 +24957,22 @@ class Data {
         this.w.axisFlags.isMultiLineX = true;
         break;
       }
+    }
+    const hf = this.highlight();
+    if (hf) {
+      hf.parse();
+    } else if (!this._warnedHighlight && (((_h = cnf.highlightFilter) == null ? void 0 : _h.data) || ser.some(
+      (s2) => {
+        var _a2;
+        return s2 && (s2.highlightData || ((_a2 = s2.data) == null ? void 0 : _a2[0]) && typeof s2.data[0] === "object" && "highlight" in s2.data[0]);
+      }
+    ))) {
+      this._warnedHighlight = true;
+      warnMissingFeature(
+        "Highlight parts (`highlightData`, `highlightFilter.data`)",
+        "highlight-filter",
+        { tail: "Drawing the chart without them." }
+      );
     }
     return {
       // w.seriesData (future slice)
@@ -22657,9 +25127,9 @@ class Data {
       let avgX = 0;
       let avgY = 0;
       const avgRangeLen = avgRangeEnd - avgRangeStart;
-      for (let j = avgRangeStart; j < avgRangeEnd; j++) {
-        avgX += getX(data[j]);
-        avgY += getY(data[j]);
+      for (let j2 = avgRangeStart; j2 < avgRangeEnd; j2++) {
+        avgX += getX(data[j2]);
+        avgY += getY(data[j2]);
       }
       avgX /= avgRangeLen;
       avgY /= avgRangeLen;
@@ -22669,13 +25139,13 @@ class Data {
       const pointAY = getY(data[a2]);
       let maxArea = -1;
       let maxAreaIdx = rangeStart;
-      for (let j = rangeStart; j < rangeEnd; j++) {
+      for (let j2 = rangeStart; j2 < rangeEnd; j2++) {
         const area = Math.abs(
-          (pointAX - avgX) * (getY(data[j]) - pointAY) - (pointAX - getX(data[j])) * (avgY - pointAY)
+          (pointAX - avgX) * (getY(data[j2]) - pointAY) - (pointAX - getX(data[j2])) * (avgY - pointAY)
         ) * 0.5;
         if (area > maxArea) {
           maxArea = area;
-          maxAreaIdx = j;
+          maxAreaIdx = j2;
         }
       }
       sampled.push(data[maxAreaIdx]);
@@ -22717,8 +25187,8 @@ class Data {
       let high = firstY[1];
       let low = firstY[2];
       let close = firstY[3];
-      for (let j = start + 1; j < end; j++) {
-        const y = getY(data[j]);
+      for (let j2 = start + 1; j2 < end; j2++) {
+        const y = getY(data[j2]);
         if (y[1] > high) high = y[1];
         if (y[2] < low) low = y[2];
         close = y[3];
@@ -22758,8 +25228,8 @@ class Data {
       if (end <= start) continue;
       let low = Infinity;
       let high = -Infinity;
-      for (let j = start; j < end; j++) {
-        const y = getY(data[j]);
+      for (let j2 = start; j2 < end; j2++) {
+        const y = getY(data[j2]);
         if (y == null) continue;
         for (let k = 0; k < 2; k++) {
           const v = y[k];
@@ -22790,6 +25260,22 @@ class Data {
     });
     w.globals.ignoreYAxisIndexes = yAxisIndexes.map((x) => x);
   }
+}
+function clearRawSeriesStashes(w) {
+  w.globals.dataReducerRawSeries = null;
+  w.globals.histogramRawSeries = null;
+  w.globals.waterfallRawSeries = null;
+  w.globals.dumbbellRawSeries = null;
+  w.globals.streamgraphRawSeries = null;
+  w.globals.treemapRawSeries = null;
+}
+function categorySignature(w) {
+  var _a, _b;
+  if (w.config.xaxis.convertedCatToNumeric) {
+    return JSON.stringify((_a = w.labelData.categoryLabels) != null ? _a : []);
+  }
+  if (w.axisFlags.isXNumeric) return null;
+  return JSON.stringify((_b = w.labelData.labels) != null ? _b : []);
 }
 class UpdateHelpers {
   /**
@@ -22828,6 +25314,10 @@ class UpdateHelpers {
           if (animate && w.config.chart.animations.enabled) {
             ch.series.getPreviousPaths();
           }
+        } else {
+          w.globals.resized = !animate;
+          w.globals.dataChanged = false;
+          w.globals.previousPaths = [];
         }
         const fromType = w.config.chart.requestedType || w.config.chart.type;
         if (animate && options2 && typeof options2 === "object") {
@@ -22841,6 +25331,7 @@ class UpdateHelpers {
           }
         }
         if (options2 && typeof options2 === "object") {
+          options2 = Config.dropEmptyOptions(options2);
           ch.config = new Config(options2);
           const incomingType = options2.chart && options2.chart.type;
           const isAliasRequest = incomingType === "funnel" || incomingType === "pyramid" || incomingType === "gauge";
@@ -22861,10 +25352,17 @@ class UpdateHelpers {
             }
           }
           ch.config.normalizeAliasedChartType(options2);
+          Config.normalizeAxisBounds(options2, {
+            xaxisType: w.config.xaxis.type,
+            datetimeUTC: w.config.xaxis.labels.datetimeUTC
+          });
           options2 = CoreUtils.extendArrayProps(ch.config, options2, w);
           if (ch.w.globals.chartID !== this.w.globals.chartID) {
             delete options2.series;
             delete options2.yaxis;
+          }
+          if (overwriteInitialConfig && Array.isArray(options2.series)) {
+            clearRawSeriesStashes(w);
           }
           w.config = Utils$1.extend(w.config, options2);
           Defaults.handOverTypeDefaults(w.config, fromType, options2);
@@ -22878,7 +25376,9 @@ class UpdateHelpers {
             );
             initialConfig.series = !options2.series && prevInitialSeries ? prevInitialSeries : Utils$1.copySeriesShallow(w.config.series);
             w.globals.initialConfig = initialConfig;
-            w.globals.initialSeries = w.config.series;
+            if (options2.series) {
+              w.globals.initialSeries = w.config.series;
+            }
           }
           if (options2.series && (w.globals.collapsedSeriesIndices.length > 0 || w.globals.ancillaryCollapsedSeriesIndices.length > 0)) {
             ch.series.reconcileCollapsedByName();
@@ -22912,6 +25412,8 @@ class UpdateHelpers {
       if (animate && w.config.chart.animations.enabled) {
         this.ctx.series.getPreviousPaths();
       }
+      const prevCategorySig = categorySignature(w);
+      const prevBarPad = w.globals.barPadForNumericAxis;
       const prevSeriesCount = w.config.series.length;
       const prevDataLengths = w.config.series.map(
         (s2) => {
@@ -22920,15 +25422,22 @@ class UpdateHelpers {
         }
       );
       if (overwriteInitialSeries) {
-        w.globals.dataReducerRawSeries = null;
-        w.globals.histogramRawSeries = null;
-        w.globals.waterfallRawSeries = null;
-        w.globals.dumbbellRawSeries = null;
-        w.globals.streamgraphRawSeries = null;
-        w.globals.treemapRawSeries = null;
+        clearRawSeriesStashes(w);
+      }
+      const definedSeries = newSeries;
+      let reconciledCollapses = false;
+      if (w.globals.axisCharts && (w.globals.collapsedSeriesIndices.length > 0 || w.globals.ancillaryCollapsedSeriesIndices.length > 0)) {
+        newSeries = newSeries.map(
+          (s2) => s2 && typeof s2 === "object" ? __spreadValues({}, s2) : s2
+        );
+        this.ctx.series.reconcileCollapsedByName(newSeries);
+        reconciledCollapses = true;
       }
       this.ctx.data.resetParsingFlags();
-      const parsedState = this.ctx.data.parseData(newSeries);
+      const parsedState = this.ctx.data.parseData(
+        newSeries,
+        overwriteInitialSeries
+      );
       this.ctx._writeParsedSeriesData(parsedState.seriesData);
       this.ctx._writeParsedRangeData(parsedState.rangeData);
       this.ctx._writeParsedCandleData(parsedState.candleData);
@@ -22937,12 +25446,15 @@ class UpdateHelpers {
       if (overwriteInitialSeries) {
         if (w.globals.initialConfig) {
           w.globals.initialConfig.series = Utils$1.copySeriesShallow(
-            w.config.series
+            reconciledCollapses ? definedSeries : w.config.series
           );
         }
-        w.globals.initialSeries = w.config.series;
+        if (reconciledCollapses) {
+          w.globals.initialSeries = definedSeries;
+        }
       }
-      if (this._canUseFastPath(newSeries, prevSeriesCount, prevDataLengths, w)) {
+      if (this._canUseFastPath(newSeries, prevSeriesCount, prevDataLengths, w) && categorySignature(w) === prevCategorySig) {
+        w.globals.barPadForNumericAxis = prevBarPad;
         return this.ctx.fastUpdate(animate, prevAxisScaleSig).then(() => {
           resolve(this.ctx);
         }).catch(reject);
@@ -22969,6 +25481,7 @@ class UpdateHelpers {
    * - No series currently collapsing (collapsed series changes visible data range)
    * - Not a combo chart (combo charts mix types and need coordinated axis recalc)
    * - Not currently zoomed (zoomed charts have altered x-labels that need recalculation)
+   * - The series renderer a full render would select is the one on screen
    * @param {any[]} newSeries
    * @param {number} prevSeriesCount
    * @param {number[]} prevDataLengths
@@ -22991,6 +25504,8 @@ class UpdateHelpers {
     if (w.globals.risingSeries.length > 0) return false;
     if (w.globals.comboCharts) return false;
     if (w.interact.zoomed) return false;
+    const rc = this.ctx.rendererController;
+    if (rc && rc.pendingKind() !== rc.getActiveKind()) return false;
     return true;
   }
   /**
@@ -23029,6 +25544,8 @@ class UpdateHelpers {
         /** @type {any} */
         ser == null ? void 0 : ser.data
       ),
+      // Not inherited: a series sent without its part has been cleared.
+      highlightData: s2.highlightData,
       zIndex: typeof s2.zIndex !== "undefined" ? s2.zIndex : i2
     });
   }
@@ -23069,6 +25586,7 @@ class UpdateHelpers {
    * @param {Record<string, any>} options
    */
   forceXAxisUpdate(options2) {
+    var _a, _b;
     const w = this.w;
     const minmax = ["min", "max"];
     minmax.forEach((a2) => {
@@ -23081,8 +25599,19 @@ class UpdateHelpers {
       w.config.xaxis.categories = options2.xaxis.categories;
     }
     if (w.config.xaxis.convertedCatToNumeric) {
-      const defaults = new Defaults(options2);
-      options2 = defaults.convertCatToNumericXaxis(options2, this.ctx);
+      const x = options2.xaxis;
+      if ("categories" in x || "labels" in options2) {
+        options2 = new Defaults(options2).convertCatToNumericXaxis(options2);
+      } else if ((_a = x.labels) == null ? void 0 : _a.formatter) {
+        const names = (
+          /** @type {any} */
+          (_b = w.config.xaxis.labels.formatter) == null ? void 0 : _b.categoryNames
+        );
+        options2 = new Defaults(options2).convertCatToNumericXaxis(
+          options2,
+          names
+        );
+      }
     }
     return options2;
   }
@@ -23180,8 +25709,8 @@ class AxisMapping {
    * @param {number} px
    * @returns {number}
    */
-  static pxToDataX(w, px) {
-    return w.globals.minX + px * AxisMapping.xRatio(w);
+  static pxToDataX(w, px2) {
+    return w.globals.minX + px2 * AxisMapping.xRatio(w);
   }
   /**
    * Client (screen) x -> pixels from the plot origin. The origin is the svg
@@ -23203,6 +25732,159 @@ class AxisMapping {
   }
 }
 class Utils2 {
+  /**
+   * Interactive custom tooltip content must remain reachable, so it takes
+   * precedence over cursor-following placement without changing the user's
+   * configured `followCursor` value.
+   *
+   * Kept independent of a Tooltip instance because Position and Intersect are
+   * also used with lightweight contexts that only provide `w`.
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   */
+  static isFollowCursor(w) {
+    return w.config.tooltip.followCursor && !w.config.tooltip.interactive;
+  }
+  /**
+   * The pointer for this event, in client px, as this chart sees it: in a
+   * group `seriesHover` hands each member the pointer already mapped into its
+   * own space (`opt.clientX/Y`), and the raw event only belongs to the
+   * hovered chart. Read it from the event rather than `w.interact`, which a
+   * listener on the chart's root fills in only after this event has passed
+   * the series it is hovering.
+   *
+   * @param {any} e
+   * @param {{ clientX?: number, clientY?: number }} [opt]
+   * @returns {{ x: number, y: number }}
+   */
+  static eventPointer(e2, opt = {}) {
+    var _a, _b, _c, _d, _e, _f;
+    const touch = ((_a = e2 == null ? void 0 : e2.type) == null ? void 0 : _a.startsWith("touch")) ? (_b = e2.touches) == null ? void 0 : _b[0] : null;
+    return {
+      x: (_d = (_c = opt.clientX) != null ? _c : touch ? touch.clientX : e2 == null ? void 0 : e2.clientX) != null ? _d : 0,
+      y: (_f = (_e = opt.clientY) != null ? _e : touch ? touch.clientY : e2 == null ? void 0 : e2.clientY) != null ? _f : 0
+    };
+  }
+  /**
+   * The plot area on screen, in client px: its corner is where the plot's
+   * group is translated to (translateX, translateY into the svg), and it is
+   * gridWidth by gridHeight. The same origin `AxisMapping.screenXToPlotPx`
+   * measures from, scaled by any CSS zoom on the chart's container.
+   *
+   * Never the `.apexcharts-grid` group's box: a group measures to the union
+   * of what it happens to draw. The plot's outline starts a pixel down
+   * (`Grid.drawGridArea`), so unless gridlines or row bands reach the top
+   * edge the box starts a pixel below the plot, and on a numeric-x bar chart
+   * the horizontal gridlines run `barPadForNumericAxis` out past both sides.
+   *
+   * `zoom` is that scale (screen px per plot px): a distance measured on
+   * screen from this corner is divided by it to land in plot px, the space
+   * the series are laid out and painted in.
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {{ left: number, top: number, width: number, height: number, zoom: number }}
+   */
+  static plotRect(w) {
+    var _a, _b;
+    const svg = ((_a = w.dom.Paper) == null ? void 0 : _a.node) || ((_b = w.dom.baseEl) == null ? void 0 : _b.querySelector(".apexcharts-svg"));
+    const box = (svg || w.dom.elWrap).getBoundingClientRect();
+    const zoom = (svg && w.globals.svgWidth ? box.width / w.globals.svgWidth : 1) || 1;
+    return {
+      left: box.left + w.layout.translateX * zoom,
+      top: box.top + w.layout.translateY * zoom,
+      width: w.layout.gridWidth * zoom,
+      height: w.layout.gridHeight * zoom,
+      zoom
+    };
+  }
+  /**
+   * The plot's corner in elWrap px, the space the tooltip's `style.left/top`
+   * are written in: `plotRect` less elWrap's own corner, both measured. A
+   * rect measured against `plotRect` goes back into elWrap px through this,
+   * never through (translateX, translateY): those leave out whatever moves
+   * the whole svg inside elWrap, `chart.offsetX/offsetY` among them (Core
+   * translates the root svg by them), and the box landed that far off its
+   * mark.
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {{ left: number, top: number }}
+   */
+  static plotInWrap(w) {
+    const plot = Utils2.plotRect(w);
+    const wrap = w.dom.elWrap.getBoundingClientRect();
+    return { left: plot.left - wrap.left, top: plot.top - wrap.top };
+  }
+  /**
+   * Does the chart draw any violin? A violin chart, or a violin series mixed
+   * into a chart of another type (violin is an xy type, so combos take it).
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {boolean}
+   */
+  static hasViolinSeries(w) {
+    return w.config.chart.type === "violin" || (w.config.series || []).some(
+      (s2) => s2 && s2.type === "violin"
+    );
+  }
+  /**
+   * Is this a chart whose violins are painted to canvas, so hovered through
+   * one listener on the whole plot and found by the renderer's hit test
+   * (Intersect.getViolinMark)?
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {boolean}
+   */
+  static isCanvasViolinChart(w) {
+    return Utils2.isCanvasBarChart(w) && Utils2.hasViolinSeries(w);
+  }
+  /**
+   * Is `type` drawn as a bar-like mark: a bar or column, a range bar (a
+   * timeline, a dumbbell, a waterfall), a candlestick, a box plot or a
+   * violin?
+   *
+   * @param {any} type  a chart or series type
+   * @returns {boolean}
+   */
+  static isBarLikeType(type) {
+    return type === "bar" || type === "column" || type === "rangeBar" || type === "candlestick" || type === "boxPlot" || type === "violin";
+  }
+  /**
+   * Does the chart draw any bar-like mark (isBarLikeType)? As the chart
+   * type, or as a series mixed into a combo.
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {boolean}
+   */
+  static hasBarLikeSeries(w) {
+    return Utils2.isBarLikeType(w.config.chart.type) || (w.config.series || []).some(
+      (s2) => s2 && Utils2.isBarLikeType(s2.type)
+    );
+  }
+  /**
+   * Is this a chart whose bar-likes are painted to canvas, so hovered
+   * through one listener on the whole plot and found by the renderer's hit
+   * test (Intersect.getPaintedMark) rather than by a node under the pointer?
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {boolean}
+   */
+  static isCanvasBarChart(w) {
+    const renderer = w.globals.activeRenderer;
+    return (renderer == null ? void 0 : renderer.kind) === "canvas" && typeof renderer.hitTest === "function" && Utils2.hasBarLikeSeries(w);
+  }
+  /**
+   * Is this an xy chart whose markers are painted to canvas, so an intersect
+   * tooltip finds the hovered one by the renderer's hit test
+   * (Intersect.getPaintedMarker) rather than by a marker node under the
+   * pointer? Cell charts (a heatmap) have no markers to find.
+   *
+   * @param {import('../../types/internal').ChartStateW} w
+   * @returns {boolean}
+   */
+  static isCanvasMarkerChart(w) {
+    const renderer = w.globals.activeRenderer;
+    return (renderer == null ? void 0 : renderer.kind) === "canvas" && typeof renderer.hitTestMarker === "function" && !!w.globals.xyCharts;
+  }
   /**
    * @param {import('./Tooltip').default} tooltipContext
    */
@@ -23241,12 +25923,12 @@ class Utils2 {
    ** When hovering over series, you need to capture which series is being hovered on.
    ** This function will return both capturedseries index as well as inner index of that series
    * @memberof Utils
-   * @param {{ hoverArea: any, elGrid: any, clientX: any, clientY: any, context?: any }} opts
+   * @param {{ hoverArea: any, clientX: any, clientY: any, context?: any }} opts
    */
-  getNearestValues({ hoverArea, elGrid, clientX, clientY }) {
+  getNearestValues({ hoverArea, clientX, clientY }) {
     var _a;
     const w = this.w;
-    const seriesBound = elGrid.getBoundingClientRect();
+    const seriesBound = Utils2.plotRect(w);
     const hoverWidth = w.layout.gridWidth;
     const hoverHeight = seriesBound.height;
     let xDivisor = hoverWidth / (w.globals.dataPoints - 1);
@@ -23271,11 +25953,11 @@ class Utils2 {
         hoverArea.classList.add("hovering-pan");
       }
     }
-    let j = Math.round(hoverX / xDivisor);
+    let j2 = Math.round(hoverX / xDivisor);
     const jHorz = Math.floor(hoverY / yDivisor);
     if (hasBars && !w.config.xaxis.convertedCatToNumeric) {
-      j = Math.ceil(hoverX / xDivisor);
-      j = j - 1;
+      j2 = Math.ceil(hoverX / xDivisor);
+      j2 = j2 - 1;
     }
     let capturedSeries = null;
     let closest = null;
@@ -23301,7 +25983,7 @@ class Utils2 {
         seriesYValArr
       );
       capturedSeries = closest.index;
-      j = (_a = closest.j) != null ? _a : 0;
+      j2 = (_a = closest.j) != null ? _a : 0;
       const wasCompacted = seriesXValArr.some(
         (arr, i2) => arr.length !== w.globals.seriesXvalues[i2].length
       );
@@ -23317,19 +25999,19 @@ class Utils2 {
             nearest = i2;
           }
         }
-        if (nearest !== null) j = nearest;
+        if (nearest !== null) j2 = nearest;
       }
     }
     w.interact.capturedSeriesIndex = capturedSeries === null ? -1 : capturedSeries;
-    if (!j || j < 1) j = 0;
+    if (!j2 || j2 < 1) j2 = 0;
     if (w.globals.isBarHorizontal) {
       w.interact.capturedDataPointIndex = jHorz;
     } else {
-      w.interact.capturedDataPointIndex = j;
+      w.interact.capturedDataPointIndex = j2;
     }
     return {
       capturedSeries,
-      j: w.globals.isBarHorizontal ? jHorz : j,
+      j: w.globals.isBarHorizontal ? jHorz : j2,
       hoverX,
       hoverY
     };
@@ -23376,11 +26058,11 @@ class Utils2 {
         const xArr = Xarrays[i2];
         const yArr = Yarrays[i2];
         const len = Math.min(xArr.length, yArr.length);
-        for (let j = 0; j < len; j++) {
-          const distX = Math.abs(hoverX - xArr[j]);
+        for (let j2 = 0; j2 < len; j2++) {
+          const distX = Math.abs(hoverX - xArr[j2]);
           if (distX < bucketDistX) {
             bucketDistX = distX;
-            closestPointIndex = j;
+            closestPointIndex = j2;
           }
         }
       }
@@ -23402,14 +26084,14 @@ class Utils2 {
               }
               continue;
             }
-            for (let j = 0; j < len - 1; j++) {
+            for (let j2 = 0; j2 < len - 1; j2++) {
               const seg = this._distanceToSegment(
                 hoverX,
                 hoverY,
-                xArr[j],
-                yArr[j],
-                xArr[j + 1],
-                yArr[j + 1]
+                xArr[j2],
+                yArr[j2],
+                xArr[j2 + 1],
+                yArr[j2 + 1]
               );
               if (seg.dist < bestSegDist) {
                 bestSegDist = seg.dist;
@@ -23444,33 +26126,33 @@ class Utils2 {
       const yArr = Yarrays[i2];
       const len = Math.min(xArr.length, yArr.length);
       if (isLineArea && len >= 2) {
-        for (let j = 0; j < len - 1; j++) {
+        for (let j2 = 0; j2 < len - 1; j2++) {
           const seg = this._distanceToSegment(
             hoverX,
             hoverY,
-            xArr[j],
-            yArr[j],
-            xArr[j + 1],
-            yArr[j + 1]
+            xArr[j2],
+            yArr[j2],
+            xArr[j2 + 1],
+            yArr[j2 + 1]
           );
           if (seg.dist < closestDist) {
             closestDist = seg.dist;
             closestSeriesIndex = i2;
-            closestPointIndex = seg.t < 0.5 ? j : j + 1;
+            closestPointIndex = seg.t < 0.5 ? j2 : j2 + 1;
           }
         }
         continue;
       }
-      for (let j = 0; j < len; j++) {
-        const xVal = xArr[j];
+      for (let j2 = 0; j2 < len; j2++) {
+        const xVal = xArr[j2];
         const distX = hoverX - xVal;
-        const yVal = yArr[j];
+        const yVal = yArr[j2];
         const distY = hoverY - yVal;
         const dist = Math.sqrt(distX * distX + distY * distY);
         if (dist < closestDist) {
           closestDist = dist;
           closestSeriesIndex = i2;
-          closestPointIndex = j;
+          closestPointIndex = j2;
         }
       }
     }
@@ -23492,16 +26174,16 @@ class Utils2 {
    * @param {number} by
    * @returns {{ dist: number, t: number }}
    */
-  _distanceToSegment(px, py, ax, ay, bx, by) {
+  _distanceToSegment(px2, py, ax, ay, bx, by) {
     const dx = bx - ax;
     const dy = by - ay;
     const lenSq = dx * dx + dy * dy;
-    let t2 = lenSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lenSq;
+    let t2 = lenSq === 0 ? 0 : ((px2 - ax) * dx + (py - ay) * dy) / lenSq;
     if (t2 < 0) t2 = 0;
     else if (t2 > 1) t2 = 1;
     const cx = ax + t2 * dx;
     const cy = ay + t2 * dy;
-    const ex = px - cx;
+    const ex = px2 - cx;
     const ey = py - cy;
     return { dist: Math.sqrt(ex * ex + ey * ey), t: t2 };
   }
@@ -23532,7 +26214,7 @@ class Utils2 {
    * @param {number} j - the inner index of series (series[i][j])
    * @return {boolean}
    */
-  isXoverlap(j) {
+  isXoverlap(j2) {
     const w = this.w;
     const xSameForAllSeriesJArr = [];
     const seriesX = w.seriesData.seriesX.filter(
@@ -23540,8 +26222,8 @@ class Utils2 {
     );
     if (seriesX.length > 0) {
       for (let i2 = 0; i2 < seriesX.length - 1; i2++) {
-        if (typeof seriesX[i2][j] !== "undefined" && typeof seriesX[i2 + 1][j] !== "undefined") {
-          if (seriesX[i2][j] !== seriesX[i2 + 1][j]) {
+        if (typeof seriesX[i2][j2] !== "undefined" && typeof seriesX[i2 + 1][j2] !== "undefined") {
+          if (seriesX[i2][j2] !== seriesX[i2 + 1][j2]) {
             xSameForAllSeriesJArr.push("unEqual");
           }
         }
@@ -23662,7 +26344,7 @@ class Utils2 {
   /**
    * @param {string} state
    */
-  toggleAllTooltipSeriesGroups(state) {
+  toggleAllTooltipSeriesGroups(state2) {
     const w = this.w;
     const ttCtx = this.ttCtx;
     if (ttCtx.allTooltipSeriesGroups.length === 0) {
@@ -23672,7 +26354,7 @@ class Utils2 {
     }
     const allTooltipSeriesGroups = ttCtx.allTooltipSeriesGroups;
     for (let i2 = 0; i2 < allTooltipSeriesGroups.length; i2++) {
-      if (state === "enable") {
+      if (state2 === "enable") {
         allTooltipSeriesGroups[i2].classList.add("apexcharts-active");
         allTooltipSeriesGroups[i2].style.display = w.config.tooltip.items.display;
       } else {
@@ -23692,20 +26374,20 @@ class Labels {
     this.tooltipUtil = new Utils2(tooltipContext);
   }
   /** @param {{ shared?: boolean, ttItems?: any, i?: number, j?: any, y1?: any, y2?: any, e?: any }} opts */
-  drawSeriesTexts({ shared = true, ttItems, i: i2 = 0, j = null, y1, y2, e: e2 }) {
+  drawSeriesTexts({ shared = true, ttItems, i: i2 = 0, j: j2 = null, y1, y2, e: e2 }) {
     const w = this.w;
     if (w.config.tooltip.custom !== void 0) {
-      this.handleCustomTooltip({ i: i2, j, y1, y2, w });
+      this.handleCustomTooltip({ i: i2, j: j2, y1, y2, w });
     } else {
       this.toggleActiveInactiveSeries(shared, i2);
     }
     const values = this.getValuesToPrint({
       i: i2,
-      j
+      j: j2
     });
     this.printLabels({
       i: i2,
-      j,
+      j: j2,
       values,
       ttItems,
       shared,
@@ -23713,21 +26395,24 @@ class Labels {
     });
     const tooltipEl = this.ttCtx.getElTooltip();
     if (tooltipEl) {
-      this.ttCtx.tooltipRect.ttWidth = tooltipEl.getBoundingClientRect().width;
-      this.ttCtx.tooltipRect.ttHeight = tooltipEl.getBoundingClientRect().height;
+      const rect = tooltipEl.getBoundingClientRect();
+      this.ttCtx.tooltipRect.ttWidth = rect.width;
+      this.ttCtx.tooltipRect.ttHeight = rect.height;
     }
   }
   /** @param {{i: any, j: any, values: any, ttItems: any, shared: any, e: any}} opts */
-  printLabels({ i: i2, j, values, ttItems, shared, e: e2 }) {
+  printLabels({ i: i2, j: j2, values, ttItems, shared, e: e2 }) {
     const w = this.w;
     const { xVal, zVal, xAxisTTVal } = values;
     const seriesLen = w.seriesData.series.length;
-    const basePColor = j !== null && w.config.plotOptions.bar.distributed ? w.globals.colors[j] : w.globals.colors[i2];
-    for (let t2 = 0; t2 < seriesLen; t2++) {
-      const tIndex = w.config.tooltip.inverseOrder ? seriesLen - 1 - t2 : t2;
+    const basePColor = j2 !== null && w.config.plotOptions.bar.distributed ? w.globals.colors[j2] : w.globals.colors[i2];
+    const singleRow = (ttItems == null ? void 0 : ttItems.length) === 1;
+    const iterations = singleRow ? 1 : seriesLen;
+    for (let t2 = 0; t2 < iterations; t2++) {
+      const tIndex = singleRow ? 0 : w.config.tooltip.inverseOrder ? seriesLen - 1 - t2 : t2;
       const row = this.computeSeriesRow({
         i: i2,
-        j,
+        j: j2,
         t: t2,
         tIndex,
         shared,
@@ -23737,7 +26422,7 @@ class Labels {
       this.DOMHandling({
         i: i2,
         t: tIndex,
-        j,
+        j: j2,
         ttItems,
         values: {
           val: row.val,
@@ -23758,7 +26443,7 @@ class Labels {
    * printLabels() to keep the outer loop scannable.
    * @param {{i: number, j: any, t: number, tIndex: number, shared: boolean, e: any, basePColor: string}} opts
    */
-  computeSeriesRow({ i: i2, j, tIndex, shared, e: e2, basePColor }) {
+  computeSeriesRow({ i: i2, j: j2, tIndex, shared, e: e2, basePColor }) {
     const w = this.w;
     let f = this.getFormatters(i2);
     let pColor = basePColor;
@@ -23770,19 +26455,19 @@ class Labels {
     let seriesName = w.config.chart.type === "treemap" ? f.yLbTitleFormatter(
       String(
         /** @type {any} */
-        w.config.series[i2].data[j].x
+        w.config.series[i2].data[j2].x
       ),
       {
         series: w.seriesData.series,
         seriesIndex: i2,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       }
     ) : this.getSeriesName({
       fn: f.yLbTitleFormatter,
       index: i2,
       seriesIndex: i2,
-      j
+      j: j2
     });
     if (w.globals.axisCharts) {
       if (shared) {
@@ -23791,19 +26476,21 @@ class Labels {
           fn: f.yLbTitleFormatter,
           index: tIndex,
           seriesIndex: i2,
-          j
+          j: j2
         });
         pColor = w.globals.colors[tIndex];
-        val = this.formatYValue(f, tIndex, j);
-        goalVals = this.formatGoalVals(f, tIndex, j);
+        val = this.formatYValue(f, tIndex, j2);
+        goalVals = this.formatGoalVals(f, tIndex, j2);
       } else {
         pColor = this.resolvePatternColor(e2, pColor);
-        val = this.formatYValue(f, i2, j);
-        goalVals = this.formatGoalVals(f, i2, j);
+        val = this.formatYValue(f, i2, j2);
+        goalVals = this.formatGoalVals(f, i2, j2);
       }
     }
-    if (j === null) {
+    if (j2 === null) {
       val = f.yLbFormatter(w.seriesData.series[i2], __spreadProps(__spreadValues({}, w), {
+        w,
+        series: w.seriesData.series,
         seriesIndex: i2,
         dataPointIndex: i2
       }));
@@ -23817,35 +26504,35 @@ class Labels {
    * @param {number} index
    * @param {any} j
    */
-  formatYValue(f, index, j) {
+  formatYValue(f, index, j2) {
     var _a, _b, _c, _d;
     const w = this.w;
     const steps = w.waterfallData && w.waterfallData.values;
-    if (steps && steps[index] && steps[index][j] != null) {
-      return f.yLbFormatter(steps[index][j], {
+    if (steps && steps[index] && steps[index][j2] != null) {
+      return f.yLbFormatter(steps[index][j2], {
         series: steps,
         seriesIndex: index,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       });
     }
     if (w.axisFlags.isRangeData) {
-      return f.yLbFormatter((_b = (_a = w.rangeData.seriesRangeStart) == null ? void 0 : _a[index]) == null ? void 0 : _b[j], {
+      return f.yLbFormatter((_b = (_a = w.rangeData.seriesRangeStart) == null ? void 0 : _a[index]) == null ? void 0 : _b[j2], {
         series: w.rangeData.seriesRangeStart,
         seriesIndex: index,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
-      }) + " - " + f.yLbFormatter((_d = (_c = w.rangeData.seriesRangeEnd) == null ? void 0 : _c[index]) == null ? void 0 : _d[j], {
+      }) + " - " + f.yLbFormatter((_d = (_c = w.rangeData.seriesRangeEnd) == null ? void 0 : _c[index]) == null ? void 0 : _d[j2], {
         series: w.rangeData.seriesRangeEnd,
         seriesIndex: index,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       });
     }
-    return f.yLbFormatter(w.seriesData.series[index][j], {
+    return f.yLbFormatter(w.seriesData.series[index][j2], {
       series: w.seriesData.series,
       seriesIndex: index,
-      dataPointIndex: j,
+      dataPointIndex: j2,
       w
     });
   }
@@ -23856,16 +26543,16 @@ class Labels {
    * @param {number} index
    * @param {any} j
    */
-  formatGoalVals(f, index, j) {
+  formatGoalVals(f, index, j2) {
     var _a;
     const w = this.w;
-    const goals = (_a = w.seriesData.seriesGoals[index]) == null ? void 0 : _a[j];
+    const goals = (_a = w.seriesData.seriesGoals[index]) == null ? void 0 : _a[j2];
     if (!Array.isArray(goals)) return [];
     return goals.map((goal) => ({
       attrs: goal,
       val: f.yLbFormatter(goal.value, {
         seriesIndex: index,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         w
       })
     }));
@@ -23937,21 +26624,44 @@ class Labels {
     };
   }
   /** @param {{fn: any, index: any, seriesIndex: any, j: any}} opts */
-  getSeriesName({ fn, index, seriesIndex, j }) {
+  getSeriesName({ fn, index, seriesIndex, j: j2 }) {
     const w = this.w;
     return fn(String(w.seriesData.seriesNames[index]), {
       series: w.seriesData.series,
       seriesIndex,
-      dataPointIndex: j,
+      dataPointIndex: j2,
       w
     });
   }
+  /**
+   * The nodes a hover writes into, captured when the row was built in
+   * Tooltip.createTTElements. Rows that did not come from there (or from an
+   * older build) are queried once and then cached the same way, so no hover
+   * repeats the lookups.
+   * @param {any} row
+   */
+  rowRefs(row) {
+    if (!row.ttRefs) {
+      row.ttRefs = {
+        marker: row.querySelector(".apexcharts-tooltip-marker"),
+        text: row.querySelector(".apexcharts-tooltip-text"),
+        yLabel: row.querySelector(".apexcharts-tooltip-text-y-label"),
+        yValue: row.querySelector(".apexcharts-tooltip-text-y-value"),
+        goalsLabel: row.querySelector(".apexcharts-tooltip-text-goals-label"),
+        goalsValue: row.querySelector(".apexcharts-tooltip-text-goals-value"),
+        zLabel: row.querySelector(".apexcharts-tooltip-text-z-label"),
+        zValue: row.querySelector(".apexcharts-tooltip-text-z-value")
+      };
+    }
+    return row.ttRefs;
+  }
   /** @param {{ t?: any, j?: any, i?: any, ttItems?: any, values?: any, seriesName?: any, shared?: any, pColor?: any }} opts */
-  DOMHandling({ t: t2, j, ttItems, values, seriesName, shared, pColor }) {
+  DOMHandling({ i: i2, t: t2, j: j2, ttItems, values, seriesName, shared, pColor }) {
     const w = this.w;
     const ttCtx = this.ttCtx;
     const { val, goalVals, xVal, xAxisTTVal, zVal } = values;
     if (!ttItems || !ttItems[t2]) return;
+    const refs = this.rowRefs(ttItems[t2]);
     let ttItemsChildren = null;
     ttItemsChildren = ttItems[t2].children;
     if (w.config.tooltip.fillSeriesColor) {
@@ -23973,13 +26683,11 @@ class Labels {
         ttCtx.xaxisTooltipText.innerHTML = xAxisTTVal !== "" ? xAxisTTVal : xVal;
       }
     }
-    const ttYLabel = ttItems[t2].querySelector(
-      ".apexcharts-tooltip-text-y-label"
-    );
+    const ttYLabel = refs.yLabel;
     if (ttYLabel) {
       ttYLabel.innerHTML = seriesName ? seriesName : "";
     }
-    const ttYVal = ttItems[t2].querySelector(".apexcharts-tooltip-text-y-value");
+    const ttYVal = refs.yValue;
     if (ttYVal) {
       ttYVal.innerHTML = typeof val !== "undefined" ? val : "";
     }
@@ -23996,12 +26704,13 @@ class Labels {
     if (!w.config.tooltip.marker.show) {
       ttItemsChildren[0].style.display = "none";
     }
-    const ttGLabel = ttItems[t2].querySelector(
-      ".apexcharts-tooltip-text-goals-label"
-    );
-    const ttGVal = ttItems[t2].querySelector(
-      ".apexcharts-tooltip-text-goals-value"
-    );
+    const hf = ttCtx.ctx.highlightFilter;
+    if (hf) {
+      const s2 = shared ? t2 : i2;
+      hf.tooltipRow(refs, s2, j2, this.getFormatters(s2));
+    }
+    const ttGLabel = refs.goalsLabel;
+    const ttGVal = refs.goalsValue;
     if (goalVals.length && w.seriesData.seriesGoals[t2]) {
       const createGoalsHtml = () => {
         let gLabels = "<div>";
@@ -24014,7 +26723,7 @@ class Labels {
         ttGVal.innerHTML = gVals + `</div>`;
       };
       if (shared) {
-        if (w.seriesData.seriesGoals[t2][j] && Array.isArray(w.seriesData.seriesGoals[t2][j])) {
+        if (w.seriesData.seriesGoals[t2][j2] && Array.isArray(w.seriesData.seriesGoals[t2][j2])) {
           createGoalsHtml();
         } else {
           ttGLabel.innerHTML = "";
@@ -24028,21 +26737,15 @@ class Labels {
       ttGVal.innerHTML = "";
     }
     if (zVal !== null) {
-      const ttZLabel = ttItems[t2].querySelector(
-        ".apexcharts-tooltip-text-z-label"
-      );
+      const ttZLabel = refs.zLabel;
       ttZLabel.innerHTML = w.config.tooltip.z.title;
-      const ttZVal = ttItems[t2].querySelector(
-        ".apexcharts-tooltip-text-z-value"
-      );
+      const ttZVal = refs.zValue;
       ttZVal.innerHTML = typeof zVal !== "undefined" ? zVal : "";
     }
     if (shared && ttItemsChildren[0]) {
       if (w.config.tooltip.hideEmptySeries) {
-        const ttItemMarker = ttItems[t2].querySelector(
-          ".apexcharts-tooltip-marker"
-        );
-        const ttItemText = ttItems[t2].querySelector(".apexcharts-tooltip-text");
+        const ttItemMarker = refs.marker;
+        const ttItemText = refs.text;
         if (parseFloat(val) == 0) {
           ttItemMarker.style.display = "none";
           ttItemText.style.display = "none";
@@ -24067,13 +26770,15 @@ class Labels {
    * @param {number} i
    */
   toggleActiveInactiveSeries(shared, i2) {
+    var _a;
     const w = this.w;
     if (shared) {
       this.tooltipUtil.toggleAllTooltipSeriesGroups("enable");
     } else {
       this.tooltipUtil.toggleAllTooltipSeriesGroups("disable");
+      const rowIndex = ((_a = this.ttCtx.ttItems) == null ? void 0 : _a.length) === 1 ? 0 : i2;
       const firstTooltipSeriesGroup = w.dom.baseEl.querySelector(
-        `.apexcharts-tooltip-series-group-${i2}`
+        `.apexcharts-tooltip-series-group-${rowIndex}`
       );
       if (firstTooltipSeriesGroup) {
         const ftsGroup = (
@@ -24086,8 +26791,8 @@ class Labels {
     }
   }
   /** @param {{i: any, j: any}} opts */
-  getValuesToPrint({ i: i2, j }) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+  getValuesToPrint({ i: i2, j: j2 }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
     const w = this.w;
     const filteredSeriesX = w.seriesData.seriesX.map(
       (ser) => ser.length > 0 ? ser : []
@@ -24099,29 +26804,29 @@ class Labels {
     const customFormatterOpts = {
       series: w.seriesData.series,
       seriesIndex: i2,
-      dataPointIndex: j,
+      dataPointIndex: j2,
       w
     };
     const zFormatter = w.formatters.ttZFormatter;
-    if (j === null) {
+    if (j2 === null) {
       val = w.seriesData.series[i2];
     } else {
       if (w.axisFlags.isXNumeric && w.config.chart.type !== "treemap") {
-        xVal = filteredSeriesX[i2][j];
+        xVal = filteredSeriesX[i2][j2];
         if (filteredSeriesX[i2].length === 0) {
           const firstActiveSeriesIndex = this.tooltipUtil.getFirstActiveXArray(filteredSeriesX);
-          xVal = filteredSeriesX[firstActiveSeriesIndex][j];
+          xVal = filteredSeriesX[firstActiveSeriesIndex][j2];
         }
       } else {
         const dataFormat = new Data(this.w);
         if (dataFormat.isFormatXY()) {
           xVal = typeof /** @type {any} */
-          w.config.series[i2].data[j] !== "undefined" ? (
+          w.config.series[i2].data[j2] !== "undefined" ? (
             /** @type {any} */
-            w.config.series[i2].data[j].x
+            w.config.series[i2].data[j2].x
           ) : "";
         } else {
-          xVal = typeof w.labelData.labels[j] !== "undefined" ? w.labelData.labels[j] : "";
+          xVal = typeof w.labelData.labels[j2] !== "undefined" ? w.labelData.labels[j2] : "";
         }
       }
     }
@@ -24149,12 +26854,12 @@ class Labels {
     if (w.config.tooltip.x.formatter !== void 0) {
       xVal = (_f = (_e = (_d = w.formatters).ttKeyFormatter) == null ? void 0 : _e.call(_d, bufferXVal, customFormatterOpts)) != null ? _f : bufferXVal;
     }
-    if (w.seriesData.seriesZ.length > 0 && w.seriesData.seriesZ[i2].length > 0) {
-      zVal = zFormatter == null ? void 0 : zFormatter(w.seriesData.seriesZ[i2][j], w);
+    if (w.axisFlags.isDataXYZ && w.seriesData.seriesZ.length > 0 && ((_g = w.seriesData.seriesZ[i2]) == null ? void 0 : _g.length) > 0) {
+      zVal = zFormatter == null ? void 0 : zFormatter((_h = w.seriesData.seriesZ[i2][j2]) != null ? _h : null, w);
     }
     if (typeof w.config.xaxis.tooltip.formatter === "function") {
-      xAxisTTVal = (_h = (_g = w.formatters).xaxisTooltipFormatter) == null ? void 0 : _h.call(
-        _g,
+      xAxisTTVal = (_j = (_i = w.formatters).xaxisTooltipFormatter) == null ? void 0 : _j.call(
+        _i,
         bufferXVal,
         customFormatterOpts
       );
@@ -24169,7 +26874,7 @@ class Labels {
     };
   }
   /** @param {{i: any, j: any, y1: any, y2: any, w: any}} opts */
-  handleCustomTooltip({ i: i2, j, y1, y2, w }) {
+  handleCustomTooltip({ i: i2, j: j2, y1, y2, w }) {
     const tooltipEl = this.ttCtx.getElTooltip();
     let fn = w.config.tooltip.custom;
     if (Array.isArray(fn)) {
@@ -24177,9 +26882,10 @@ class Labels {
     }
     if (typeof fn !== "function") return;
     const customTooltip = fn({
+      ctx: this.ttCtx.ctx,
       series: w.seriesData.series,
       seriesIndex: i2,
-      dataPointIndex: j,
+      dataPointIndex: j2,
       y1,
       y2,
       w
@@ -24198,6 +26904,241 @@ class Labels {
 }
 const ARROW_TIP_OVERHANG = 7;
 const POINT_TIP_GAP = 0;
+const SHORT_PLOT_RATIO = 0.78;
+const POINTER_CLEARANCE_BELOW = 24;
+const ARROW_EDGE_INSET = 10;
+function isShortPlot(ttHeight, plotHeight) {
+  if (!(ttHeight > 0)) return false;
+  if (!(plotHeight > 0)) return true;
+  return ttHeight >= plotHeight * SHORT_PLOT_RATIO;
+}
+function placeAroundMark({
+  anchorX,
+  markTop,
+  markBottom,
+  ttWidth,
+  ttHeight,
+  room,
+  gapAbove = ARROW_TIP_OVERHANG,
+  gapBelow = gapAbove
+}) {
+  if (![anchorX, markTop, markBottom, ttWidth, ttHeight].every(Number.isFinite)) {
+    return null;
+  }
+  let placement;
+  let y;
+  const above = markTop - gapAbove - ttHeight;
+  const below = Math.max(markTop, markBottom) + gapBelow;
+  if (above >= room.top) {
+    placement = "top";
+    y = above;
+  } else if (below + ttHeight <= room.bottom) {
+    placement = "bottom";
+    y = below;
+  } else {
+    return null;
+  }
+  const x = clampIntoRoom(anchorX, ttWidth, room);
+  const arrowX = Math.max(
+    ARROW_EDGE_INSET,
+    Math.min(ttWidth - ARROW_EDGE_INSET, anchorX - x)
+  );
+  return { x, y, placement, arrowX };
+}
+function lazyRoom(room) {
+  if (typeof room !== "function") return () => room != null ? room : null;
+  let measured;
+  return () => {
+    var _a;
+    if (measured === void 0) measured = (_a = room()) != null ? _a : null;
+    return measured;
+  };
+}
+function markSteps({ cell, plot, ttWidth, ttHeight, gap }) {
+  const midX = (cell.left + cell.right) / 2;
+  const midY = (cell.top + cell.bottom) / 2;
+  const aboveY = cell.top - gap - ttHeight;
+  const belowY = cell.bottom + gap;
+  const vertical = (placement, y) => {
+    const x = alongEdge(midX, ttWidth, plot.left, plot.right);
+    return { x, y, placement, arrowX: midX - x, arrowY: null };
+  };
+  return {
+    /** The side of the cell facing the plot's middle, which has more room. */
+    middleSide: (
+      /** @type {'left'|'right'} */
+      midX < (plot.left + plot.right) / 2 ? "right" : "left"
+    ),
+    /** @param {Box} bounds */
+    above: (bounds) => aboveY >= bounds.top ? vertical("top", aboveY) : null,
+    /** @param {Box} bounds */
+    below: (bounds) => belowY + ttHeight <= bounds.bottom ? vertical("bottom", belowY) : null,
+    /**
+     * Beside the cell on `side`, with the box inside `bounds` sideways.
+     * Vertically it is centred on the cell and held inside the plot; a caller
+     * that lets it out of the plot holds it in the room (`holdInRoom`).
+     * @param {'left'|'right'} side @param {Box} bounds
+     */
+    beside: (side, bounds) => {
+      const onRight = side === "right";
+      const x = onRight ? cell.right + gap : cell.left - gap - ttWidth;
+      if (onRight ? x + ttWidth > bounds.right : x < bounds.left) return null;
+      const y = alongEdge(midY, ttHeight, plot.top, plot.bottom);
+      return { x, y, placement: side, arrowX: null, arrowY: midY - y };
+    }
+  };
+}
+function placeAroundCell({
+  cell,
+  plot,
+  room = null,
+  ttWidth,
+  ttHeight,
+  gap = ARROW_TIP_OVERHANG
+}) {
+  var _a, _b, _c, _d, _e;
+  const nums2 = [cell.top, cell.bottom, cell.left, cell.right, ttWidth, ttHeight];
+  if (!nums2.every(Number.isFinite)) return null;
+  const step = markSteps({ cell, plot, ttWidth, ttHeight, gap });
+  const inPlot = (_b = (_a = step.above(plot)) != null ? _a : step.below(plot)) != null ? _b : step.beside(step.middleSide, plot);
+  if (inPlot) return inPlot;
+  const r2 = lazyRoom(room)();
+  if (!r2) return null;
+  const other = step.middleSide === "right" ? "left" : "right";
+  return (_e = (_d = (_c = step.above(r2)) != null ? _c : step.below(r2)) != null ? _d : step.beside(step.middleSide, r2)) != null ? _e : step.beside(other, r2);
+}
+function placeAroundBar({
+  cell,
+  plot,
+  room = null,
+  ttWidth,
+  ttHeight,
+  gap = ARROW_TIP_OVERHANG,
+  side = null,
+  beside = true
+}) {
+  var _a, _b, _c;
+  const nums2 = [cell.top, cell.bottom, cell.left, cell.right, ttWidth, ttHeight];
+  if (!nums2.every(Number.isFinite)) return null;
+  const step = markSteps({ cell, plot, ttWidth, ttHeight, gap });
+  const getRoom = lazyRoom(room);
+  const s2 = side != null ? side : step.middleSide;
+  const inPlot = (_a = step.above(plot)) != null ? _a : step.below(plot);
+  if (inPlot) return inPlot;
+  const r2 = getRoom();
+  const outOfPlot = r2 ? (_b = step.above(r2)) != null ? _b : step.below(r2) : null;
+  if (outOfPlot || !beside) return outOfPlot;
+  return (_c = step.beside(s2, plot)) != null ? _c : r2 ? step.beside(s2, r2) : null;
+}
+function holdInRoom(pos, cell, room, ttWidth, ttHeight) {
+  if (pos.placement === "top" || pos.placement === "bottom") {
+    const x = Math.max(Math.min(pos.x, room.right - ttWidth), room.left);
+    const midX = (cell.left + cell.right) / 2;
+    return __spreadProps(__spreadValues({}, pos), { x, arrowX: arrowOffset(midX - x, ttWidth) });
+  }
+  const y = Math.max(Math.min(pos.y, room.bottom - ttHeight), room.top);
+  const midY = (cell.top + cell.bottom) / 2;
+  return __spreadProps(__spreadValues({}, pos), { y, arrowY: arrowOffset(midY - y, ttHeight) });
+}
+function alongEdge(mid, size, lo, hi) {
+  if (size > hi - lo) return mid - size / 2;
+  const start = Math.max(Math.min(mid - size / 2, hi - size), lo);
+  return mid - arrowOffset(mid - start, size);
+}
+function arrowOffset(offset, size) {
+  const inset = Math.min(ARROW_EDGE_INSET, size / 2);
+  return Math.max(inset, Math.min(size - inset, offset));
+}
+function clampIntoRoom(anchorX, ttWidth, room) {
+  const x = Math.min(anchorX - ttWidth / 2, room.right - ttWidth);
+  return Math.max(x, room.left);
+}
+function getVisibleBounds(el, cache) {
+  const doc = el == null ? void 0 : el.ownerDocument;
+  const win = doc == null ? void 0 : doc.defaultView;
+  if (!win) return null;
+  const docEl = doc.documentElement;
+  const bounds = {
+    top: 0,
+    left: 0,
+    right: Math.min(win.innerWidth, (docEl == null ? void 0 : docEl.clientWidth) || Infinity),
+    bottom: Math.min(win.innerHeight, (docEl == null ? void 0 : docEl.clientHeight) || Infinity)
+  };
+  if (!cache.clippers) cache.clippers = findClippingAncestors(el, win);
+  for (const { node, x, y } of cache.clippers) {
+    if (!node.isConnected) continue;
+    const r2 = node.getBoundingClientRect();
+    if (y) {
+      const top = r2.top + node.clientTop;
+      bounds.top = Math.max(bounds.top, top);
+      bounds.bottom = Math.min(bounds.bottom, top + node.clientHeight);
+    }
+    if (x) {
+      const left = r2.left + node.clientLeft;
+      bounds.left = Math.max(bounds.left, left);
+      bounds.right = Math.min(bounds.right, left + node.clientWidth);
+    }
+  }
+  return bounds;
+}
+function findClippingAncestors(el, win) {
+  const out = [];
+  const doc = el.ownerDocument;
+  let position = win.getComputedStyle(el).position;
+  let node = composedParent(el);
+  while (node && node !== doc.body && node !== doc.documentElement) {
+    const cs = win.getComputedStyle(node);
+    const containsIt = position === "fixed" ? establishesFixedContainingBlock(cs) : position === "absolute" ? cs.position !== "static" || establishesFixedContainingBlock(cs) : true;
+    if (containsIt) {
+      if (!NO_OVERFLOW_DISPLAY.test(cs.display || "")) {
+        const paint = clipsPaint(cs);
+        const x = paint || isClipping(cs.overflowX);
+        const y = paint || isClipping(cs.overflowY);
+        if (x || y) out.push({ node, x, y });
+      }
+      position = cs.position;
+    }
+    node = composedParent(node);
+  }
+  return out;
+}
+const NO_OVERFLOW_DISPLAY = /^(inline|contents|table-row|table-row-group|table-header-group|table-footer-group|table-column|table-column-group)$/;
+function isClipping(overflow) {
+  return !!overflow && overflow !== "visible";
+}
+function clipsPaint(cs) {
+  const cv = (
+    /** @type {any} */
+    cs.contentVisibility
+  );
+  return /paint|strict|content/.test(cs.contain || "") || cv === "auto" || cv === "hidden";
+}
+function establishesFixedContainingBlock(cs) {
+  const set = (v) => !!v && v !== "none";
+  const s2 = (
+    /** @type {any} */
+    cs
+  );
+  return set(cs.transform) || set(s2.translate) || set(s2.rotate) || set(s2.scale) || set(cs.perspective) || set(cs.filter) || set(s2.backdropFilter) || cs.transformStyle === "preserve-3d" || /paint|layout|strict|content/.test(cs.contain || "") || s2.containerType === "size" || s2.containerType === "inline-size" || clipsPaint(cs) || /transform|translate|rotate|scale|perspective|filter/.test(
+    cs.willChange || ""
+  );
+}
+function composedParent(node) {
+  const slot = (
+    /** @type {Element} */
+    node.assignedSlot
+  );
+  let parent = slot || node.parentNode;
+  if (parent && parent.nodeType === 11) {
+    parent = /** @type {ShadowRoot} */
+    parent.host || null;
+  }
+  return parent && parent.nodeType === 1 ? (
+    /** @type {Element} */
+    parent
+  ) : null;
+}
+const CLIP_CACHE_TTL = 1e3;
 class Position {
   /**
    * @param {import('./Tooltip').default} tooltipContext
@@ -24205,6 +27146,288 @@ class Position {
   constructor(tooltipContext) {
     this.ttCtx = tooltipContext;
     this.w = tooltipContext.w;
+    this.shortPlotPlacement = false;
+    this.clipCache = { clippers: null, at: 0 };
+  }
+  /**
+   * The part of the page where the tooltip can be seen, in elWrap-local px:
+   * the viewport, cut down by any ancestor that clips overflow. Null outside a
+   * browser or before the chart is mounted.
+   * @returns {{ top: number, bottom: number, left: number, right: number } | null}
+   */
+  getVisibleRoom() {
+    var _a, _b, _c;
+    const elWrap = (_a = this.w.dom) == null ? void 0 : _a.elWrap;
+    const tooltipEl = (_c = (_b = this.ttCtx).getElTooltip) == null ? void 0 : _c.call(_b);
+    if (!elWrap || !tooltipEl) return null;
+    const now = Date.now();
+    if (now - (this.clipCache.at || 0) > CLIP_CACHE_TTL) {
+      this.clipCache.clippers = null;
+    }
+    if (!this.clipCache.clippers) this.clipCache.at = now;
+    const bounds = getVisibleBounds(tooltipEl, this.clipCache);
+    if (!bounds) return null;
+    const wrap = elWrap.getBoundingClientRect();
+    return {
+      top: bounds.top - wrap.top,
+      bottom: bounds.bottom - wrap.top,
+      left: bounds.left - wrap.left,
+      right: bounds.right - wrap.left
+    };
+  }
+  /**
+   * Is the plot too short for the current tooltip to sit beside a point? The
+   * placement paths measure their mark only when it is.
+   * @returns {boolean}
+   */
+  isShortPlot() {
+    var _a;
+    return !this.ttCtx.fixedTooltip && isShortPlot(((_a = this.ttCtx.tooltipRect) == null ? void 0 : _a.ttHeight) || 0, this.w.layout.gridHeight);
+  }
+  /** Forget the clipping ancestors; the next hover looks them up again. */
+  resetPlacementCache() {
+    this.clipCache.clippers = null;
+  }
+  /**
+   * On a plot too short to hold the tooltip beside its point (a sparkline, a
+   * short strip, a card with many rows), place the box directly above the
+   * hovered mark, arrow on it, when the page has room there, and directly
+   * below it otherwise. The box may stick out of the plot and the chart; only
+   * the part of the plot above (or below) the mark is ever under it. Null when
+   * the plot is tall enough or neither side has room, and the caller keeps
+   * its own placement.
+   *
+   * Callers pass the mark they caption: the hovered marker, the column of
+   * markers under a shared tooltip, a bar, a cell, or the pointer.
+   *
+   * @param {number} anchorX  elWrap-local x the arrow points at
+   * @param {number} markTop  elWrap-local top of the mark
+   * @param {number} markBottom  elWrap-local bottom of the mark
+   * @param {object} [opts]
+   * @param {number} [opts.gapAbove]  mark-to-box gap above (default: the
+   *   arrow's overhang, so the tip touches the mark)
+   * @param {number} [opts.gapBelow]  mark-to-box gap below
+   * @returns {{ x: number, y: number, placement: 'top'|'bottom', arrowX: number, arrowY: null } | null}
+   */
+  placeOnShortPlot(anchorX, markTop, markBottom, { gapAbove, gapBelow } = {}) {
+    var _a, _b;
+    const ttCtx = this.ttCtx;
+    this.shortPlotPlacement = false;
+    if (!this.isShortPlot()) return null;
+    const ttH = ((_a = ttCtx.tooltipRect) == null ? void 0 : _a.ttHeight) || 0;
+    const ttW = ((_b = ttCtx.tooltipRect) == null ? void 0 : _b.ttWidth) || 0;
+    const room = this.getVisibleRoom();
+    if (!room) return null;
+    const pos = placeAroundMark({
+      anchorX,
+      markTop,
+      markBottom,
+      ttWidth: ttW,
+      ttHeight: ttH,
+      room,
+      gapAbove,
+      gapBelow
+    });
+    if (!pos) return null;
+    this.shortPlotPlacement = true;
+    return __spreadProps(__spreadValues({}, pos), { arrowY: null });
+  }
+  /**
+   * Box position for a tooltip with an arrow at a heatmap cell: around the
+   * cell inside the plot, or out of it where the page has room (see
+   * `placeAroundCell` in placement.js).
+   *
+   * @param {{ top: number, bottom: number, left: number, right: number }} cell  elWrap-local
+   * @param {{ top: number, bottom: number, left: number, right: number }} plot  elWrap-local
+   * @param {object} [opts]
+   * @param {Element | null} [opts.el]  the cell's node; none for a canvas cell
+   * @param {number} [opts.ttWidth]
+   * @param {number} [opts.ttHeight]
+   * @returns {import('./placement').CellPlacement}
+   */
+  placeAroundCell(cell, plot, {
+    el = null,
+    ttWidth = ((_a) => (_a = this.ttCtx.tooltipRect) == null ? void 0 : _a.ttWidth)() || 0,
+    ttHeight = ((_b) => (_b = this.ttCtx.tooltipRect) == null ? void 0 : _b.ttHeight)() || 0
+  } = {}) {
+    var _a2;
+    if (!((_a2 = el == null ? void 0 : el.closest) == null ? void 0 : _a2.call(el, '[clip-path*="heatmapHexMask"]'))) {
+      cell = this._visiblePart(cell, plot);
+    }
+    return this._placeAround(placeAroundCell, cell, plot, {
+      ttWidth,
+      ttHeight
+    });
+  }
+  /**
+   * Box position for a tooltip with an arrow at a horizontal bar, or at the
+   * row of bars a shared tooltip captions (see `placeAroundBar` in
+   * placement.js): above or below it inside the plot, then out of the plot
+   * where the page has room, and only then beside it, past its value end.
+   *
+   * @param {{ top: number, bottom: number, left: number, right: number }} bar  elWrap-local
+   * @param {{ top: number, bottom: number, left: number, right: number }} plot  elWrap-local
+   * @param {number} j  the data point
+   * @param {number | null} [i]  the series; null for a whole row
+   * @returns {import('./placement').CellPlacement}
+   */
+  placeAroundBar(bar, plot, j2, i2 = null) {
+    const side = this.barValueSide(j2, i2);
+    return this._placeAround(
+      placeAroundBar,
+      this._visiblePart(bar, plot),
+      plot,
+      { side }
+    );
+  }
+  /**
+   * Box position for a tooltip with an arrow at a column whose box fits
+   * beside it nowhere on screen (a phone-width plot): above the column, or
+   * below it with no room above, covering the chart's own plot rather than
+   * running under whatever stands beside the chart or off the page.
+   *
+   * @param {{ top: number, bottom: number, left: number, right: number }} column  elWrap-local
+   * @param {{ top: number, bottom: number, left: number, right: number }} plot  elWrap-local
+   * @returns {import('./placement').CellPlacement}
+   */
+  placeOverColumn(column, plot) {
+    return this._placeAround(
+      placeAroundBar,
+      this._visiblePart(column, plot),
+      plot,
+      { beside: false }
+    );
+  }
+  /**
+   * The part of a mark inside the plot, sideways, which is the part drawn:
+   * the plot clips its series.
+   * @param {import('./placement').Box} mark
+   * @param {import('./placement').Box} plot
+   * @returns {import('./placement').Box}
+   */
+  _visiblePart(mark, plot) {
+    const left = Math.max(mark.left, plot.left);
+    const right = Math.min(mark.right, plot.right);
+    return right > left ? __spreadProps(__spreadValues({}, mark), { left, right }) : mark;
+  }
+  /**
+   * Runs one of the placement.js deciders, measuring the visible room only
+   * when a step needs it. With room nowhere around the mark, the box goes
+   * above it, clamped into the plot. Any box that sticks out past the plot
+   * along the mark's side is then held inside the visible room.
+   *
+   * @param {(p: any) => import('./placement').CellPlacement | null} decide
+   * @param {import('./placement').Box} mark  elWrap-local
+   * @param {import('./placement').Box} plot  elWrap-local
+   * @param {{ ttWidth?: number, ttHeight?: number, side?: 'left'|'right'|null, beside?: boolean }} [opts]
+   * @returns {import('./placement').CellPlacement}
+   */
+  _placeAround(decide, mark, plot, _e = {}) {
+    var _f = _e, {
+      ttWidth = ((_c) => (_c = this.ttCtx.tooltipRect) == null ? void 0 : _c.ttWidth)() || 0,
+      ttHeight = ((_d) => (_d = this.ttCtx.tooltipRect) == null ? void 0 : _d.ttHeight)() || 0
+    } = _f, rest = __objRest(_f, [
+      "ttWidth",
+      "ttHeight"
+    ]);
+    let room;
+    const getRoom = () => {
+      if (room === void 0) room = this.getVisibleRoom();
+      return room;
+    };
+    let pos = decide(__spreadValues({
+      cell: mark,
+      plot,
+      room: getRoom,
+      ttWidth,
+      ttHeight
+    }, rest));
+    if (!pos) {
+      const midX = (mark.left + mark.right) / 2;
+      const x = Math.min(
+        Math.max(midX - ttWidth / 2, plot.left),
+        plot.right - ttWidth
+      );
+      pos = {
+        x,
+        y: plot.top,
+        placement: "top",
+        // Clamped away from the rounded corners.
+        arrowX: Math.max(10, Math.min(ttWidth - 10, midX - x)),
+        arrowY: null
+      };
+    }
+    const vertical = pos.placement === "top" || pos.placement === "bottom";
+    const sticksOut = vertical ? pos.x < plot.left || pos.x + ttWidth > plot.right : pos.y < plot.top || pos.y + ttHeight > plot.bottom;
+    const holdIn = sticksOut ? getRoom() : null;
+    if (holdIn) pos = holdInRoom(pos, mark, holdIn, ttWidth, ttHeight);
+    return pos;
+  }
+  /**
+   * The side of a horizontal bar its value is at: the right of a positive
+   * bar, the left of a negative one, and the other way round on a reversed
+   * axis. A row has one when every visible bar in it points the same way.
+   * Null for a bar with a value at each end (a range bar, a box plot) or a
+   * row pointing both ways, which then take the side facing the plot's
+   * middle. Funnel and pyramid bars are centred on the plot, so neither side
+   * has more room; they take the right, the same in every row.
+   *
+   * @param {number} j
+   * @param {number | null} [i]  the series; null for every visible series
+   * @returns {'left'|'right' | null}
+   */
+  barValueSide(j2, i2 = null) {
+    var _a, _b, _c, _d, _e, _f;
+    const w = this.w;
+    if ((_b = (_a = w.config.plotOptions) == null ? void 0 : _a.bar) == null ? void 0 : _b.isFunnel) return "right";
+    if (w.config.chart.type !== "bar" || ((_d = (_c = w.rangeData) == null ? void 0 : _c.seriesRange) == null ? void 0 : _d.length)) {
+      return null;
+    }
+    const series = w.seriesData.series;
+    const collapsed = w.globals.collapsedSeriesIndices || [];
+    let positive = false;
+    let negative = false;
+    series.forEach((data, s2) => {
+      if (i2 == null ? collapsed.includes(s2) : s2 !== i2) return;
+      const v = data == null ? void 0 : data[j2];
+      if (v > 0) positive = true;
+      else if (v < 0) negative = true;
+    });
+    if (positive === negative) return null;
+    return negative !== !!((_f = (_e = w.config.yaxis) == null ? void 0 : _e[0]) == null ? void 0 : _f.reversed) ? "left" : "right";
+  }
+  /**
+   * Box position for a tooltip that sits centred above an anchor (pie and
+   * donut slices, radial rings): flipped below the anchor when the page has
+   * no room above, and held inside the visible part of the page sideways, as
+   * a 40px pie sparkline is narrower than its own tooltip. With room on
+   * neither side it stays above, as it always has.
+   *
+   * @param {number} anchorX  elWrap-local
+   * @param {number} anchorY  elWrap-local
+   * @param {number} ttWidth
+   * @param {number} ttHeight
+   * @param {number} gapAbove
+   * @param {number} [gapBelow]
+   * @returns {{ x: number, y: number }}
+   */
+  placeOverAnchor(anchorX, anchorY, ttWidth, ttHeight, gapAbove, gapBelow = gapAbove) {
+    const room = ttHeight > 0 ? this.getVisibleRoom() : null;
+    const pos = room ? placeAroundMark({
+      anchorX,
+      markTop: anchorY,
+      markBottom: anchorY,
+      ttWidth,
+      ttHeight,
+      room,
+      gapAbove,
+      gapBelow
+    }) : null;
+    if (pos) return { x: pos.x, y: pos.y };
+    return {
+      x: room ? clampIntoRoom(anchorX, ttWidth, room) : anchorX - ttWidth / 2,
+      y: anchorY - gapAbove - ttHeight
+    };
   }
   /**
    * This will move the crosshair (the vertical/horz line that moves along with mouse)
@@ -24213,14 +27436,14 @@ class Position {
    * @param {number} cx - point's x position, wherever point's x is, you need to move crosshair
    * @param {number | null} [j]
    */
-  moveXCrosshairs(cx, j = null) {
+  moveXCrosshairs(cx, j2 = null) {
     const ttCtx = this.ttCtx;
     const w = this.w;
     const xcrosshairs = ttCtx.getElXCrosshairs();
     let x = cx - ttCtx.xcrosshairsWidth / 2;
     const tickAmount = w.labelData.labels.slice().length;
-    if (j !== null) {
-      x = w.layout.gridWidth / tickAmount * j;
+    if (j2 !== null) {
+      x = w.layout.gridWidth / tickAmount * j2;
     }
     if (xcrosshairs !== null && !w.globals.isBarHorizontal) {
       xcrosshairs.setAttribute("x", String(x));
@@ -24350,27 +27573,38 @@ class Position {
    * @param {number} cx - point's x position, wherever point's x is, you need to move tooltip
    * @param {number} cy - point's y position, wherever point's y is, you need to move tooltip
    * @param {number | null} [markerSize] - point's size
+   * @param {{ top: number, bottom: number } | null} [mark] - grid-local
+   *   vertical extent of what the tooltip captions, when it is more than the
+   *   point at cy (see computeTooltipPosition)
    */
-  moveTooltip(cx, cy, markerSize = null) {
+  moveTooltip(cx, cy, markerSize = null, mark = null) {
     const ttCtx = this.ttCtx;
     const tooltipEl = ttCtx.getElTooltip();
     if (!tooltipEl) return;
-    const pos = this.computeTooltipPosition(cx, cy, markerSize);
+    const pos = this.computeTooltipPosition(cx, cy, markerSize, mark);
     if (pos === null) return;
     this.applyTooltipPosition(tooltipEl, pos);
   }
   /**
-   * Pure-ish (reads from `this.ttCtx` + `this.w` but performs no DOM writes)
-   * computation of the tooltip box position, edge placement (for arrow),
-   * and arrow vertical offset. Returns null when inputs are not numeric.
+   * Computes the tooltip box position, edge placement (for arrow), and arrow
+   * vertical offset without writing to the DOM. It does read layout: on a
+   * short plot it measures the visible room around the chart (see
+   * `placeOnShortPlot`). Returns null when inputs are not numeric.
+   *
+   * `mark` is what a box on a short plot has to sit above or below: the
+   * column of markers under a shared tooltip, or the bars at a shared index.
+   * Without it, the marker at (cx, cy). It has to be passed separately because
+   * `cy` is not always the point's: some callers hand over a box y they have
+   * already shifted (the no-arrow intersect lift, the sticky bar clamp).
    *
    * @param {number} cx
    * @param {number} cy
    * @param {number | null} [markerSize]
-   * @returns {{ x: number, y: number, placement: 'left'|'right', arrowY: number|null } | null}
+   * @param {{ top: number, bottom: number } | null} [mark]  grid-local
+   * @returns {{ x: number, y: number, placement: 'left'|'right'|'top'|'bottom', arrowY: number|null, arrowX?: number } | null}
    */
-  computeTooltipPosition(cx, cy, markerSize = null) {
-    var _a, _b, _c, _d, _e, _f, _g;
+  computeTooltipPosition(cx, cy, markerSize = null, mark = null) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     const w = this.w;
     const ttCtx = this.ttCtx;
     const tooltipRect = ttCtx.tooltipRect;
@@ -24384,8 +27618,10 @@ class Position {
     const clearance = pointSize + (arrowEnabled ? ARROW_TIP_OVERHANG : 0) + POINT_TIP_GAP;
     let x = cxNum + clearance;
     const pointY = cyNum + w.layout.translateY;
-    let y = arrowEnabled ? pointY - ttH / 2 + pointSize / 2 : cyNum + pointSize / 2;
+    let y = pointY - ttH / 2 + pointSize / 2;
     let placement = "right";
+    let anchorGridX = cxNum;
+    let pointerGridY = null;
     if (x > w.layout.gridWidth / 2) {
       x = cxNum - ttW - clearance;
       placement = "left";
@@ -24396,44 +27632,57 @@ class Position {
     if (x < -20) {
       x = -20;
     }
-    if (w.config.tooltip.followCursor) {
+    if (Utils2.isFollowCursor(w)) {
       const elGrid = ttCtx.getElGrid();
       if (!elGrid) return null;
-      const seriesBound = elGrid.getBoundingClientRect();
-      x = ttCtx.e.clientX - seriesBound.left;
+      const seriesBound = Utils2.plotRect(w);
+      x = ((_a = ttCtx.clientX) != null ? _a : ttCtx.e.clientX) - seriesBound.left;
+      anchorGridX = x;
       if (x > w.layout.gridWidth / 2) {
         x = x - ttW;
         placement = "left";
       } else {
         placement = "right";
       }
-      y = ttCtx.e.clientY + w.layout.translateY - seriesBound.top;
+      pointerGridY = ((_b = ttCtx.clientY) != null ? _b : ttCtx.e.clientY) - seriesBound.top;
+      y = pointerGridY + w.layout.translateY;
       if (y > w.layout.gridHeight / 2) {
         y = y - ttH;
       }
     } else {
       if (!w.globals.isBarHorizontal) {
-        if (arrowEnabled) {
-          const gridTop = w.layout.translateY;
-          const gridBottom = w.layout.translateY + w.layout.gridHeight;
-          if (y + ttH > gridBottom) {
-            y = gridBottom - ttH;
-          }
-          if (y < gridTop) {
-            y = gridTop;
-          }
-        } else {
-          if (ttH / 2 + y > w.layout.gridHeight) {
-            y = w.layout.gridHeight - ttH + w.layout.translateY;
-          }
+        const gridTop = w.layout.translateY;
+        const gridBottom = w.layout.translateY + w.layout.gridHeight;
+        if (y + ttH > gridBottom) {
+          y = gridBottom - ttH;
+        }
+        if (y < gridTop) {
+          y = gridTop;
         }
       }
     }
     if (isNaN(x)) return null;
+    const ty = w.layout.translateY;
+    const followsPointer = pointerGridY !== null;
+    const markTop = followsPointer ? (
+      /** @type {number} */
+      pointerGridY + ty
+    ) : mark ? mark.top + ty : pointY - pointSize;
+    const markBottom = followsPointer ? markTop : mark ? mark.bottom + ty : pointY + pointSize;
+    const stacked = this.placeOnShortPlot(
+      anchorGridX + w.layout.translateX,
+      markTop,
+      markBottom,
+      {
+        gapAbove: ARROW_TIP_OVERHANG + POINT_TIP_GAP,
+        gapBelow: followsPointer ? POINTER_CLEARANCE_BELOW : ARROW_TIP_OVERHANG + POINT_TIP_GAP
+      }
+    );
+    if (stacked) return stacked;
     x = x + w.layout.translateX;
-    const a11y = (_b = (_a = w.config) == null ? void 0 : _a.chart) == null ? void 0 : _b.accessibility;
-    if ((a11y == null ? void 0 : a11y.enabled) && ((_d = (_c = a11y == null ? void 0 : a11y.keyboard) == null ? void 0 : _c.navigation) == null ? void 0 : _d.enabled) && ((_g = (_f = (_e = w.dom) == null ? void 0 : _e.baseEl) == null ? void 0 : _f.querySelector) == null ? void 0 : _g.call(_f, ".apexcharts-keyboard-focused"))) {
-      const refPointY = arrowEnabled ? pointY : cyNum;
+    const a11y = (_d = (_c = w.config) == null ? void 0 : _c.chart) == null ? void 0 : _d.accessibility;
+    if ((a11y == null ? void 0 : a11y.enabled) && ((_f = (_e = a11y == null ? void 0 : a11y.keyboard) == null ? void 0 : _e.navigation) == null ? void 0 : _f.enabled) && ((_i = (_h = (_g = w.dom) == null ? void 0 : _g.baseEl) == null ? void 0 : _h.querySelector) == null ? void 0 : _i.call(_h, ".apexcharts-keyboard-focused"))) {
+      const refPointY = pointY;
       const margin = (pointSize || 1) + 12;
       const tooltipTop = y;
       const tooltipBottom = y + ttH;
@@ -24496,7 +27745,7 @@ class Position {
    * @param {number} i
    * @param {number} j
    */
-  moveMarkers(i2, j) {
+  moveMarkers(i2, j2) {
     var _a;
     const w = this.w;
     const ttCtx = this.ttCtx;
@@ -24505,14 +27754,15 @@ class Position {
         ` .apexcharts-series[data\\:realIndex='${i2}'] .apexcharts-marker`
       );
       for (let p = 0; p < allPoints.length; p++) {
-        if (parseInt((_a = allPoints[p].getAttribute("rel")) != null ? _a : "0", 10) === j) {
-          ttCtx.marker.resetPointsSize();
-          ttCtx.marker.enlargeCurrentPoint(j, allPoints[p]);
+        if (parseInt((_a = allPoints[p].getAttribute("rel")) != null ? _a : "0", 10) === j2) {
+          ttCtx.marker.resetEnlargedPoints();
+          ttCtx.marker.enlargeCurrentPoint(j2, allPoints[p]);
+          break;
         }
       }
     } else {
       ttCtx.marker.resetPointsSize();
-      this.moveDynamicPointOnHover(j, i2);
+      this.moveDynamicPointOnHover(j2, i2);
     }
   }
   // This function is used when you need to show markers/points only on hover -
@@ -24521,7 +27771,7 @@ class Position {
    * @param {number} j
    * @param {number} capturedSeries
    */
-  moveDynamicPointOnHover(j, capturedSeries) {
+  moveDynamicPointOnHover(j2, capturedSeries) {
     var _a, _b, _c, _d, _e;
     const w = this.w;
     const ttCtx = this.ttCtx;
@@ -24537,19 +27787,25 @@ class Position {
     if (serType && (serType === "column" || serType === "candlestick" || serType === "boxPlot" || serType === "violin")) {
       return;
     }
-    cx = (_b = (_a = pointsArr[capturedSeries]) == null ? void 0 : _a[j]) == null ? void 0 : _b[0];
-    cy = ((_d = (_c = pointsArr[capturedSeries]) == null ? void 0 : _c[j]) == null ? void 0 : _d[1]) || 0;
+    cx = (_b = (_a = pointsArr[capturedSeries]) == null ? void 0 : _a[j2]) == null ? void 0 : _b[0];
+    const pointY = (_d = (_c = pointsArr[capturedSeries]) == null ? void 0 : _c[j2]) == null ? void 0 : _d[1];
+    const hasPoint = Number.isFinite(pointY);
+    cy = hasPoint ? (
+      /** @type {number} */
+      pointY
+    ) : 0;
     const point = w.dom.baseEl.querySelector(
       `.apexcharts-series[data\\:realIndex='${capturedSeries}'] .apexcharts-series-markers path`
     );
-    if (point && cy < w.layout.gridHeight && cy > 0) {
+    if (point && hasPoint && cy <= w.layout.gridHeight && cy >= 0) {
       const shape = (_e = point.getAttribute("shape")) != null ? _e : "circle";
       const path = graphics.getMarkerPath(cx, cy, shape, hoverSize * 1.5);
       point.setAttribute("d", path);
     }
     this.moveXCrosshairs(cx);
     if (!ttCtx.fixedTooltip) {
-      this.moveTooltip(cx, cy, hoverSize);
+      const r2 = hoverSize * 1.5;
+      this.moveTooltip(cx, cy, hoverSize, { top: cy - r2, bottom: cy + r2 });
     }
   }
   // This function is used when you need to show markers/points only on hover -
@@ -24557,7 +27813,7 @@ class Position {
   /**
    * @param {number} j
    */
-  moveDynamicPointsOnHover(j) {
+  moveDynamicPointsOnHover(j2) {
     var _a, _b;
     const ttCtx = this.ttCtx;
     const w = ttCtx.w;
@@ -24574,9 +27830,11 @@ class Position {
       "bubble"
     ]);
     const hoverSize = ttCtx.tooltipUtil.getHoverMarkerSize(activeSeries);
-    if ((_a = pointsArr[activeSeries]) == null ? void 0 : _a[j]) {
-      cx = pointsArr[activeSeries][j][0];
-      cy = pointsArr[activeSeries][j][1];
+    let hasPoint = false;
+    if ((_a = pointsArr[activeSeries]) == null ? void 0 : _a[j2]) {
+      cx = pointsArr[activeSeries][j2][0];
+      cy = pointsArr[activeSeries][j2][1];
+      hasPoint = Number.isFinite(cy);
     }
     if (isNaN(cx)) {
       return;
@@ -24591,12 +27849,12 @@ class Position {
           }
         }
         if (points[p] && pointArr && pointArr.length) {
-          let pcy = pointsArr[p][j][1];
+          let pcy = pointsArr[p][j2][1];
           let pcy2;
           points[p].setAttribute("cx", cx);
           const shape = (_b = points[p].getAttribute("shape")) != null ? _b : "circle";
           if (w.config.chart.type === "rangeArea" && !w.globals.comboCharts) {
-            const rangeStartIndex = j + w.seriesData.series[p].length;
+            const rangeStartIndex = j2 + w.seriesData.series[p].length;
             pcy2 = pointsArr[p][rangeStartIndex][1];
             const pcyDiff = Math.abs(pcy - pcy2) / 2;
             pcy = pcy - pcyDiff;
@@ -24612,14 +27870,54 @@ class Position {
     }
     this.moveXCrosshairs(cx);
     if (!ttCtx.fixedTooltip) {
-      this.moveTooltip(cx, cy || w.layout.gridHeight, hoverSize);
+      this.moveTooltip(
+        cx,
+        hasPoint ? cy : w.layout.gridHeight,
+        hoverSize,
+        this.isShortPlot() ? this.columnExtent(j2, hoverSize) : null
+      );
     }
+  }
+  /**
+   * Grid-local vertical extent of every visible series' point at index `j`
+   * (both ends of a range), padded by the hover marker's size: what a shared
+   * tooltip on a short plot sits above, so it covers none of them. Null when
+   * no series has a point there inside the plot.
+   *
+   * @param {number} j
+   * @param {number} pad
+   * @returns {{ top: number, bottom: number } | null}
+   */
+  columnExtent(j2, pad) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    const w = this.w;
+    const gl = w.globals;
+    const pointsArr = gl.pointsArray || [];
+    const isRange = w.config.chart.type === "rangeArea" && !gl.comboCharts;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (let p = 0; p < pointsArr.length; p++) {
+      if (((_a = gl.collapsedSeriesIndices) == null ? void 0 : _a.indexOf(p)) > -1 || ((_b = gl.ancillaryCollapsedSeriesIndices) == null ? void 0 : _b.indexOf(p)) > -1) {
+        continue;
+      }
+      const ys = [(_d = (_c = pointsArr[p]) == null ? void 0 : _c[j2]) == null ? void 0 : _d[1]];
+      if (isRange) {
+        ys.push((_h = (_g = pointsArr[p]) == null ? void 0 : _g[j2 + ((_f = (_e = w.seriesData.series[p]) == null ? void 0 : _e.length) != null ? _f : 0)]) == null ? void 0 : _h[1]);
+      }
+      for (const y of ys) {
+        if (Number.isFinite(y) && y >= -pad && y <= w.layout.gridHeight + pad) {
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+    }
+    return Number.isFinite(top) ? { top: top - pad, bottom: bottom + pad } : null;
   }
   /**
    * @param {number} j
    * @param {number} capturedSeries
    */
-  moveStickyTooltipOverBars(j, capturedSeries) {
+  moveStickyTooltipOverBars(j2, capturedSeries) {
     var _a, _b, _c, _d, _e;
     const w = this.w;
     const ttCtx = this.ttCtx;
@@ -24635,64 +27933,53 @@ class Position {
       const series = new Series(this.w);
       i2 = series.getActiveConfigSeriesIndex("desc") + 1;
     }
-    let jBar = w.dom.baseEl.querySelector(
-      `.apexcharts-bar-series .apexcharts-series[rel='${i2}'] path[j='${j}'], .apexcharts-candlestick-series .apexcharts-series[rel='${i2}'] path[j='${j}'], .apexcharts-boxPlot-series .apexcharts-series[rel='${i2}'] path[j='${j}'], .apexcharts-violin-series .apexcharts-series[rel='${i2}'] path[j='${j}'], .apexcharts-rangebar-series .apexcharts-series[rel='${i2}'] path[j='${j}']`
+    const painted = !!/** @type {any} */
+    w.globals.barCanvasCoords;
+    let jBar = painted ? null : w.dom.baseEl.querySelector(
+      `.apexcharts-bar-series .apexcharts-series[rel='${i2}'] path[j='${j2}'], .apexcharts-candlestick-series .apexcharts-series[rel='${i2}'] path[j='${j2}'], .apexcharts-boxPlot-series .apexcharts-series[rel='${i2}'] path[j='${j2}'], .apexcharts-violin-series .apexcharts-series[rel='${i2}'] path.apexcharts-violin-area[j='${j2}'], .apexcharts-rangebar-series .apexcharts-series[rel='${i2}'] path[j='${j2}']`
     );
-    if (!jBar && typeof capturedSeries === "number") {
+    if (!jBar && !painted && typeof capturedSeries === "number") {
       jBar = w.dom.baseEl.querySelector(
-        `.apexcharts-bar-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j}'],
-        .apexcharts-candlestick-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j}'],
-        .apexcharts-boxPlot-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j}'],
-        .apexcharts-violin-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j}'],
-        .apexcharts-rangebar-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j}']`
+        `.apexcharts-bar-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j2}'],
+        .apexcharts-candlestick-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j2}'],
+        .apexcharts-boxPlot-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j2}'],
+        .apexcharts-violin-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path.apexcharts-violin-area[j='${j2}'],
+        .apexcharts-rangebar-series .apexcharts-series[data\\:realIndex='${capturedSeries}'] path[j='${j2}']`
       );
     }
-    let bc = null;
-    const bcc = (
-      /** @type {any} */
-      w.globals.barCanvasCoords
-    );
-    if (!jBar && bcc) {
-      bc = typeof capturedSeries === "number" && ((_a = bcc[capturedSeries]) == null ? void 0 : _a[j]) || null;
-      if (!bc) {
-        for (const key in bcc) {
-          if ((_b = bcc[key]) == null ? void 0 : _b[j]) {
-            bc = bcc[key][j];
-            break;
-          }
-        }
-      }
-    }
-    let bcx = jBar ? parseFloat((_c = jBar.getAttribute("cx")) != null ? _c : "0") : bc ? bc.cx : 0;
-    let bcy = jBar ? parseFloat((_d = jBar.getAttribute("cy")) != null ? _d : "0") : bc ? bc.cy : 0;
-    const bw = jBar ? parseFloat((_e = jBar.getAttribute("barWidth")) != null ? _e : "0") : bc ? bc.barWidth : 0;
+    const bc = painted ? this._paintedBarFor(i2, j2, capturedSeries) : null;
+    const hasBar = !!jBar || !!bc;
+    let bcx = jBar ? parseFloat((_a = jBar.getAttribute("cx")) != null ? _a : "0") : bc ? (_b = bc.bodyCx) != null ? _b : bc.cx : 0;
+    let bcy = jBar ? parseFloat((_c = jBar.getAttribute("cy")) != null ? _c : "0") : bc ? bc.cy : 0;
+    const bw = jBar ? parseFloat((_d = jBar.getAttribute("barWidth")) != null ? _d : "0") : bc ? bc.barWidth : 0;
     const elGrid = ttCtx.getElGrid();
     if (!elGrid) return;
-    const seriesBound = elGrid.getBoundingClientRect();
-    const isBoxOrCandle = jBar && (jBar.classList.contains("apexcharts-candlestick-area") || jBar.classList.contains("apexcharts-boxPlot-area"));
-    if (w.axisFlags.isXNumeric) {
-      if (jBar && !isBoxOrCandle) {
-        const center = this._datapointCenterXFromBars(j);
+    const seriesBound = Utils2.plotRect(w);
+    const isBoxOrCandle = jBar ? jBar.classList.contains("apexcharts-candlestick-area") || jBar.classList.contains("apexcharts-boxPlot-area") : (bc == null ? void 0 : bc.type) === "candlestick" || (bc == null ? void 0 : bc.type) === "boxPlot";
+    const isViolin = jBar ? jBar.classList.contains("apexcharts-violin-area") : (bc == null ? void 0 : bc.type) === "violin";
+    const violinMiddle = isViolin && w.axisFlags.isXNumeric && !w.globals.isBarHorizontal ? this._violinsMiddleAt(j2) : null;
+    if (violinMiddle != null) {
+      bcx = violinMiddle;
+    } else if (w.axisFlags.isXNumeric) {
+      if (hasBar && !isBoxOrCandle) {
+        const center = this._datapointCenterXFromBars(j2);
         if (center != null) {
           bcx = center;
         } else {
           bcx = bcx - (barLen % 2 !== 0 ? bw / 2 : 0);
         }
       }
-      if (jBar && // fixes apexcharts.js#2354
+      if (hasBar && // fixes apexcharts.js#2354
       isBoxOrCandle) {
         bcx = bcx - bw / 2;
       }
-    } else {
-      if (!w.globals.isBarHorizontal && !bc) {
-        bcx = ttCtx.xAxisTicksPositions[j - 1] + ttCtx.dataPointsDividedWidth / 2;
-        if (isNaN(bcx)) {
-          bcx = ttCtx.xAxisTicksPositions[j] - ttCtx.dataPointsDividedWidth / 2;
-        }
-      }
+    } else if (!w.globals.isBarHorizontal) {
+      const tickCx = ttCtx.xAxisTicksPositions[j2 - 1] + ttCtx.dataPointsDividedWidth / 2;
+      bcx = isNaN(tickCx) ? ttCtx.xAxisTicksPositions[j2] - ttCtx.dataPointsDividedWidth / 2 : tickCx;
+      if (isNaN(bcx) && bc) bcx = bc.cx;
     }
     if (!w.globals.isBarHorizontal) {
-      if (w.config.tooltip.followCursor) {
+      if (Utils2.isFollowCursor(w)) {
         bcy = ttCtx.e.clientY - seriesBound.top - ttCtx.tooltipRect.ttHeight / 2;
       } else {
         if (bcy + ttCtx.tooltipRect.ttHeight + 15 > w.layout.gridHeight) {
@@ -24706,12 +27993,186 @@ class Position {
       this.moveXCrosshairs(bcx);
     }
     if (!ttCtx.fixedTooltip) {
-      if (w.globals.isBarHorizontal && !w.config.tooltip.followCursor) {
-        const placed = this.placeHorizontalSharedTooltip(j);
+      if (w.globals.isBarHorizontal && !Utils2.isFollowCursor(w)) {
+        const placed = this.placeHorizontalSharedTooltip(j2);
         if (placed) return;
       }
-      this.moveTooltip(bcx, bcy || w.layout.gridHeight);
+      const mark = this.isShortPlot() ? (_e = this._barsExtentInGrid(j2)) != null ? _e : { top: 0, bottom: w.layout.gridHeight } : null;
+      const anchorY = !Number.isFinite(bcy) || bcy === 0 && !hasBar && !Utils2.isFollowCursor(w) ? w.layout.gridHeight : bcy;
+      this.moveTooltip(bcx, anchorY, null, mark);
     }
+  }
+  /**
+   * The coords cached for the bar-like mark at index `j` painted to canvas
+   * (Bar.renderSeries), found the way `moveStickyTooltipOverBars` finds the
+   * SVG path: down from the series group at `rel` (the first in document
+   * order across the bar-like types that has a mark at `j`), else the
+   * captured series. Painted marks leave the groups in place, only empty.
+   * Failing both, any series with a mark at `j`. Null when nothing was
+   * painted.
+   * @param {number} rel
+   * @param {number} j
+   * @param {number} capturedSeries  realIndex
+   * @returns {any}
+   */
+  _paintedBarFor(rel, j2, capturedSeries) {
+    var _a, _b, _c;
+    const w = this.w;
+    const bcc = (
+      /** @type {any} */
+      w.globals.barCanvasCoords
+    );
+    if (!bcc) return null;
+    const groups = w.dom.baseEl.querySelectorAll(
+      ["bar", "candlestick", "boxPlot", "violin", "rangebar"].map((t2) => `.apexcharts-${t2}-series .apexcharts-series[rel='${rel}']`).join(", ")
+    );
+    for (let g = 0; g < groups.length; g++) {
+      const realIndex = groups[g].getAttribute("data:realIndex");
+      if (realIndex !== null && ((_a = bcc[realIndex]) == null ? void 0 : _a[j2])) return bcc[realIndex][j2];
+    }
+    if (typeof capturedSeries === "number" && ((_b = bcc[capturedSeries]) == null ? void 0 : _b[j2])) {
+      return bcc[capturedSeries][j2];
+    }
+    for (const key in bcc) {
+      if ((_c = bcc[key]) == null ? void 0 : _c[j2]) return bcc[key][j2];
+    }
+    return null;
+  }
+  /**
+   * The extent of every bar-like mark at index `j` painted to canvas, from
+   * what Bar.renderSeries caches for each, in plot px: the canvas half of
+   * the SVG queries over `path[j]`, which find nothing painted. Only marks
+   * drawn as one of `types` (the `apexcharts-${type}-area` they would be
+   * classed), and none of a hidden series, whose paths those queries skip.
+   * Null when none was painted.
+   * @param {number} j
+   * @param {string[]} types
+   * @returns {{ left: number, top: number, right: number, bottom: number } | null}
+   */
+  _paintedAt(j2, types) {
+    var _a;
+    const w = this.w;
+    const bcc = (
+      /** @type {any} */
+      w.globals.barCanvasCoords
+    );
+    if (!bcc) return null;
+    const hidden = this._hiddenSeries();
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (const key in bcc) {
+      const c = (_a = bcc[key]) == null ? void 0 : _a[j2];
+      const b = c == null ? void 0 : c.bounds;
+      if (!b || !types.includes(c.type) || hidden.includes(Number(key))) {
+        continue;
+      }
+      left = Math.min(left, b.left);
+      top = Math.min(top, b.top);
+      right = Math.max(right, b.right);
+      bottom = Math.max(bottom, b.bottom);
+    }
+    return Number.isFinite(left) ? { left, top, right, bottom } : null;
+  }
+  /**
+   * The realIndex of every series hidden from the legend, whose painted marks
+   * the canvas lookups skip as the SVG queries skip a collapsed group.
+   * @returns {number[]}
+   */
+  _hiddenSeries() {
+    const gl = this.w.globals;
+    return [
+      ...gl.collapsedSeriesIndices || [],
+      ...gl.ancillaryCollapsedSeriesIndices || []
+    ];
+  }
+  /**
+   * Halfway between the centre lines of the outermost visible violins at
+   * index `j`, in plot px: the middle of the category's group, where the
+   * shared tooltip and its band go on a vertical violin chart. Hidden series
+   * draw nothing there, so they do not count, on either renderer: a canvas
+   * violin's centre comes from the coords Violin.draw caches, an SVG body's
+   * from the centre line it stamps on the body. Null with no violin at `j`.
+   * @param {number} j
+   * @returns {number | null}
+   */
+  _violinsMiddleAt(j2) {
+    var _a, _b;
+    const w = this.w;
+    let first = Infinity;
+    let last = -Infinity;
+    const take = (centre) => {
+      if (!Number.isFinite(centre)) return;
+      first = Math.min(first, centre);
+      last = Math.max(last, centre);
+    };
+    const bcc = (
+      /** @type {any} */
+      w.globals.barCanvasCoords
+    );
+    if (bcc) {
+      const hidden = this._hiddenSeries();
+      for (const key in bcc) {
+        const c = (_a = bcc[key]) == null ? void 0 : _a[j2];
+        if ((c == null ? void 0 : c.type) === "violin" && !hidden.includes(Number(key))) take(c.cx);
+      }
+    } else {
+      const bodies = w.dom.baseEl.querySelectorAll(
+        `.apexcharts-violin-series .apexcharts-series:not(.apexcharts-series-collapsed) path.apexcharts-violin-area[j='${j2}']`
+      );
+      for (let k = 0; k < bodies.length; k++) {
+        take(parseFloat((_b = bodies[k].getAttribute("data:center")) != null ? _b : ""));
+      }
+    }
+    return Number.isFinite(first) ? (first + last) / 2 : null;
+  }
+  /**
+   * Vertical extent of every visible bar-like mark at index `j` (bars,
+   * candles, boxes), from their painted rects, in the grid-local space
+   * `moveTooltip` reads a mark in: it adds translateY to come back to elWrap
+   * px, so the extent is measured from elWrap's top plus translateY. Measured
+   * from the plot's corner instead it lands chart.offsetY off, which
+   * translateY leaves out. Null when there are none.
+   * @param {number} j
+   * @returns {{ top: number, bottom: number } | null}
+   */
+  _barsExtentInGrid(j2) {
+    var _a, _b;
+    const w = this.w;
+    const marks = w.dom.baseEl.querySelectorAll(
+      `.apexcharts-bar-series path[j='${j2}'],.apexcharts-rangebar-series path[j='${j2}'],.apexcharts-candlestick-series path[j='${j2}'],.apexcharts-boxPlot-series path[j='${j2}'],.apexcharts-violin-series path[j='${j2}']`
+    );
+    const painted = this._paintedAt(j2, [
+      "bar",
+      "rangebar",
+      "candlestick",
+      "boxPlot",
+      "violin"
+    ]);
+    if (!marks.length && !painted) return null;
+    let top = Infinity;
+    let bottom = -Infinity;
+    if (painted) {
+      const plot = Utils2.plotRect(w);
+      top = plot.top + painted.top * plot.zoom;
+      bottom = plot.top + painted.bottom * plot.zoom;
+    }
+    for (let k = 0; k < marks.length; k++) {
+      const mark = marks[k];
+      const parent = (
+        /** @type {Element|null} */
+        mark.parentNode
+      );
+      if ((_b = (_a = parent == null ? void 0 : parent.classList) == null ? void 0 : _a.contains) == null ? void 0 : _b.call(_a, "apexcharts-series-collapsed")) continue;
+      const r2 = mark.getBoundingClientRect();
+      if (r2.width === 0 && r2.height === 0) continue;
+      top = Math.min(top, r2.top);
+      bottom = Math.max(bottom, r2.bottom);
+    }
+    if (!Number.isFinite(top)) return null;
+    const origin = w.dom.elWrap.getBoundingClientRect().top + w.layout.translateY;
+    return { top: top - origin, bottom: bottom - origin };
   }
   /**
    * Place tooltip above (or flipped: below) the union rect of all bars at
@@ -24724,15 +28185,21 @@ class Position {
    * @param {number} j
    * @returns {number | null}
    */
-  _datapointCenterXFromBars(j) {
+  _datapointCenterXFromBars(j2) {
     var _a, _b;
     const w = this.w;
     const bars = w.dom.baseEl.querySelectorAll(
-      `.apexcharts-bar-series path[j='${j}'],.apexcharts-rangebar-series path[j='${j}']`
+      `.apexcharts-bar-series path[j='${j2}'],.apexcharts-rangebar-series path[j='${j2}']`
     );
-    if (!bars.length) return null;
+    const painted = this._paintedAt(j2, ["bar", "rangebar"]);
+    if (!bars.length && !painted) return null;
     let unionLeft = Infinity;
     let unionRight = -Infinity;
+    if (painted) {
+      const plot = Utils2.plotRect(w);
+      unionLeft = plot.left + painted.left * plot.zoom;
+      unionRight = plot.left + painted.right * plot.zoom;
+    }
     for (const bar of bars) {
       const parent = (
         /** @type {Element|null} */
@@ -24751,13 +28218,13 @@ class Position {
     return AxisMapping.screenXToPlotPx(w, (unionLeft + unionRight) / 2);
   }
   /**
-   * Place tooltip above (or flipped: below) the union rect of all bars at
-   * dataPointIndex `j` for horizontal-bar-likes. Returns true when a
+   * Place tooltip above (or flipped: below, or beside) the union rect of all
+   * bars at dataPointIndex `j` for horizontal-bar-likes. Returns true when a
    * placement was applied; false when no bars found (caller falls back).
    * @param {number} j
    * @returns {boolean}
    */
-  placeHorizontalSharedTooltip(j) {
+  placeHorizontalSharedTooltip(j2) {
     var _a, _b;
     const w = this.w;
     const ttCtx = this.ttCtx;
@@ -24765,15 +28232,22 @@ class Position {
     if (!tooltipEl) return false;
     const elGrid = ttCtx.getElGrid();
     if (!elGrid) return false;
-    const gridRect = elGrid.getBoundingClientRect();
     const bars = w.dom.baseEl.querySelectorAll(
-      `.apexcharts-bar-series path[j='${j}'],.apexcharts-rangebar-series path[j='${j}'],.apexcharts-boxPlot-series path[j='${j}']`
+      `.apexcharts-bar-series path[j='${j2}'],.apexcharts-rangebar-series path[j='${j2}'],.apexcharts-boxPlot-series path[j='${j2}'],.apexcharts-violin-series path.apexcharts-violin-area[j='${j2}'],.apexcharts-violin-series path.apexcharts-violin-points[j='${j2}']`
     );
-    if (!bars.length) return false;
+    const painted = this._paintedAt(j2, ["bar", "rangebar", "boxPlot", "violin"]);
+    if (!bars.length && !painted) return false;
     let unionLeft = Infinity;
     let unionRight = -Infinity;
     let unionTop = Infinity;
     let unionBottom = -Infinity;
+    if (painted) {
+      const plot = Utils2.plotRect(w);
+      unionLeft = plot.left + painted.left * plot.zoom;
+      unionRight = plot.left + painted.right * plot.zoom;
+      unionTop = plot.top + painted.top * plot.zoom;
+      unionBottom = plot.top + painted.bottom * plot.zoom;
+    }
     for (const bar of bars) {
       const parent = (
         /** @type {Element|null} */
@@ -24791,35 +28265,37 @@ class Position {
       if (r2.bottom > unionBottom) unionBottom = r2.bottom;
     }
     if (!isFinite(unionLeft)) return false;
-    const ttW = ttCtx.tooltipRect.ttWidth || 0;
-    const ttH = ttCtx.tooltipRect.ttHeight || 0;
-    const rowCenterX = (unionLeft + unionRight) / 2 - gridRect.left + w.layout.translateX;
-    const rowTopElWrap = unionTop - gridRect.top + w.layout.translateY;
-    const rowBottomElWrap = unionBottom - gridRect.top + w.layout.translateY;
-    const gridTop = w.layout.translateY;
-    const gridBottom = w.layout.translateY + w.layout.gridHeight;
-    const gridLeft = w.layout.translateX;
-    const gridRight = w.layout.translateX + w.layout.gridWidth;
-    let placement = "top";
-    let finalY = rowTopElWrap - ttH - ARROW_TIP_OVERHANG;
-    if (finalY < gridTop) {
-      const belowTop = rowBottomElWrap + ARROW_TIP_OVERHANG;
-      if (belowTop + ttH <= gridBottom) {
-        placement = "bottom";
-        finalY = belowTop;
-      }
+    const wrap = w.dom.elWrap.getBoundingClientRect();
+    const rowLeftElWrap = unionLeft - wrap.left;
+    const rowRightElWrap = unionRight - wrap.left;
+    const rowCenterX = (rowLeftElWrap + rowRightElWrap) / 2;
+    const rowTopElWrap = unionTop - wrap.top;
+    const rowBottomElWrap = unionBottom - wrap.top;
+    const { left: gridLeft, top: gridTop } = Utils2.plotInWrap(w);
+    const gridBottom = gridTop + w.layout.gridHeight;
+    const gridRight = gridLeft + w.layout.gridWidth;
+    const stacked = this.placeOnShortPlot(
+      rowCenterX,
+      rowTopElWrap,
+      rowBottomElWrap
+    );
+    if (stacked) {
+      this.applyTooltipPosition(tooltipEl, stacked);
+      return true;
     }
-    let finalX = rowCenterX - ttW / 2;
-    if (finalX < gridLeft) finalX = gridLeft;
-    if (finalX + ttW > gridRight) finalX = gridRight - ttW;
-    const arrowX = Math.max(10, Math.min(ttW - 10, rowCenterX - finalX));
-    this.applyTooltipPosition(tooltipEl, {
-      x: finalX,
-      y: finalY,
-      placement,
-      arrowY: null,
-      arrowX
-    });
+    this.applyTooltipPosition(
+      tooltipEl,
+      this.placeAroundBar(
+        {
+          top: rowTopElWrap,
+          bottom: rowBottomElWrap,
+          left: rowLeftElWrap,
+          right: rowRightElWrap
+        },
+        { top: gridTop, bottom: gridBottom, left: gridLeft, right: gridRight },
+        j2
+      )
+    );
     return true;
   }
 }
@@ -24861,10 +28337,12 @@ class Marker {
    * @param {import('./Tooltip').default} tooltipContext
    */
   constructor(tooltipContext) {
+    var _a;
     this.w = tooltipContext.w;
     this.ttCtx = tooltipContext;
     this.ctx = tooltipContext.ctx;
-    this.tooltipPosition = new Position(tooltipContext);
+    this.tooltipPosition = (_a = tooltipContext.tooltipPosition) != null ? _a : new Position(tooltipContext);
+    this.enlargedPoints = /* @__PURE__ */ new Set();
   }
   drawDynamicPoints() {
     const w = this.w;
@@ -24887,7 +28365,7 @@ class Marker {
       );
       if (pointsMain !== null) {
         let PointClasses = `apexcharts-marker w${(Math.random() + 1).toString(36).substring(4)}`;
-        if (Markers.markersAreInert(w)) {
+        if (Markers.markersAreInert(w) || Utils2.isCanvasMarkerChart(w)) {
           PointClasses += " no-pointer-events";
         }
         const elPointOptions = marker.getMarkerConfig({
@@ -24918,6 +28396,7 @@ class Marker {
     }
     let cx = point.getAttribute("cx");
     let cy = point.getAttribute("cy");
+    let mark = this.tooltipPosition.isShortPlot() ? this.markExtent(point, cy, appliedSize) : null;
     if (x !== null && y !== null) {
       cx = x;
       cy = y;
@@ -24927,27 +28406,77 @@ class Marker {
       if (w.config.chart.type === "radar") {
         const elGrid = this.ttCtx.getElGrid();
         if (!elGrid) return;
-        const seriesBound = elGrid.getBoundingClientRect();
+        const seriesBound = Utils2.plotRect(w);
         cx = this.ttCtx.e.clientX - seriesBound.left;
+        if (this.tooltipPosition.isShortPlot()) {
+          const py = this.ttCtx.e.clientY - seriesBound.top;
+          mark = { top: py, bottom: py };
+        }
       }
-      this.tooltipPosition.moveTooltip(cx, cy, appliedSize);
+      this.tooltipPosition.moveTooltip(cx, cy, appliedSize, mark);
+    }
+  }
+  /**
+   * The hovered marker when it is painted to canvas, which leaves no node to
+   * enlarge (enlargeCurrentPoint). The series' hover dot (drawDynamicPoints)
+   * is drawn over it at the size an enlarged marker gets, and the crosshair
+   * and the box go to (x, y) as they go for an enlarged marker.
+   *
+   * @param {{ i: number, cx: number, cy: number, size: number }} marker
+   *   its series (realIndex), centre in grid px and painted size
+   * @param {number} x
+   * @param {number} y
+   */
+  enlargePaintedPoint(marker, x, y) {
+    var _a;
+    const w = this.w;
+    this.resetPointsSize();
+    const isBubble = w.config.chart.type === "bubble";
+    let hoverSize = w.config.markers.hover.size;
+    if (hoverSize === void 0 && !isBubble) {
+      hoverSize = marker.size + w.config.markers.hover.sizeOffset;
+    }
+    if (hoverSize !== void 0) hoverSize = Math.max(0, hoverSize);
+    const reach = isBubble ? marker.size : hoverSize != null ? hoverSize : 0;
+    const point = isBubble ? null : w.dom.baseEl.querySelector(
+      `.apexcharts-series[data\\:realIndex='${marker.i}'] .apexcharts-series-markers path`
+    );
+    if (point) {
+      const shape = (_a = point.getAttribute("shape")) != null ? _a : "circle";
+      point.setAttribute(
+        "d",
+        new Graphics(w).getMarkerPath(marker.cx, marker.cy, shape, hoverSize)
+      );
+    }
+    this.tooltipPosition.moveXCrosshairs(x);
+    if (!this.ttCtx.fixedTooltip) {
+      this.tooltipPosition.moveTooltip(
+        x,
+        y,
+        hoverSize,
+        this.tooltipPosition.isShortPlot() ? { top: marker.cy - reach, bottom: marker.cy + reach } : null
+      );
     }
   }
   /**
    * @param {number} j
    */
-  enlargePoints(j) {
+  enlargePoints(j2) {
     var _a, _b;
     const w = this.w;
     const me = this;
     const ttCtx = this.ttCtx;
-    const col = j;
+    const col = j2;
+    this.resetEnlargedPoints();
     const points = w.dom.baseEl.querySelectorAll(
-      ".apexcharts-series:not(.apexcharts-series-collapsed) .apexcharts-marker"
+      `.apexcharts-series:not(.apexcharts-series-collapsed) .apexcharts-marker[rel="${col}"]`
     );
     let newSize = w.config.markers.hover.size;
+    let lastCx = null;
+    let lastCy = null;
+    let colTop = Infinity;
+    let colBottom = -Infinity;
     for (let p = 0; p < points.length; p++) {
-      const rel = points[p].getAttribute("rel");
       const index = points[p].getAttribute("index");
       if (newSize === void 0) {
         newSize = w.globals.markers.size[
@@ -24955,22 +28484,97 @@ class Marker {
           index
         ] + w.config.markers.hover.sizeOffset;
       }
-      if (col === parseInt(rel != null ? rel : "0", 10)) {
-        me.newPointSize(col, points[p]);
-        const cx = (_a = points[p].getAttribute("cx")) != null ? _a : "0";
-        const cy = (_b = points[p].getAttribute("cy")) != null ? _b : "0";
-        me.tooltipPosition.moveXCrosshairs(parseFloat(cx));
-        if (!ttCtx.fixedTooltip) {
-          me.tooltipPosition.moveTooltip(
-            parseFloat(cx),
-            parseFloat(cy),
-            newSize
-          );
-        }
-      } else {
-        me.oldPointSize(points[p]);
+      me.newPointSize(col, points[p]);
+      lastCx = (_a = points[p].getAttribute("cx")) != null ? _a : "0";
+      lastCy = (_b = points[p].getAttribute("cy")) != null ? _b : "0";
+      const y = parseFloat(lastCy);
+      if (Number.isFinite(y)) {
+        if (y < colTop) colTop = y;
+        if (y > colBottom) colBottom = y;
       }
     }
+    if (lastCx === null) return;
+    me.tooltipPosition.moveXCrosshairs(parseFloat(lastCx));
+    if (!ttCtx.fixedTooltip) {
+      me.tooltipPosition.moveTooltip(
+        parseFloat(lastCx),
+        parseFloat(
+          /** @type {string} */
+          lastCy
+        ),
+        newSize,
+        me.tooltipPosition.isShortPlot() ? me.columnMark(col, colTop, colBottom, newSize) : null
+      );
+    }
+  }
+  /**
+   * Grid-local extent of a shared column on a short plot: the enlarged
+   * markers' span padded by their hover size, joined with the bars at the
+   * same index when the chart has some.
+   *
+   * @param {number} j
+   * @param {number} top  highest marker centre (smallest y)
+   * @param {number} bottom  lowest marker centre
+   * @param {number} size  hover size
+   * @returns {{ top: number, bottom: number } | null}
+   */
+  columnMark(j2, top, bottom, size) {
+    const pad = Number.isFinite(size) ? size : 0;
+    let mark = Number.isFinite(top) ? { top: top - pad, bottom: bottom + pad } : null;
+    if (this.w.globals.comboCharts && this.ttCtx.tooltipUtil.hasBars()) {
+      const bars = this.tooltipPosition._barsExtentInGrid(j2);
+      if (bars) {
+        mark = mark ? {
+          top: Math.min(mark.top, bars.top),
+          bottom: Math.max(mark.bottom, bars.bottom)
+        } : bars;
+      }
+    }
+    return mark;
+  }
+  /**
+   * Grid-local vertical extent of an enlarged marker. A bubble's radius is its
+   * own, so it is measured; other markers are `size` around their centre.
+   * Radar markers sit in a group of their own, so their centre is not in grid
+   * px: the radar branch uses the pointer instead, as it does for x.
+   *
+   * @param {Element} point
+   * @param {string | null} cy
+   * @param {number | undefined} size
+   * @returns {{ top: number, bottom: number } | null}
+   */
+  markExtent(point, cy, size) {
+    var _a;
+    const w = this.w;
+    if (w.config.chart.type === "radar") return null;
+    if (w.config.chart.type === "bubble") {
+      const box = (
+        /** @type {SVGGraphicsElement} */
+        (_a = point.getBBox) == null ? void 0 : _a.call(point)
+      );
+      if (box && box.height > 0) {
+        return { top: box.y, bottom: box.y + box.height };
+      }
+    }
+    const c = parseFloat(String(cy));
+    const r2 = Number.isFinite(size) ? (
+      /** @type {number} */
+      size
+    ) : 0;
+    return Number.isFinite(c) ? { top: c - r2, bottom: c + r2 } : null;
+  }
+  /**
+   * Restore every marker this module grew back to its default size. Cheap
+   * because it only visits the handful of nodes actually enlarged, where the
+   * old code re-pathed every marker in the chart.
+   */
+  resetEnlargedPoints() {
+    if (this.enlargedPoints.size === 0) return;
+    const points = Array.from(this.enlargedPoints);
+    for (let i2 = 0; i2 < points.length; i2++) {
+      this.oldPointSize(points[i2]);
+    }
+    this.enlargedPoints.clear();
   }
   /**
    * Resizes the hovered marker to its hover size and returns the size applied,
@@ -24994,6 +28598,7 @@ class Marker {
       }
       const path = this.ttCtx.tooltipUtil.getPathFromPoint(point, newSize);
       point.setAttribute("d", path);
+      this.enlargedPoints.add(point);
       return newSize;
     }
     return void 0;
@@ -25005,10 +28610,12 @@ class Marker {
     const size = parseFloat(point.getAttribute("default-marker-size"));
     const path = this.ttCtx.tooltipUtil.getPathFromPoint(point, size);
     point.setAttribute("d", path);
+    this.enlargedPoints.delete(point);
   }
   resetPointsSize() {
     var _a;
     const w = this.w;
+    this.enlargedPoints.clear();
     const points = w.dom.baseEl.querySelectorAll(
       ".apexcharts-series:not(.apexcharts-series-collapsed) .apexcharts-marker"
     );
@@ -25050,33 +28657,31 @@ class Intersect {
   // handle tooltip for heatmaps and treemaps
   /** @param {{e: any, opt: any, x: any, y: any, type: any}} opts */
   handleHeatTreeTooltip({ e: e2, opt, x, y, type }) {
-    var _a, _b;
     const ttCtx = this.ttCtx;
     const w = this.w;
     const renderer = w.globals.activeRenderer;
     const canvasCells = type === "heatmap" && renderer && renderer.kind === "canvas" && typeof renderer.hitTest === "function";
     const hovered = Utils2.hoverTarget(e2);
-    let i2, j, cx, cy, width, height;
+    let i2, j2, cx, cy, width, height;
     if (canvasCells) {
-      const seriesBound = opt.elGrid.getBoundingClientRect();
-      const clientX = e2.type === "touchmove" ? e2.touches[0].clientX : e2.clientX;
-      const clientY = e2.type === "touchmove" ? e2.touches[0].clientY : e2.clientY;
+      const seriesBound = Utils2.plotRect(w);
+      const pointer2 = Utils2.eventPointer(e2, opt);
       const hit = renderer.hitTest(
-        clientX - seriesBound.left,
-        clientY - seriesBound.top
+        (pointer2.x - seriesBound.left) / seriesBound.zoom,
+        (pointer2.y - seriesBound.top) / seriesBound.zoom
       );
       if (!hit) {
         return { x, y, noHit: true };
       }
       i2 = hit.seriesIndex;
-      j = hit.dataPointIndex;
+      j2 = hit.dataPointIndex;
       cx = hit.x;
       cy = hit.y;
       width = hit.width;
       height = hit.height;
     } else if (hovered.classList.contains(`apexcharts-${type}-rect`)) {
       i2 = this.getAttr(e2, "i");
-      j = this.getAttr(e2, "j");
+      j2 = this.getAttr(e2, "j");
       cx = this.getAttr(e2, "cx");
       cy = this.getAttr(e2, "cy");
       width = this.getAttr(e2, "width");
@@ -25087,74 +28692,113 @@ class Intersect {
     ttCtx.tooltipLabels.drawSeriesTexts({
       ttItems: opt.ttItems,
       i: i2,
-      j,
+      j: j2,
       shared: false,
       e: e2
     });
     w.interact.capturedSeriesIndex = i2;
-    w.interact.capturedDataPointIndex = j;
+    w.interact.capturedDataPointIndex = j2;
     ttCtx.tooltipPosition.moveXCrosshairs(cx + width / 2);
     const tooltipEl = ttCtx.getElTooltip();
-    if (type === "heatmap" && w.config.tooltip.arrow && !w.config.tooltip.followCursor && tooltipEl) {
-      const elGridRect = opt.elGrid.getBoundingClientRect();
-      const elWrapRect = w.dom.elWrap.getBoundingClientRect();
-      const gridOffsetXInElWrap = elGridRect.left - elWrapRect.left;
+    if (type === "heatmap" && w.config.tooltip.arrow && !Utils2.isFollowCursor(w) && tooltipEl) {
+      const plot = Utils2.plotRect(w);
+      const elWrapRect2 = w.dom.elWrap.getBoundingClientRect();
+      const gridOffsetXInElWrap = plot.left - elWrapRect2.left;
+      const gridOffsetYInElWrap = plot.top - elWrapRect2.top;
       let clLeft, clTop, clRight, clBottom;
+      let own = null;
       if (canvasCells) {
         clLeft = cx;
         clTop = cy;
         clRight = cx + width;
         clBottom = cy + height;
       } else {
-        const r2 = hovered.getBoundingClientRect();
-        clLeft = r2.left - elGridRect.left;
-        clTop = r2.top - elGridRect.top;
-        clRight = r2.right - elGridRect.left;
-        clBottom = r2.bottom - elGridRect.top;
+        const node = w.dom.baseEl.contains(hovered) ? hovered : w.dom.baseEl.querySelector(
+          `.apexcharts-heatmap-rect[i='${i2}'][j='${j2}']`
+        ) || hovered;
+        own = node;
+        const r2 = node.getBoundingClientRect();
+        clLeft = r2.left - plot.left;
+        clTop = r2.top - plot.top;
+        clRight = r2.right - plot.left;
+        clBottom = r2.bottom - plot.top;
       }
-      const ttW = ttCtx.tooltipRect.ttWidth || 0;
-      const ttH = ttCtx.tooltipRect.ttHeight || 0;
       const cellCenterXInElWrap = (clLeft + clRight) / 2 + gridOffsetXInElWrap;
-      const cellTopInElWrap = clTop + w.layout.translateY;
-      const cellBottomInElWrap = clBottom + w.layout.translateY;
-      const gridTop = w.layout.translateY;
-      const gridBottom = w.layout.translateY + w.layout.gridHeight;
-      const gridLeft = gridOffsetXInElWrap;
-      const gridRight = gridOffsetXInElWrap + w.layout.gridWidth;
-      let placement = "top";
-      let finalY = cellTopInElWrap - ttH - ARROW_TIP_OVERHANG;
-      if (finalY < gridTop) {
-        const belowTop = cellBottomInElWrap + ARROW_TIP_OVERHANG;
-        if (belowTop + ttH <= gridBottom) {
-          placement = "bottom";
-          finalY = belowTop;
-        } else {
-          finalY = gridTop;
-        }
+      const cellTopInElWrap = clTop + gridOffsetYInElWrap;
+      const cellBottomInElWrap = clBottom + gridOffsetYInElWrap;
+      const gridTop2 = gridOffsetYInElWrap;
+      const gridBottom2 = gridOffsetYInElWrap + w.layout.gridHeight;
+      const gridLeft2 = gridOffsetXInElWrap;
+      const gridRight2 = gridOffsetXInElWrap + w.layout.gridWidth;
+      const stacked2 = ttCtx.tooltipPosition.placeOnShortPlot(
+        cellCenterXInElWrap,
+        cellTopInElWrap,
+        cellBottomInElWrap
+      );
+      if (stacked2) {
+        ttCtx.tooltipPosition.applyTooltipPosition(tooltipEl, stacked2);
+        return { x: stacked2.x, y: stacked2.y, positioned: true };
       }
-      let finalX = cellCenterXInElWrap - ttW / 2;
-      if (finalX < gridLeft) finalX = gridLeft;
-      if (finalX + ttW > gridRight) finalX = gridRight - ttW;
-      const arrowX = Math.max(10, Math.min(ttW - 10, cellCenterXInElWrap - finalX));
-      ttCtx.tooltipPosition.applyTooltipPosition(tooltipEl, {
-        x: finalX,
-        y: finalY,
-        placement,
-        arrowY: null,
-        arrowX
-      });
-      return { x: finalX, y: finalY, positioned: true };
+      const pos = ttCtx.tooltipPosition.placeAroundCell(
+        {
+          top: cellTopInElWrap,
+          bottom: cellBottomInElWrap,
+          left: clLeft + gridOffsetXInElWrap,
+          right: clRight + gridOffsetXInElWrap
+        },
+        { top: gridTop2, bottom: gridBottom2, left: gridLeft2, right: gridRight2 },
+        { el: own }
+      );
+      ttCtx.tooltipPosition.applyTooltipPosition(tooltipEl, pos);
+      return { x: pos.x, y: pos.y, positioned: true };
     }
-    x = cx + ttCtx.tooltipRect.ttWidth / 2 + width;
-    y = cy + ttCtx.tooltipRect.ttHeight / 2 - height / 2;
-    if (x > w.layout.gridWidth / 2) {
-      x = cx - ttCtx.tooltipRect.ttWidth / 2 + width;
+    const ttWidth = ttCtx.tooltipRect.ttWidth || 0;
+    const ttHeight = ttCtx.tooltipRect.ttHeight || 0;
+    const elWrapRect = w.dom.elWrap.getBoundingClientRect();
+    const { left: gridLeft, top: gridTop } = Utils2.plotInWrap(w);
+    const gridRight = gridLeft + w.layout.gridWidth;
+    const gridBottom = gridTop + w.layout.gridHeight;
+    let cellX = cx + width + ttWidth / 2;
+    const cellY = cy + height / 2 - ttHeight / 2;
+    if (cellX > w.layout.gridWidth / 2) {
+      cellX = cx + width - ttWidth / 2;
     }
-    if (ttCtx.w.config.tooltip.followCursor) {
-      const seriesBound = w.dom.elWrap.getBoundingClientRect();
-      x = ((_a = w.interact.clientX) != null ? _a : 0) - seriesBound.left - (x > w.layout.gridWidth / 2 ? ttCtx.tooltipRect.ttWidth : 0);
-      y = ((_b = w.interact.clientY) != null ? _b : 0) - seriesBound.top - (y > w.layout.gridHeight / 2 ? ttCtx.tooltipRect.ttHeight : 0);
+    x = gridLeft + cellX;
+    y = gridTop + cellY;
+    const followsPointer = Utils2.isFollowCursor(w);
+    const pointer = Utils2.eventPointer(e2, opt);
+    if (followsPointer) {
+      x = pointer.x - elWrapRect.left - (cellX > w.layout.gridWidth / 2 ? ttWidth : 0);
+      y = pointer.y - elWrapRect.top - (cellY > w.layout.gridHeight / 2 ? ttHeight : 0);
     }
+    let stacked = null;
+    if (followsPointer) {
+      const py = pointer.y - elWrapRect.top;
+      stacked = ttCtx.tooltipPosition.placeOnShortPlot(
+        pointer.x - elWrapRect.left,
+        py,
+        py,
+        { gapBelow: POINTER_CLEARANCE_BELOW }
+      );
+    } else {
+      stacked = ttCtx.tooltipPosition.placeOnShortPlot(
+        gridLeft + cx + width / 2,
+        gridTop + cy,
+        gridTop + cy + height
+      );
+    }
+    if (stacked) {
+      return {
+        x: stacked.x,
+        y: stacked.y,
+        placement: stacked.placement,
+        arrowX: stacked.arrowX
+      };
+    }
+    if (x + ttWidth > gridRight) x = gridRight - ttWidth;
+    if (x < gridLeft) x = gridLeft;
+    if (y + ttHeight > gridBottom) y = gridBottom - ttHeight;
+    if (y < gridTop) y = gridTop;
     return {
       x,
       y
@@ -25169,12 +28813,11 @@ class Intersect {
     const w = this.w;
     const ttCtx = this.ttCtx;
     let i2;
-    let j;
+    let j2;
     if (Utils2.hoverTarget(e2).classList.contains("apexcharts-marker")) {
       const cx = parseInt(opt.paths.getAttribute("cx"), 10);
       const cy = parseInt(opt.paths.getAttribute("cy"), 10);
-      const val = parseFloat(opt.paths.getAttribute("val"));
-      j = parseInt(opt.paths.getAttribute("rel"), 10);
+      j2 = parseInt(opt.paths.getAttribute("rel"), 10);
       i2 = parseInt(
         opt.paths.parentNode.parentNode.parentNode.getAttribute("rel"),
         10
@@ -25188,37 +28831,123 @@ class Intersect {
       ttCtx.tooltipLabels.drawSeriesTexts({
         ttItems: opt.ttItems,
         i: i2,
-        j,
+        j: j2,
         shared: ttCtx.showOnIntersect ? false : w.config.tooltip.shared,
         e: e2
       });
       if (e2.type === "mouseup") {
-        ttCtx.markerClick(e2, i2, j);
+        ttCtx.markerClick(e2, i2, j2);
       }
       w.interact.capturedSeriesIndex = i2;
-      w.interact.capturedDataPointIndex = j;
-      const arrowEnabled = !!w.config.tooltip.arrow;
+      w.interact.capturedDataPointIndex = j2;
       x = cx;
-      if (arrowEnabled) {
-        y = cy;
-      } else {
-        y = cy + w.layout.translateY - ttCtx.tooltipRect.ttHeight * 1.4;
-        if (val < 0) {
-          y = cy;
-        }
-      }
-      if (ttCtx.w.config.tooltip.followCursor) {
+      y = cy;
+      if (Utils2.isFollowCursor(w)) {
         const elGrid = ttCtx.getElGrid();
         if (!elGrid) return { x, y };
-        const seriesBound = elGrid.getBoundingClientRect();
+        const seriesBound = Utils2.plotRect(w);
         y = ttCtx.e.clientY + w.layout.translateY - seriesBound.top;
       }
-      ttCtx.marker.enlargeCurrentPoint(j, opt.paths, x, y);
+      ttCtx.marker.enlargeCurrentPoint(j2, opt.paths, x, y);
     }
     return {
       x,
       y
     };
+  }
+  /**
+   * The marker a hover is over on a chart that paints its markers to
+   * canvas, found by coordinate (renderer.hitTestMarker) as the SVG marker
+   * node under the pointer would name it, with its centre in grid px (the
+   * `cx`/`cy` that node carries). Null when the pointer is on none, or the
+   * markers are not painted.
+   * @param {any} e
+   * @param {any} opt
+   * @returns {{ i: number, j: number, cx: number, cy: number, size: number } | null}
+   */
+  getPaintedMarker(e2, opt) {
+    const w = this.w;
+    if (!Utils2.isCanvasMarkerChart(w) || (e2 == null ? void 0 : e2.apexPaintedHit)) return null;
+    const plot = Utils2.plotRect(w);
+    const pointer = Utils2.eventPointer(e2, opt);
+    const hit = w.globals.activeRenderer.hitTestMarker(
+      (pointer.x - plot.left) / plot.zoom,
+      (pointer.y - plot.top) / plot.zoom
+    );
+    if (!hit) return null;
+    return {
+      i: hit.seriesIndex,
+      j: hit.dataPointIndex,
+      cx: hit.x,
+      cy: hit.y,
+      size: hit.size
+    };
+  }
+  /**
+   * handleMarkerTooltip for a marker painted to canvas (getPaintedMarker):
+   * the same series row, events and position, with the hover dot drawn over
+   * the painted marker in place of the enlarged node.
+   * @param {{e: any, opt: any, marker: { i: number, j: number, cx: number, cy: number, size: number }}} opts
+   */
+  handlePaintedMarkerTooltip({ e: e2, opt, marker }) {
+    var _a;
+    const w = this.w;
+    const ttCtx = this.ttCtx;
+    const { i: i2, j: j2 } = marker;
+    if (Array.isArray(ttCtx.tConfig.enabledOnSeries) && ttCtx.tConfig.enabledOnSeries.indexOf(i2) < 0) {
+      this.leavePaintedMark(e2, opt);
+      return;
+    }
+    (_a = ttCtx.cancelOffMarkHide) == null ? void 0 : _a.call(ttCtx);
+    ttCtx.tooltipLabels.drawSeriesTexts({
+      ttItems: opt.ttItems,
+      i: i2,
+      j: j2,
+      shared: false,
+      e: e2
+    });
+    if (e2.type === "mouseup") {
+      ttCtx.markerClick(e2, i2, j2);
+    }
+    w.interact.capturedSeriesIndex = i2;
+    w.interact.capturedDataPointIndex = j2;
+    const x = Math.trunc(marker.cx);
+    let y = Math.trunc(marker.cy);
+    if (Utils2.isFollowCursor(w)) {
+      const seriesBound = Utils2.plotRect(w);
+      y = e2.clientY + w.layout.translateY - seriesBound.top;
+    }
+    ttCtx.marker.enlargePaintedPoint(marker, x, y);
+  }
+  /**
+   * The pointer moved off every painted mark of a chart hovered through one
+   * listener on the whole plot (canvas bar-likes or markers): hide, don't
+   * pin one. Leaving a mark there is one more move, never the mouseout that
+   * gives an interactive box the time to be reached (Tooltip.onSeriesHover).
+   * It gets the same grace here, started by the first move off the mark and
+   * left to run by the ones after; entering the box or another mark calls
+   * it off.
+   * @param {any} e
+   * @param {any} opt
+   */
+  leavePaintedMark(e2, opt) {
+    const w = this.w;
+    const ttCtx = this.ttCtx;
+    const tooltipEl = ttCtx.getElTooltip();
+    if (ttCtx.tConfig.interactive && (tooltipEl == null ? void 0 : tooltipEl.classList.contains("apexcharts-active"))) {
+      if (ttCtx.offMarkHideTimeout === void 0) {
+        const pointer = Utils2.eventPointer(e2, opt);
+        ttCtx.offMarkHideTimeout = setTimeout(
+          () => {
+            ttCtx.offMarkHideTimeout = void 0;
+            if (!w.globals.isDestroyed) ttCtx.handleMouseOut(opt);
+          },
+          ttCtx.interactiveHideDelay(pointer.x, pointer.y)
+        );
+      }
+      return;
+    }
+    ttCtx.handleMouseOut(opt);
   }
   /**
    * handle tooltips for bar/column charts
@@ -25233,27 +28962,30 @@ class Intersect {
     let x = 0;
     let y = 0;
     let i2 = 0;
-    let strokeWidth;
     const barXY = this.getBarTooltipXY({
       e: e2,
       opt
     });
+    if (barXY.noHit) {
+      this.leavePaintedMark(e2, opt);
+      return;
+    }
+    (_a = ttCtx.cancelOffMarkHide) == null ? void 0 : _a.call(ttCtx);
     if (barXY.j === null && barXY.barHeight === 0 && barXY.barWidth === 0) {
       return;
     }
     i2 = barXY.i;
-    const j = barXY.j;
+    const j2 = barXY.j;
+    if (barXY.byHitTest && Array.isArray(ttCtx.tConfig.enabledOnSeries) && !w.config.tooltip.shared && ttCtx.tConfig.enabledOnSeries.indexOf(i2) < 0) {
+      ttCtx.handleMouseOut(opt);
+      return;
+    }
     w.interact.capturedSeriesIndex = i2;
-    w.interact.capturedDataPointIndex = j !== null ? j : w.interact.capturedDataPointIndex;
+    w.interact.capturedDataPointIndex = j2 !== null ? j2 : w.interact.capturedDataPointIndex;
     if (w.globals.isBarHorizontal && ttCtx.tooltipUtil.hasBars() || !w.config.tooltip.shared) {
       x = barXY.x;
       y = barXY.y;
-      strokeWidth = Array.isArray(w.config.stroke.width) ? w.config.stroke.width[i2] : w.config.stroke.width;
       bx = x;
-    } else {
-      if (!w.globals.comboCharts && !w.config.tooltip.shared) {
-        bx = bx / 2;
-      }
     }
     if (isNaN(y)) {
       y = w.globals.svgHeight - ttCtx.tooltipRect.ttHeight;
@@ -25263,7 +28995,7 @@ class Intersect {
     } else if (x < 0) {
       x = 0;
     }
-    if (ttCtx.w.config.tooltip.followCursor) {
+    if (Utils2.isFollowCursor(w)) {
       const elGrid = ttCtx.getElGrid();
       if (!elGrid) return;
     }
@@ -25273,94 +29005,131 @@ class Intersect {
       );
     }
     if (!w.config.tooltip.shared) {
-      if (w.globals.comboBarCount > 0) {
-        ttCtx.tooltipPosition.moveXCrosshairs(bx + strokeWidth / 2);
-      } else {
-        ttCtx.tooltipPosition.moveXCrosshairs(bx);
-      }
+      const crosshairX = !w.globals.isBarHorizontal && barXY.barAnchorXInGrid !== null ? barXY.barAnchorXInGrid / Utils2.plotRect(w).zoom : bx;
+      ttCtx.tooltipPosition.moveXCrosshairs(crosshairX);
     }
     if (!ttCtx.fixedTooltip && (!w.config.tooltip.shared || w.globals.isBarHorizontal && ttCtx.tooltipUtil.hasBars())) {
-      y = y + w.layout.translateY - ttCtx.tooltipRect.ttHeight / 2;
       if (tooltipEl) {
         const ttW = ttCtx.tooltipRect.ttWidth || 0;
         const ttH = ttCtx.tooltipRect.ttHeight || 0;
         const arrowEnabled = !!w.config.tooltip.arrow;
         const { barAnchorXInGrid, barAnchorYInGrid, barRectInGrid } = barXY;
-        const elGridRect = (_a = ttCtx.getElGrid()) == null ? void 0 : _a.getBoundingClientRect();
-        const elWrapRect = w.dom.elWrap.getBoundingClientRect();
-        const gridOffsetXInElWrap = elGridRect ? elGridRect.left - elWrapRect.left : w.layout.translateX;
+        const { left: gridOffsetXInElWrap, top: gridOffsetYInElWrap } = Utils2.plotInWrap(w);
+        const plotInElWrap = {
+          top: gridOffsetYInElWrap,
+          bottom: gridOffsetYInElWrap + w.layout.gridHeight,
+          left: gridOffsetXInElWrap,
+          right: gridOffsetXInElWrap + w.layout.gridWidth
+        };
         let placement;
         let arrowY = null;
         let arrowX = null;
         let finalX = x + gridOffsetXInElWrap;
-        let finalY = y;
-        if (arrowEnabled && w.globals.isBarHorizontal && barRectInGrid != null) {
-          const gridTop = w.layout.translateY;
-          const gridBottom = w.layout.translateY + w.layout.gridHeight;
-          const gridLeft = gridOffsetXInElWrap;
-          const gridRight = gridOffsetXInElWrap + w.layout.gridWidth;
-          const barCenterXInElWrap = (barRectInGrid.left + barRectInGrid.right) / 2 + gridOffsetXInElWrap;
-          const barTopInElWrap = barRectInGrid.top + w.layout.translateY;
-          const barBottomInElWrap = barRectInGrid.bottom + w.layout.translateY;
-          let proposedTop = barTopInElWrap - ttH - ARROW_TIP_OVERHANG;
-          placement = "top";
-          if (proposedTop < gridTop) {
-            const belowTop = barBottomInElWrap + ARROW_TIP_OVERHANG;
-            if (belowTop + ttH <= gridBottom) {
-              placement = "bottom";
-              proposedTop = belowTop;
-            }
-          }
-          finalY = proposedTop;
-          finalX = barCenterXInElWrap - ttW / 2;
-          if (finalX < gridLeft) finalX = gridLeft;
-          if (finalX + ttW > gridRight) finalX = gridRight - ttW;
-          arrowX = Math.max(
-            10,
-            Math.min(ttW - 10, barCenterXInElWrap - finalX)
+        let finalY = y + gridOffsetYInElWrap - ttH / 2;
+        const barInElWrap = barRectInGrid && {
+          top: barRectInGrid.top + gridOffsetYInElWrap,
+          bottom: barRectInGrid.bottom + gridOffsetYInElWrap,
+          left: barRectInGrid.left + gridOffsetXInElWrap,
+          right: barRectInGrid.right + gridOffsetXInElWrap
+        };
+        if (arrowEnabled && w.globals.isBarHorizontal && barInElWrap) {
+          const pos = ttCtx.tooltipPosition.placeAroundBar(
+            barInElWrap,
+            plotInElWrap,
+            j2 != null ? j2 : 0,
+            i2
           );
+          placement = pos.placement;
+          finalX = pos.x;
+          finalY = pos.y;
+          arrowX = pos.arrowX;
+          arrowY = pos.arrowY;
         } else if (arrowEnabled && barAnchorXInGrid != null && barAnchorYInGrid != null) {
           const barCenterXInElWrap = barAnchorXInGrid + gridOffsetXInElWrap;
           const gridCenterXInElWrap = gridOffsetXInElWrap + w.layout.gridWidth / 2;
           const barLeftInElWrap = ((_b = barRectInGrid == null ? void 0 : barRectInGrid.left) != null ? _b : barAnchorXInGrid) + gridOffsetXInElWrap;
           const barRightInElWrap = ((_c = barRectInGrid == null ? void 0 : barRectInGrid.right) != null ? _c : barAnchorXInGrid) + gridOffsetXInElWrap;
-          if (barCenterXInElWrap < gridCenterXInElWrap) {
-            placement = "right";
-            finalX = barRightInElWrap + ARROW_TIP_OVERHANG;
+          const rightX = barRightInElWrap + ARROW_TIP_OVERHANG;
+          const leftX = barLeftInElWrap - ttW - ARROW_TIP_OVERHANG;
+          const sides = barCenterXInElWrap < gridCenterXInElWrap - 0.5 ? ["right", "left"] : ["left", "right"];
+          const fits = this._fitsBesideColumn(ttW);
+          const side = sides.find((s2) => fits(s2 === "right" ? rightX : leftX));
+          if (side || !barInElWrap) {
+            placement = side != null ? side : sides[0];
+            finalX = placement === "right" ? rightX : leftX;
+            if (barInElWrap) {
+              const barCenterYInElWrap = (barInElWrap.top + barInElWrap.bottom) / 2;
+              finalY = barCenterYInElWrap - ttH / 2;
+              if (finalY < plotInElWrap.top) finalY = plotInElWrap.top;
+              if (finalY + ttH > plotInElWrap.bottom) {
+                finalY = plotInElWrap.bottom - ttH;
+              }
+              if (ttH > 0) {
+                arrowY = Math.max(
+                  10,
+                  Math.min(ttH - 10, barCenterYInElWrap - finalY)
+                );
+              }
+            }
           } else {
-            placement = "left";
-            finalX = barLeftInElWrap - ttW - ARROW_TIP_OVERHANG;
-          }
-          if (barRectInGrid) {
-            const barCenterYInElWrap = (barRectInGrid.top + barRectInGrid.bottom) / 2 + w.layout.translateY;
-            finalY = barCenterYInElWrap - ttH / 2;
-            const gridTop = w.layout.translateY;
-            const gridBottom = w.layout.translateY + w.layout.gridHeight;
-            if (finalY < gridTop) finalY = gridTop;
-            if (finalY + ttH > gridBottom) finalY = gridBottom - ttH;
-          }
-          if (ttH > 0 && barRectInGrid) {
-            const barCenterYInElWrap = (barRectInGrid.top + barRectInGrid.bottom) / 2 + w.layout.translateY;
-            arrowY = Math.max(
-              10,
-              Math.min(ttH - 10, barCenterYInElWrap - finalY)
+            const pos = ttCtx.tooltipPosition.placeOverColumn(
+              barInElWrap,
+              plotInElWrap
             );
+            placement = pos.placement;
+            finalX = pos.x;
+            finalY = pos.y;
+            arrowX = pos.arrowX;
+            arrowY = pos.arrowY;
           }
         }
-        ttCtx.tooltipPosition.applyTooltipPosition(tooltipEl, {
-          x: finalX,
-          y: finalY,
-          placement,
-          arrowY,
-          arrowX
-        });
+        const anchorXInGrid = barRectInGrid ? (barRectInGrid.left + barRectInGrid.right) / 2 : barAnchorXInGrid != null ? barAnchorXInGrid : bx;
+        const wasStacked = ttCtx.tooltipPosition.shortPlotPlacement;
+        const stacked = ttCtx.tooltipPosition.placeOnShortPlot(
+          anchorXInGrid + gridOffsetXInElWrap,
+          barInElWrap ? barInElWrap.top : plotInElWrap.top,
+          barInElWrap ? barInElWrap.bottom : plotInElWrap.bottom
+        );
+        if (!stacked && placement === void 0 && wasStacked) {
+          delete tooltipEl.dataset.placement;
+        }
+        ttCtx.tooltipPosition.applyTooltipPosition(
+          tooltipEl,
+          stacked || {
+            x: finalX,
+            y: finalY,
+            placement,
+            arrowY,
+            arrowX
+          }
+        );
       }
     }
+  }
+  /**
+   * Does a box `ttWidth` wide starting at elWrap-local `x` stay on the
+   * chart's own part of the page: inside elWrap sideways, and inside the
+   * visible room? The room is measured on the first call that gets that far.
+   * @param {number} ttWidth
+   * @returns {(x: number) => boolean}
+   */
+  _fitsBesideColumn(ttWidth) {
+    const wrap = this.w.dom.elWrap.getBoundingClientRect();
+    const wrapRight = wrap.width > 0 ? wrap.width : Infinity;
+    let room;
+    return (x) => {
+      var _a, _b, _c;
+      if (x < 0 || x + ttWidth > wrapRight) return false;
+      if (room === void 0) {
+        room = (_c = (_b = (_a = this.ttCtx.tooltipPosition).getVisibleRoom) == null ? void 0 : _b.call(_a)) != null ? _c : null;
+      }
+      return !room || x >= room.left && x + ttWidth <= room.right;
+    };
   }
   /** @param {{e: any, opt: any}} opts */
   getBarTooltipXY({ e: e2, opt }) {
     const w = this.w;
-    let j = null;
+    let j2 = null;
     const ttCtx = this.ttCtx;
     let i2 = 0;
     let x = 0;
@@ -25374,18 +29143,20 @@ class Intersect {
     let barRectInGrid = null;
     const hovered = Utils2.hoverTarget(e2);
     const cl = hovered.classList;
-    if (cl.contains("apexcharts-bar-area") || cl.contains("apexcharts-candlestick-area") || cl.contains("apexcharts-boxPlot-area") || cl.contains("apexcharts-rangebar-area")) {
+    const mark = Utils2.isCanvasBarChart(w) ? this.getPaintedMark(e2, opt) : this.getViolinMark(e2, opt);
+    const noHit = !!(mark == null ? void 0 : mark.noHit);
+    if (mark && !noHit || cl.contains("apexcharts-bar-area") || cl.contains("apexcharts-candlestick-area") || cl.contains("apexcharts-boxPlot-area") || cl.contains("apexcharts-rangebar-area")) {
       const bar = hovered;
-      const barRect = bar.getBoundingClientRect();
-      const seriesBound = opt.elGrid.getBoundingClientRect();
+      const barRect = mark ? mark.rect : bar.getBoundingClientRect();
+      const seriesBound = Utils2.plotRect(w);
       const bh = barRect.height;
       barHeight = barRect.height;
       const bw = barRect.width;
-      const cx = parseInt(bar.getAttribute("cx"), 10);
-      const cy = parseInt(bar.getAttribute("cy"), 10);
+      const cx = mark ? mark.cx : parseInt(bar.getAttribute("cx"), 10);
+      const cy = mark ? mark.cy : parseInt(bar.getAttribute("cy"), 10);
       barCx = cx;
       barCy = cy;
-      barWidth = parseFloat(bar.getAttribute("barWidth"));
+      barWidth = mark ? mark.barWidth : parseFloat(bar.getAttribute("barWidth"));
       const rectLeftInGrid = barRect.left - seriesBound.left;
       const rectTopInGrid = barRect.top - seriesBound.top;
       const rectCenterXInGrid = rectLeftInGrid + bw / 2;
@@ -25399,11 +29170,11 @@ class Intersect {
         bottom: rectTopInGrid + bh
       };
       const clientX = e2.type === "touchmove" ? e2.touches[0].clientX : e2.clientX;
-      j = parseInt(bar.getAttribute("j"), 10);
-      i2 = parseInt(bar.parentNode.getAttribute("rel"), 10) - 1;
-      const y1 = bar.getAttribute("data-range-y1");
-      const y2 = bar.getAttribute("data-range-y2");
-      if (w.globals.comboCharts) {
+      j2 = mark ? mark.j : parseInt(bar.getAttribute("j"), 10);
+      i2 = mark ? mark.i : parseInt(bar.parentNode.getAttribute("rel"), 10) - 1;
+      const y1 = mark ? mark.y1 : bar.getAttribute("data-range-y1");
+      const y2 = mark ? mark.y2 : bar.getAttribute("data-range-y2");
+      if (w.globals.comboCharts && !mark) {
         i2 = parseInt(bar.parentNode.getAttribute("data:realIndex"), 10);
       }
       const handleXForColumns = (x2) => {
@@ -25424,13 +29195,13 @@ class Intersect {
       ttCtx.tooltipLabels.drawSeriesTexts({
         ttItems: opt.ttItems,
         i: i2,
-        j,
-        y1: y1 ? parseInt(y1, 10) : null,
-        y2: y2 ? parseInt(y2, 10) : null,
+        j: j2,
+        y1: y1 != null ? parseInt(y1, 10) : null,
+        y2: y2 != null ? parseInt(y2, 10) : null,
         shared: ttCtx.showOnIntersect ? false : w.config.tooltip.shared,
         e: e2
       });
-      if (w.config.tooltip.followCursor) {
+      if (Utils2.isFollowCursor(w)) {
         if (w.globals.isBarHorizontal) {
           x = clientX - seriesBound.left + 15;
           y = handleYForBars();
@@ -25457,7 +29228,7 @@ class Intersect {
       barHeight,
       barWidth,
       i: i2,
-      j,
+      j: j2,
       // SVG attribute values — left for any caller that still wants them.
       barCx,
       barCy,
@@ -25468,8 +29239,215 @@ class Intersect {
       barAnchorYInGrid,
       // Full rendered bar rect (grid-local). Used for top/bottom
       // placement and flip-on-overflow detection.
-      barRectInGrid
+      barRectInGrid,
+      // A canvas bar chart hovered off every mark.
+      noHit,
+      // A painted mark, found by the hit test rather than a hovered node.
+      // One keyboard focus names (KeyboardNavigation._hoverFocusedMark) is
+      // not: focus hands over an SVG mark's node the same way, and neither
+      // goes through the pointer's `enabledOnSeries` check.
+      byHitTest: !!(mark == null ? void 0 : mark.byHitTest) && !(e2 == null ? void 0 : e2.apexPaintedHit)
     };
+  }
+  /**
+   * The bar-like mark a hover is over on a chart that paints them to
+   * canvas, found by coordinate (renderer.hitTest), and read the way the SVG
+   * path under the pointer would be: its box is the box of the path that was
+   * hit (one half of a box plot, as the hovered half is on SVG), and the
+   * coords Bar.renderSeries cached for the datum carry what the path's
+   * attributes would. A violin is read as its whole glyph (getViolinMark).
+   *
+   * `{ noHit: true }` when the pointer is on no mark.
+   * @param {any} e
+   * @param {any} opt
+   * @returns {any}
+   */
+  getPaintedMark(e2, opt) {
+    var _a, _b, _c, _d;
+    const w = this.w;
+    const found = this._paintedHit(e2, opt);
+    const hit = found == null ? void 0 : found.hit;
+    const cached = hit ? (_b = (_a = w.globals.barCanvasCoords) == null ? void 0 : _a[hit.seriesIndex]) == null ? void 0 : _b[hit.dataPointIndex] : null;
+    if (!found || !hit || !cached) return { noHit: true };
+    const i2 = hit.seriesIndex;
+    const j2 = hit.dataPointIndex;
+    if (cached.type === "violin") {
+      return this._violinMark(i2, j2, null, cached) || { noHit: true };
+    }
+    const b = cached.bounds;
+    const box = hit.width != null ? hit : b && {
+      x: b.left,
+      y: b.top,
+      width: b.right - b.left,
+      height: b.bottom - b.top
+    };
+    if (!box) return { noHit: true };
+    const { plot } = found;
+    const left = plot.left + box.x * plot.zoom;
+    const top = plot.top + box.y * plot.zoom;
+    const width = box.width * plot.zoom;
+    const height = box.height * plot.zoom;
+    const asAttr = (v) => parseInt(String(v), 10);
+    return {
+      i: i2,
+      j: j2,
+      rect: {
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+        width,
+        height
+      },
+      cx: asAttr(cached.cx),
+      cy: asAttr(cached.cy),
+      barWidth: cached.barWidth,
+      y1: (_c = cached.rangeY1) != null ? _c : null,
+      y2: (_d = cached.rangeY2) != null ? _d : null,
+      byHitTest: true
+    };
+  }
+  /**
+   * Ask the renderer which painted mark is under the pointer. The marks are
+   * recorded in plot px from the plot's corner on screen, so the pointer is
+   * taken there first, through any CSS zoom or scale on the chart. Not the
+   * `.apexcharts-grid` box: a violin's grid lines reach half a slot past the
+   * plot on either side, and on a numeric x axis a bar chart's run
+   * `barPadForNumericAxis` past it.
+   * @param {any} e
+   * @param {any} opt
+   * @returns {{ hit: any, plot: { left: number, top: number, width: number, height: number, zoom: number } } | null}
+   */
+  _paintedHit(e2, opt) {
+    const w = this.w;
+    const renderer = w.globals.activeRenderer;
+    if (!renderer || typeof renderer.hitTest !== "function") return null;
+    const plot = Utils2.plotRect(w);
+    if (e2 == null ? void 0 : e2.apexPaintedHit) return { hit: e2.apexPaintedHit, plot };
+    const pointer = Utils2.eventPointer(e2, opt);
+    const hit = renderer.hitTest(
+      (pointer.x - plot.left) / plot.zoom,
+      (pointer.y - plot.top) / plot.zoom
+    );
+    return { hit, plot };
+  }
+  /**
+   * The violin a hover is over, read as one glyph: body, box lane and jitter
+   * together, so the tooltip beside it never covers a raincloud's box or
+   * rain lane. On canvas the bodies and boxes are painted, so the violin is
+   * found by coordinate (renderer.hitTest) and their extent comes from the
+   * coords cached for them (Bar.renderSeries, re-anchored by Violin.draw);
+   * the jitter is SVG either way.
+   *
+   * Null when this is no violin hover, `{ noHit: true }` when a canvas
+   * violin chart is hovered off every mark.
+   * @param {any} e
+   * @param {any} opt
+   * @returns {any}
+   */
+  getViolinMark(e2, opt) {
+    var _a, _b, _c, _d;
+    const w = this.w;
+    if (Utils2.isCanvasViolinChart(w)) {
+      const hit = (_a = this._paintedHit(e2, opt)) == null ? void 0 : _a.hit;
+      const cached = hit ? (_c = (_b = w.globals.barCanvasCoords) == null ? void 0 : _b[hit.seriesIndex]) == null ? void 0 : _c[hit.dataPointIndex] : null;
+      if (!cached) return { noHit: true };
+      if (cached.type !== "violin") return null;
+      return this._violinMark(hit.seriesIndex, hit.dataPointIndex, null, cached);
+    }
+    const hovered = Utils2.hoverTarget(e2);
+    if (!((_d = hovered == null ? void 0 : hovered.classList) == null ? void 0 : _d.contains("apexcharts-violin-area"))) return null;
+    const seriesEl = hovered.parentNode;
+    return this._violinMark(
+      parseInt(seriesEl.getAttribute("data:realIndex"), 10),
+      parseInt(hovered.getAttribute("j"), 10),
+      seriesEl,
+      null
+    );
+  }
+  /**
+   * Violin `j` of series `i` read as one glyph (getViolinMark): its rect,
+   * and the coords the tooltip anchors to, off the SVG body or, painted to
+   * canvas, off the coords cached for it. Null when nothing of it is drawn.
+   * @param {number} i  realIndex
+   * @param {number} j
+   * @param {Element | null} seriesEl  the series group, when the caller has it
+   * @param {any} cached  the canvas coords, or null for an SVG violin
+   * @returns {any}
+   */
+  _violinMark(i2, j2, seriesEl, cached) {
+    var _a;
+    const rect = this.violinGlyphRect(i2, j2, seriesEl);
+    if (!rect) return null;
+    const body = cached ? null : seriesEl == null ? void 0 : seriesEl.querySelector(`.apexcharts-violin-area[j='${j2}']`);
+    const attr = (name2) => {
+      var _a2;
+      return cached ? cached[name2] : parseFloat((_a2 = body == null ? void 0 : body.getAttribute(name2)) != null ? _a2 : "");
+    };
+    return {
+      i: i2,
+      j: j2,
+      rect: __spreadProps(__spreadValues({}, rect), {
+        width: rect.right - rect.left,
+        height: rect.bottom - rect.top
+      }),
+      cx: (_a = cached == null ? void 0 : cached.bodyCx) != null ? _a : attr("cx"),
+      cy: attr("cy"),
+      barWidth: attr("barWidth"),
+      y1: null,
+      y2: null,
+      // Found by the renderer's hit test, not by a hovered node.
+      byHitTest: !!cached
+    };
+  }
+  /**
+   * The screen rect of everything violin `j` of series `i` draws: body, box
+   * lane and jitter (a raincloud's rain). Painted to canvas, the body and box
+   * leave only the extent cached for them (Bar.renderSeries, plot px); the
+   * jitter is SVG either way. Null when nothing of it is drawn.
+   * @param {number} i  realIndex
+   * @param {number} j
+   * @param {Element | null} [seriesEl]  the series group, when the caller has it
+   * @returns {{ left: number, top: number, right: number, bottom: number } | null}
+   */
+  violinGlyphRect(i2, j2, seriesEl = null) {
+    var _a, _b, _c;
+    const w = this.w;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    const grow = (l2, t2, r2, b2) => {
+      left = Math.min(left, l2);
+      top = Math.min(top, t2);
+      right = Math.max(right, r2);
+      bottom = Math.max(bottom, b2);
+    };
+    const b = Utils2.isCanvasViolinChart(w) ? (
+      /** @type {any} */
+      (_c = (_b = (_a = w.globals.barCanvasCoords) == null ? void 0 : _a[i2]) == null ? void 0 : _b[j2]) == null ? void 0 : _c.bounds
+    ) : null;
+    if (b) {
+      const plot = Utils2.plotRect(w);
+      grow(
+        plot.left + b.left * plot.zoom,
+        plot.top + b.top * plot.zoom,
+        plot.left + b.right * plot.zoom,
+        plot.top + b.bottom * plot.zoom
+      );
+    }
+    const group = seriesEl || w.dom.baseEl.querySelector(
+      `.apexcharts-violin-series .apexcharts-series[data\\:realIndex='${i2}']`
+    );
+    const marks = group ? group.querySelectorAll(
+      `.apexcharts-violin-area[j='${j2}'], .apexcharts-violin-points[j='${j2}']`
+    ) : [];
+    for (let k = 0; k < marks.length; k++) {
+      const r2 = marks[k].getBoundingClientRect();
+      if (r2.width === 0 && r2.height === 0) continue;
+      grow(r2.left, r2.top, r2.right, r2.bottom);
+    }
+    return isFinite(left) ? { left, top, right, bottom } : null;
   }
 }
 class AxesTooltip {
@@ -25616,7 +29594,7 @@ class AxesTooltip {
       const lbFormatter = w.formatters.yLabelFormatters[index];
       const elGrid = ttCtx.getElGrid();
       if (!elGrid) return;
-      const seriesBound = elGrid.getBoundingClientRect();
+      const seriesBound = Utils2.plotRect(w);
       const seriesIndex = yAxisSeriesArr[0];
       let translationsIndex = 0;
       if (xyRatios.yRatio.length > 1) {
@@ -25634,6 +29612,10 @@ class AxesTooltip {
     }
   }
 }
+const INTERACTIVE_TOOLTIP_HIDE_DELAY = 150;
+const SLOW_POINTER_SPEED = 0.2;
+const INTERACTIVE_TRAVEL_ALLOWANCE_MAX = 600;
+const INTERACTIVE_REACH_SLACK = 24;
 class Tooltip {
   /**
    * @param {import('../../types/internal').ChartStateW} w
@@ -25642,7 +29624,6 @@ class Tooltip {
   constructor(w, ctx) {
     this.w = w;
     this.ctx = ctx;
-    this.tConfig = w.config.tooltip;
     this.tooltipUtil = new Utils2(this);
     this.tooltipLabels = new Labels(this);
     this.tooltipPosition = new Position(this);
@@ -25652,6 +29633,7 @@ class Tooltip {
     this.showOnIntersect = this.tConfig.intersect;
     this.showTooltipTitle = this.tConfig.x.show;
     this.fixedTooltip = this.tConfig.fixed.enabled;
+    this.tooltipHidden = false;
     this.xaxisTooltip = null;
     this.xaxisTooltipText = null;
     this.yaxisTooltip = null;
@@ -25675,20 +29657,40 @@ class Tooltip {
     this.dataPointsDividedHeight = 0;
     this.dataPointsDividedWidth = 0;
     this.tooltipTitle = null;
+    this._elTooltipCache = null;
+    this._elXCrosshairsCache = null;
+    this._elGridCache = null;
     this.legendLabels = null;
     this.ttItems = null;
-    this.seriesBound = null;
+    this.hoverAreaListeners = [];
     this.seriesHoverTimeout = void 0;
+    this.interactiveHideTimeout = void 0;
+    this.offMarkHideTimeout = void 0;
     this.clientX = 0;
     this.clientY = 0;
     this.barSeriesHeight = 0;
     this.tooltipRect = { x: 0, y: 0, ttWidth: 0, ttHeight: 0 };
   }
+  /**
+   * The live tooltip config.
+   *
+   * Deliberately not captured at construction. This module is built once per
+   * chart and outlives every update, while `updateOptions` REPLACES
+   * `w.config.tooltip` with a merged object, so a held reference freezes the
+   * tooltip on the options the chart was born with. That is how a runtime
+   * theme toggle left a dark chart carrying a white tooltip (the axes read
+   * the live config, the tooltip did not), and how a later `shared`,
+   * `intersect` or `x.show` was accepted and silently dropped.
+   *
+   * The sub-modules read it back through `ttCtx.tConfig`, so they follow.
+   */
+  get tConfig() {
+    return this.w.config.tooltip;
+  }
   setupDimensionCache() {
     const w = this.w;
     const tooltipEl = this.getElTooltip();
     if (!tooltipEl) return;
-    this.updateDimensionCache();
     if (typeof ResizeObserver !== "undefined" && !w.globals.resizeObserver) {
       w.globals.resizeObserver = new ResizeObserver(() => {
         if (!this.dimensionUpdateScheduled) {
@@ -25743,21 +29745,59 @@ class Tooltip {
    * @param {{ w: import('../../types/internal').ChartStateW }} [ctx]
    * @returns {HTMLElement | null}
    */
+  /**
+   * Resolve a chart-level element, keeping the node between calls.
+   *
+   * Hover paths ask for these several times per frame and every lookup is a
+   * `querySelector` across the entire chart DOM, which a CPU profile of a
+   * 700-series chart showed dominating hover time. Validity is checked with
+   * `baseEl.contains()` — a short walk up the ancestors, not a tree scan.
+   *
+   * That check is what respects `fastUpdate`: `drawTooltip` DETACHES the
+   * existing tooltip before building a replacement (see its comment on the
+   * fastUpdate path), so a rebuilt element leaves the cached node outside
+   * `baseEl`, the check fails, and the selector runs again. A full re-render
+   * replaces `baseEl`'s subtree with the same consequence.
+   *
+   * @param {any} ctx      owner of the cache slot (a Tooltip, or another chart)
+   * @param {string} key   cache property on that owner
+   * @param {string} selector
+   * @returns {any}
+   */
+  _resolveEl(ctx, key, selector) {
+    var _a, _b;
+    const baseEl = (_b = (_a = ctx.w) == null ? void 0 : _a.dom) == null ? void 0 : _b.baseEl;
+    if (!baseEl) return null;
+    const cached = ctx[key];
+    if (cached && baseEl.contains(cached)) return cached;
+    const el = baseEl.querySelector(selector);
+    ctx[key] = el;
+    return el;
+  }
+  /**
+   * @param {any} [ctx] another chart's context, for grouped tooltips
+   * @returns {HTMLElement | null}
+   */
   getElTooltip(ctx) {
     if (!ctx) ctx = this;
-    if (!ctx.w.dom.baseEl) return null;
     return (
       /** @type {HTMLElement | null} */
-      ctx.w.dom.baseEl.querySelector(
+      this._resolveEl(
+        ctx,
+        "_elTooltipCache",
         ".apexcharts-tooltip:not(.apexcharts-annotation-tooltip)"
       )
     );
   }
   getElXCrosshairs() {
-    return this.w.dom.baseEl.querySelector(".apexcharts-xcrosshairs");
+    return this._resolveEl(
+      this,
+      "_elXCrosshairsCache",
+      ".apexcharts-xcrosshairs"
+    );
   }
   getElGrid() {
-    return this.w.dom.baseEl.querySelector(".apexcharts-grid");
+    return this._resolveEl(this, "_elGridCache", ".apexcharts-grid");
   }
   /**
    * @param {import('../../types/internal').XYRatios} xyRatios
@@ -25765,6 +29805,9 @@ class Tooltip {
   drawTooltip(xyRatios) {
     const w = this.w;
     this.xyRatios = xyRatios;
+    this.showOnIntersect = this.tConfig.intersect;
+    this.showTooltipTitle = this.tConfig.x.show;
+    this.fixedTooltip = this.tConfig.fixed.enabled;
     this.isXAxisTooltipEnabled = w.config.xaxis.tooltip.enabled && w.globals.axisCharts;
     this.yaxisTooltips = w.config.yaxis.map((y) => {
       return y.show && y.tooltip.enabled && w.globals.axisCharts ? true : false;
@@ -25783,6 +29826,31 @@ class Tooltip {
       "div"
     );
     tooltipEl.classList.add("apexcharts-tooltip");
+    if (this.tConfig.interactive) {
+      tooltipEl.classList.add("apexcharts-tooltip-interactive");
+      tooltipEl.addEventListener(
+        "mouseenter",
+        () => {
+          clearTimeout(this.interactiveHideTimeout);
+          this.cancelOffMarkHide();
+        },
+        { passive: true }
+      );
+      tooltipEl.addEventListener(
+        "mouseleave",
+        () => {
+          clearTimeout(this.interactiveHideTimeout);
+          this.handleMouseOut({ tooltipEl });
+          if (w.config.chart.group) {
+            this.ctx.getGroupedCharts().forEach((ch) => {
+              const el = this.getElTooltip(ch);
+              if (el) ch.w.globals.tooltip.handleMouseOut({ tooltipEl: el });
+            });
+          }
+        },
+        { passive: true }
+      );
+    }
     if (w.config.tooltip.cssClass) {
       tooltipEl.classList.add(w.config.tooltip.cssClass);
     }
@@ -25803,7 +29871,7 @@ class Tooltip {
       );
     }
     const isSharedMulti = this.tConfig.shared && w.config.series.length > 1 && !w.globals.isBarHorizontal && w.config.chart.type !== "heatmap";
-    const shouldDrawArrow = this.tConfig.arrow && !this.tConfig.followCursor && !this.tConfig.fixed.enabled && !isSharedMulti && !this.tConfig.fillSeriesColor && w.globals.axisCharts;
+    const shouldDrawArrow = this.tConfig.arrow && !Utils2.isFollowCursor(this.w) && !this.tConfig.fixed.enabled && !isSharedMulti && !this.tConfig.fillSeriesColor && w.globals.axisCharts;
     if (shouldDrawArrow) {
       const arrowEl = BrowserAPIs.createElementNS(
         "http://www.w3.org/1999/xhtml",
@@ -25849,12 +29917,8 @@ class Tooltip {
       tooltipEl.appendChild(this.tooltipTitle);
     }
     let ttItemsCnt = w.seriesData.series.length;
-    if ((w.globals.xyCharts || w.globals.comboCharts) && this.tConfig.shared) {
-      if (!this.showOnIntersect) {
-        ttItemsCnt = w.seriesData.series.length;
-      } else {
-        ttItemsCnt = 1;
-      }
+    if (w.globals.xyCharts || w.globals.comboCharts) {
+      ttItemsCnt = this.tConfig.shared && !this.showOnIntersect ? w.seriesData.series.length : 1;
     }
     this.legendLabels = w.dom.baseEl.querySelectorAll(".apexcharts-legend-text");
     this.ttItems = this.createTTElements(ttItemsCnt);
@@ -25906,6 +29970,7 @@ class Tooltip {
       gYZ.classList.add("apexcharts-tooltip-text");
       gYZ.style.fontFamily = this.tConfig.style.fontFamily || w.config.chart.fontFamily;
       gYZ.style.fontSize = this.tConfig.style.fontSize;
+      const refs = { marker: point, text: gYZ };
       ["y", "goals", "z"].forEach((g) => {
         const gValText = BrowserAPIs.createElementNS(
           "http://www.w3.org/1999/xhtml",
@@ -25924,9 +29989,12 @@ class Tooltip {
         );
         txtValue.classList.add(`apexcharts-tooltip-text-${g}-value`);
         gValText.appendChild(txtValue);
+        refs[`${g}Label`] = txtLabel;
+        refs[`${g}Value`] = txtValue;
         gYZ.appendChild(gValText);
       });
       gTxt.appendChild(gYZ);
+      gTxt.ttRefs = refs;
       tooltipEl.appendChild(gTxt);
       ttItems.push(gTxt);
     }
@@ -25935,6 +30003,7 @@ class Tooltip {
   addSVGEvents() {
     const w = this.w;
     const type = w.config.chart.type;
+    this.detachHoverAreaListeners();
     const tooltipEl = this.getElTooltip();
     if (!tooltipEl) return;
     const commonBar = !!(type === "bar" || type === "candlestick" || type === "boxPlot" || type === "violin" || type === "rangeBar");
@@ -25942,9 +30011,6 @@ class Tooltip {
     const isPolarMarkerChart = chartWithmarkers && !w.globals.xyCharts;
     const hoverArea = w.dom.Paper.node;
     const elGrid = this.getElGrid();
-    if (elGrid) {
-      this.seriesBound = elGrid.getBoundingClientRect();
-    }
     const tooltipY = [];
     const tooltipX = [];
     const seriesHoverParams = {
@@ -25980,6 +30046,10 @@ class Tooltip {
     const validSharedChartTypes = w.globals.xyCharts && !this.showOnIntersect || w.globals.comboCharts && !this.showOnIntersect || commonBar && this.tooltipUtil.hasBars() && this.tConfig.shared;
     if (validSharedChartTypes) {
       this.addPathsEventListeners([hoverArea], seriesHoverParams);
+    } else if (Utils2.isCanvasBarChart(w)) {
+      this.addPathsEventListeners([hoverArea], seriesHoverParams);
+    } else if (chartWithmarkers && this.showOnIntersect && Utils2.isCanvasMarkerChart(w)) {
+      this.addPathsEventListeners([hoverArea], seriesHoverParams);
     } else if (commonBar && !w.globals.comboCharts || chartWithmarkers && this.showOnIntersect || isPolarMarkerChart) {
       this.addDatapointEventsListeners(seriesHoverParams);
     } else if (type === "heatmap" && w.globals.activeRenderer && w.globals.activeRenderer.kind === "canvas") {
@@ -25999,6 +30069,54 @@ class Tooltip {
         this.addDatapointEventsListeners(seriesHoverParams);
       }
     }
+  }
+  /**
+   * Has the pointer left the plot toward an interactive box that a short plot
+   * put above or below its mark (so past the plot's edge on that side):
+   * leaving upward to a box on top, or downward to one below, within reach of
+   * the box sideways?
+   *
+   * @param {HTMLElement | null | undefined} tooltipEl
+   * @param {number} clientX
+   * @param {boolean} exitedAbove
+   * @returns {boolean}
+   */
+  isHeadingForOutsideBox(tooltipEl, clientX, exitedAbove) {
+    var _a;
+    if (!tooltipEl || !((_a = this.tooltipPosition) == null ? void 0 : _a.shortPlotPlacement)) return false;
+    if (!tooltipEl.classList.contains("apexcharts-active")) return false;
+    const side = tooltipEl.dataset.placement;
+    if (side !== (exitedAbove ? "top" : "bottom")) return false;
+    const r2 = tooltipEl.getBoundingClientRect();
+    return clientX >= r2.left - INTERACTIVE_REACH_SLACK && clientX <= r2.right + INTERACTIVE_REACH_SLACK;
+  }
+  /**
+   * How long an interactive tooltip waits to close once the pointer has left
+   * what it captions. Beside a point the box is a few px away and the base
+   * delay covers it; on a short plot a box above or below the mark can be a
+   * whole margin away, so the wait grows with the distance still to travel.
+   *
+   * @param {number | undefined} clientX
+   * @param {number | undefined} clientY
+   * @returns {number}
+   */
+  interactiveHideDelay(clientX, clientY) {
+    var _a;
+    const tooltipEl = ((_a = this.tooltipPosition) == null ? void 0 : _a.shortPlotPlacement) ? this.getElTooltip() : null;
+    if (!tooltipEl || clientX == null || clientY == null) {
+      return INTERACTIVE_TOOLTIP_HIDE_DELAY;
+    }
+    const r2 = tooltipEl.getBoundingClientRect();
+    const dx = Math.max(r2.left - clientX, 0, clientX - r2.right);
+    const dy = Math.max(r2.top - clientY, 0, clientY - r2.bottom);
+    const travel = Math.hypot(dx, dy) / SLOW_POINTER_SPEED;
+    return INTERACTIVE_TOOLTIP_HIDE_DELAY + Math.min(travel, INTERACTIVE_TRAVEL_ALLOWANCE_MAX);
+  }
+  /** Call off a close `offMarkHideTimeout` has pending. */
+  cancelOffMarkHide() {
+    if (this.offMarkHideTimeout === void 0) return;
+    clearTimeout(this.offMarkHideTimeout);
+    this.offMarkHideTimeout = void 0;
   }
   drawFixedTooltipRect() {
     const w = this.w;
@@ -26030,7 +30148,7 @@ class Tooltip {
   addDatapointEventsListeners(seriesHoverParams) {
     const w = this.w;
     const points = w.dom.baseEl.querySelectorAll(
-      ".apexcharts-series-markers .apexcharts-marker, .apexcharts-bar-area, .apexcharts-candlestick-area, .apexcharts-boxPlot-area, .apexcharts-rangebar-area"
+      ".apexcharts-series-markers .apexcharts-marker, .apexcharts-bar-area, .apexcharts-candlestick-area, .apexcharts-boxPlot-area, .apexcharts-violin-area, .apexcharts-rangebar-area"
     );
     this.addPathsEventListeners(points, seriesHoverParams);
   }
@@ -26058,13 +30176,31 @@ class Tooltip {
         "touchend"
       ];
       events.map((ev) => {
-        return paths[p].addEventListener(
-          ev,
-          self.onSeriesHover.bind(self, extendedOpts),
-          { capture: false, passive: true }
-        );
+        const handler = self.onSeriesHover.bind(self, extendedOpts);
+        if (paths[p] === opts.hoverArea) {
+          self.hoverAreaListeners.push({ el: paths[p], ev, handler });
+        }
+        return paths[p].addEventListener(ev, handler, {
+          capture: false,
+          passive: true
+        });
       });
     }
+  }
+  /**
+   * Take off the hover listeners the last addSVGEvents put on the svg. Every
+   * other target is a mark or series group that a render draws anew, so its
+   * listeners go with it; the svg survives the data-only fast update, which
+   * calls addSVGEvents again. Left on, each update stacked another set there,
+   * each holding the tooltip element that update replaced: every pointer
+   * move ran them all, the oldest drawing into its detached box first while
+   * the live box waited out the hover throttle.
+   */
+  detachHoverAreaListeners() {
+    for (const { el, ev, handler } of this.hoverAreaListeners) {
+      el.removeEventListener(ev, handler);
+    }
+    this.hoverAreaListeners = [];
   }
   /*
    ** Check to see if the tooltips should be updated based on a mouse / touch event
@@ -26073,6 +30209,19 @@ class Tooltip {
    */
   /** @param {Record<string, any>} opt @param {any} e */
   onSeriesHover(opt, e2) {
+    if (this.tConfig.interactive) {
+      clearTimeout(this.interactiveHideTimeout);
+      if (e2.type === "mouseout") {
+        clearTimeout(this.seriesHoverTimeout);
+        this.interactiveHideTimeout = setTimeout(
+          () => {
+            if (!this.w.globals.isDestroyed) this.seriesHover(opt, e2);
+          },
+          this.interactiveHideDelay(e2.clientX, e2.clientY)
+        );
+        return;
+      }
+    }
     Utils2.hoverTarget(e2);
     const targetDelay = 20;
     const timeSinceLastUpdate = Date.now() - this.lastHoverTime;
@@ -26092,13 +30241,14 @@ class Tooltip {
    */
   /** @param {Record<string, any>} opt @param {any} e */
   seriesHover(opt, e2) {
+    var _a;
     if (this.w.globals.isDestroyed) return;
     this.lastHoverTime = Date.now();
     let chartGroups = [];
     const w = this.w;
     const isCfMember = (chart) => {
-      var _a, _b, _c;
-      const link = (_c = (_b = (_a = chart == null ? void 0 : chart.w) == null ? void 0 : _a.config) == null ? void 0 : _b.chart) == null ? void 0 : _c.link;
+      var _a2, _b, _c;
+      const link = (_c = (_b = (_a2 = chart == null ? void 0 : chart.w) == null ? void 0 : _a2.config) == null ? void 0 : _b.chart) == null ? void 0 : _c.link;
       return !!(link && typeof link.dimension === "function");
     };
     if (w.config.chart.group && !isCfMember(this.ctx)) {
@@ -26108,16 +30258,49 @@ class Tooltip {
       return;
     }
     if (chartGroups.length) {
+      const painted = this.groupPaintedMark(opt, e2);
+      if ((painted == null ? void 0 : painted.noHit) && this.showOnIntersect) {
+        const at = Utils2.eventPointer(e2, opt);
+        const out = {
+          type: "mouseout",
+          target: e2.target,
+          clientX: at.x,
+          clientY: at.y
+        };
+        if (this.tConfig.interactive && ((_a = opt.tooltipEl) == null ? void 0 : _a.classList.contains("apexcharts-active"))) {
+          if (this.offMarkHideTimeout === void 0) {
+            this.offMarkHideTimeout = setTimeout(
+              () => {
+                this.offMarkHideTimeout = void 0;
+                if (!this.w.globals.isDestroyed) this.seriesHover(opt, out);
+              },
+              this.interactiveHideDelay(at.x, at.y)
+            );
+          }
+          return;
+        }
+        e2 = out;
+      }
+      const sourceRect = opt.elGrid ? Utils2.plotRect(w) : null;
+      const pointer = e2.type === "touchmove" ? e2.touches[0] : e2;
       chartGroups.forEach((ch) => {
         const tooltipEl = this.getElTooltip(ch);
+        const elGrid = ch.w.globals.tooltip.getElGrid();
+        const targetRect = elGrid ? Utils2.plotRect(ch.w) : null;
+        const clientX = sourceRect && targetRect ? targetRect.left + (pointer.clientX - sourceRect.left) / sourceRect.width * targetRect.width : pointer.clientX;
+        const clientY = sourceRect && targetRect ? targetRect.top + (pointer.clientY - sourceRect.top) / sourceRect.height * targetRect.height : pointer.clientY;
         const newOpts = {
           paths: opt.paths,
           tooltipEl,
           tooltipY: opt.tooltipY,
           tooltipX: opt.tooltipX,
-          elGrid: opt.elGrid,
+          elGrid: elGrid || opt.elGrid,
           hoverArea: opt.hoverArea,
-          ttItems: ch.w.globals.tooltip.ttItems
+          ttItems: ch.w.globals.tooltip.ttItems,
+          clientX,
+          clientY,
+          // the realIndex of the painted mark hovered, null off every one
+          paintedSeries: painted ? painted.noHit ? null : painted.i : void 0
         };
         if (ch.w.globals.minX === this.w.globals.minX && ch.w.globals.maxX === this.w.globals.maxX) {
           ch.w.globals.tooltip.seriesHoverByContext({
@@ -26137,9 +30320,31 @@ class Tooltip {
       });
     }
   }
+  /**
+   * The painted mark a pointer move over a canvas bar chart's plot is on,
+   * when its tooltip is synced to a group (seriesHover), in any tooltip mode:
+   * the members need its series to highlight, which no node under the
+   * pointer names. Only an intersect tooltip closes off every mark. Null for
+   * any other hover. Being on one calls off a close `offMarkHideTimeout` has
+   * pending, as handleBarTooltip does.
+   * @param {Record<string, any>} opt
+   * @param {any} e
+   * @returns {any}
+   */
+  groupPaintedMark(opt, e2) {
+    if (e2.type !== "mousemove" && e2.type !== "touchmove" && e2.type !== "mouseup") {
+      return null;
+    }
+    if (opt.paths !== opt.hoverArea || !Utils2.isCanvasBarChart(this.w)) {
+      return null;
+    }
+    const mark = this.intersect.getPaintedMark(e2, opt);
+    if (!mark.noHit) this.cancelOffMarkHide();
+    return mark;
+  }
   /** @param {{chartCtx: any, ttCtx: any, opt: any, e: any}} opts */
   seriesHoverByContext({ chartCtx, ttCtx, opt, e: e2 }) {
-    var _a;
+    var _a, _b, _c;
     const w = chartCtx.w;
     const tooltipEl = this.getElTooltip(chartCtx);
     if (!tooltipEl) return;
@@ -26154,7 +30359,26 @@ class Tooltip {
     if (ttCtx.tooltipUtil.hasBars() && !w.globals.comboCharts && !ttCtx.isBarShared) {
       if (this.tConfig.onDatasetHover.highlightDataSeries) {
         const series = new Series(chartCtx.w);
-        series.toggleSeriesOnHover(e2, (_a = Utils2.hoverTarget(e2)) == null ? void 0 : _a.parentNode);
+        const parent = (_a = Utils2.hoverTarget(e2)) == null ? void 0 : _a.parentNode;
+        if (opt.paths === opt.hoverArea && Utils2.isCanvasBarChart(w) || opt.paintedSeries !== void 0 && !((_b = parent == null ? void 0 : parent.getAttribute) == null ? void 0 : _b.call(parent, "rel"))) {
+          let i2 = opt.paintedSeries;
+          if (i2 === void 0) {
+            const mark = ttCtx.intersect.getPaintedMark(e2, opt);
+            i2 = mark.noHit ? null : mark.i;
+          }
+          const group = i2 == null ? null : Array.from(
+            w.dom.baseEl.querySelectorAll(".apexcharts-series")
+          ).find((g) => g.getAttribute("data:realIndex") === String(i2));
+          series.toggleSeriesOnHover(group ? e2 : { type: "mouseout" }, group);
+        } else if ((_c = parent == null ? void 0 : parent.getAttribute) == null ? void 0 : _c.call(parent, "rel")) {
+          series.toggleSeriesOnHover(e2, parent);
+        } else {
+          series.toggleSeriesOnHover(
+            /** @type {any} */
+            { type: "mouseout" },
+            parent
+          );
+        }
       }
     }
     if (w.globals.axisCharts) {
@@ -26177,28 +30401,50 @@ class Tooltip {
   // tooltip handling for line/area/bar/columns/scatter
   /** @param {{e: any, opt: any}} opts */
   axisChartsTooltips({ e: e2, opt }) {
-    var _a;
+    var _a, _b, _c, _d, _e, _f, _g;
     const w = this.w;
     let x, y;
     if (!opt.elGrid) return;
-    const seriesBound = opt.elGrid.getBoundingClientRect();
-    const clientX = e2.type === "touchmove" ? e2.touches[0].clientX : e2.clientX;
-    const clientY = e2.type === "touchmove" ? e2.touches[0].clientY : e2.clientY;
+    const seriesBound = Utils2.plotRect(w);
+    const clientX = (_a = opt.clientX) != null ? _a : e2.type === "touchmove" ? e2.touches[0].clientX : e2.clientX;
+    const clientY = (_b = opt.clientY) != null ? _b : e2.type === "touchmove" ? e2.touches[0].clientY : e2.clientY;
     this.clientY = clientY;
     this.clientX = clientX;
+    const offPlotVertically = clientY < seriesBound.top || clientY > seriesBound.top + seriesBound.height;
+    if (offPlotVertically && (e2 == null ? void 0 : e2.type) !== "mouseout" && ((_c = this.tConfig) == null ? void 0 : _c.interactive) && this.isHeadingForOutsideBox(
+      opt.tooltipEl,
+      clientX,
+      clientY < seriesBound.top
+    )) {
+      clearTimeout(this.interactiveHideTimeout);
+      this.interactiveHideTimeout = setTimeout(
+        () => {
+          if (this.w.globals.isDestroyed) return;
+          w.interact.capturedSeriesIndex = -1;
+          w.interact.capturedDataPointIndex = -1;
+          this.handleMouseOut(opt);
+        },
+        this.interactiveHideDelay(clientX, clientY)
+      );
+      return;
+    }
     w.interact.capturedSeriesIndex = -1;
     w.interact.capturedDataPointIndex = -1;
-    if (clientY < seriesBound.top || clientY > seriesBound.top + seriesBound.height) {
+    if (offPlotVertically) {
       this.handleMouseOut(opt);
       return;
     }
+    if ((_d = this.tConfig) == null ? void 0 : _d.interactive) clearTimeout(this.interactiveHideTimeout);
     if (w.dom.elWrap.querySelector(
       ".apexcharts-annotation-tooltip.apexcharts-active"
     )) {
       this.handleMouseOut(opt);
       return;
     }
-    if (Array.isArray(this.tConfig.enabledOnSeries) && !w.config.tooltip.shared) {
+    if (Array.isArray(this.tConfig.enabledOnSeries) && !w.config.tooltip.shared && // The plot-wide listener a canvas bar chart hovers its marks through
+    // (one at a time) names no series; the hit test does, and
+    // Intersect.handleBarTooltip checks that one.
+    !(opt.paths === opt.hoverArea && this.showOnIntersect && (Utils2.isCanvasBarChart(w) || Utils2.isCanvasMarkerChart(w)))) {
       const index = parseInt(opt.paths.getAttribute("index"), 10);
       if (this.tConfig.enabledOnSeries.indexOf(index) < 0) {
         this.handleMouseOut(opt);
@@ -26221,7 +30467,7 @@ class Tooltip {
       if (xcrosshairs !== null) {
         xcrosshairs.classList.add("apexcharts-active");
       }
-      const hasYAxisTooltip = (_a = this.yaxisTooltips) == null ? void 0 : _a.filter(
+      const hasYAxisTooltip = (_e = this.yaxisTooltips) == null ? void 0 : _e.filter(
         (b) => {
           return b === true;
         }
@@ -26233,6 +30479,7 @@ class Tooltip {
       if (_yc !== null && (hasYAxisTooltip == null ? void 0 : hasYAxisTooltip.length)) {
         _yc.classList.add("apexcharts-active");
       }
+      this.tooltipHidden = false;
       if (!isCellChart && (isStickyTooltip && !this.showOnIntersect || syncedCharts.length > 1)) {
         this.handleStickyTooltip(e2, clientX, clientY, opt);
       } else {
@@ -26250,27 +30497,35 @@ class Tooltip {
           }
           x = markerXY.x;
           y = markerXY.y;
-          if (!markerXY.positioned) {
-            tooltipEl.style.left = x + "px";
-            tooltipEl.style.top = y + "px";
-          }
+          this.placeCellTooltip(tooltipEl, markerXY);
         } else {
-          if (this.tooltipUtil.hasBars()) {
-            this.intersect.handleBarTooltip({
+          const paintedMarker = this.intersect.getPaintedMarker(e2, opt);
+          if (paintedMarker) {
+            this.intersect.handlePaintedMarkerTooltip({
               e: e2,
-              opt
+              opt,
+              marker: paintedMarker
             });
-          }
-          if (this.tooltipUtil.hasMarkers(0)) {
+          } else if (((_g = (_f = Utils2.hoverTarget(e2)) == null ? void 0 : _f.classList) == null ? void 0 : _g.contains("apexcharts-marker")) && // a marker of a data point, not a series' hover dot, which
+          // names none
+          Utils2.hoverTarget(e2).hasAttribute("rel")) {
             this.intersect.handleMarkerTooltip({
               e: e2,
               opt,
               x,
               y
             });
+          } else if (this.tooltipUtil.hasBars()) {
+            this.intersect.handleBarTooltip({
+              e: e2,
+              opt
+            });
+          } else if (opt.paths === opt.hoverArea && Utils2.isCanvasMarkerChart(w)) {
+            this.intersect.leavePaintedMark(e2, opt);
           }
         }
       }
+      if (this.tooltipHidden) return;
       if (this.yaxisTooltips && this.yaxisTooltips.length) {
         for (let yt = 0; yt < w.config.yaxis.length; yt++) {
           this.axesTooltip.drawYaxisTooltipText(
@@ -26330,7 +30585,7 @@ class Tooltip {
   // tooltip handling for pie/donuts
   /** @param {{e: any, opt: any, tooltipRect: any}} opts */
   nonAxisChartsTooltips({ e: e2, opt, tooltipRect }) {
-    var _a, _b, _c, _d;
+    var _a, _b;
     const w = this.w;
     const rel = opt.paths.getAttribute("rel");
     const tooltipEl = this.getElTooltip();
@@ -26354,24 +30609,31 @@ class Tooltip {
           shared: false
         });
       }
-      let x, y;
       const arcPath = opt.paths.querySelector("path[data\\:cx]") || opt.paths;
       const anchor = w.config.tooltip.intersect ? this.getSliceAnchor(arcPath) : null;
-      if (anchor) {
-        x = anchor.x - tooltipRect.ttWidth / 2;
-        y = anchor.y - tooltipRect.ttHeight - 10;
-      } else {
-        x = ((_a = w.interact.clientX) != null ? _a : 0) - seriesBound.left - tooltipRect.ttWidth / 2;
-        y = ((_b = w.interact.clientY) != null ? _b : 0) - seriesBound.top - tooltipRect.ttHeight - 10;
-      }
-      tooltipEl.style.left = x + "px";
-      tooltipEl.style.top = y + "px";
+      const pointer = Utils2.eventPointer(e2, opt);
+      const pos = anchor ? this.tooltipPosition.placeOverAnchor(
+        anchor.x,
+        anchor.y,
+        tooltipRect.ttWidth,
+        tooltipRect.ttHeight,
+        10
+      ) : this.tooltipPosition.placeOverAnchor(
+        pointer.x - seriesBound.left,
+        pointer.y - seriesBound.top,
+        tooltipRect.ttWidth,
+        tooltipRect.ttHeight,
+        10,
+        POINTER_CLEARANCE_BELOW
+      );
+      tooltipEl.style.left = pos.x + "px";
+      tooltipEl.style.top = pos.y + "px";
       if (w.config.legend.tooltipHoverFormatter) {
         const legendFormatter = w.config.legend.tooltipHoverFormatter;
         const i2 = rel - 1;
         const legendEl = (
           /** @type {HTMLElement | undefined} */
-          (_c = this.legendLabels) == null ? void 0 : _c[i2]
+          (_a = this.legendLabels) == null ? void 0 : _a[i2]
         );
         if (!legendEl) return;
         const legendName = legendEl.getAttribute("data:default-text");
@@ -26386,7 +30648,7 @@ class Tooltip {
       tooltipEl.classList.remove("apexcharts-active");
       w.dom.baseEl.classList.remove("apexcharts-tooltip-active");
       if (w.config.legend.tooltipHoverFormatter) {
-        (_d = this.legendLabels) == null ? void 0 : _d.forEach((l2) => {
+        (_b = this.legendLabels) == null ? void 0 : _b.forEach((l2) => {
           const defaultText = l2.getAttribute("data:default-text");
           l2.innerHTML = decodeURIComponent(
             defaultText != null ? defaultText : ""
@@ -26409,9 +30671,9 @@ class Tooltip {
     const tooltipEl = this.getElTooltip();
     if (!tooltipEl) return;
     const i2 = parseInt(dotEl.getAttribute("i") || "0", 10);
-    const j = parseInt(dotEl.getAttribute("j") || "0", 10);
+    const j2 = parseInt(dotEl.getAttribute("j") || "0", 10);
     if (typeof w.config.tooltip.custom === "function") {
-      this.tooltipLabels.handleCustomTooltip({ i: i2, j, y1: null, y2: null, w });
+      this.tooltipLabels.handleCustomTooltip({ i: i2, j: j2, y1: null, y2: null, w });
       return;
     }
     const seriesName = w.seriesData.seriesNames[i2] || `series-${i2 + 1}`;
@@ -26421,7 +30683,7 @@ class Tooltip {
     const unitOpts = w.config.plotOptions.unit || {};
     const unitValue = unitOpts.unitValue > 0 ? unitOpts.unitValue : 1;
     const catData = w.seriesData.unitData && w.seriesData.unitData[i2];
-    const datum = catData ? catData[j] : void 0;
+    const datum = catData ? catData[j2] : void 0;
     const datumObj = datum && typeof datum === "object" ? datum : null;
     const color = datumObj && datumObj.fillColor || w.globals.colors && w.globals.colors[i2] || "#008FFB";
     let body;
@@ -26430,7 +30692,7 @@ class Tooltip {
       body = fmt({
         seriesName,
         seriesIndex: i2,
-        dataPointIndex: j,
+        dataPointIndex: j2,
         count,
         value,
         unitValue,
@@ -26441,9 +30703,9 @@ class Tooltip {
     } else if (datum !== void 0 && datum !== null) {
       const label = datumObj ? (_c = (_b = (_a = datumObj.name) != null ? _a : datumObj.label) != null ? _b : datumObj.x) != null ? _c : null : null;
       const dVal = datumObj ? (_e = (_d = datumObj.value) != null ? _d : datumObj.y) != null ? _e : null : datum;
-      body = label != null && dVal != null ? `${label}: ${dVal}` : label != null ? String(label) : dVal != null ? String(dVal) : `#${(j + 1).toLocaleString()} of ${count.toLocaleString()}`;
+      body = label != null && dVal != null ? `${label}: ${dVal}` : label != null ? String(label) : dVal != null ? String(dVal) : `#${(j2 + 1).toLocaleString()} of ${count.toLocaleString()}`;
     } else {
-      body = `#${(j + 1).toLocaleString()} of ${count.toLocaleString()}`;
+      body = `#${(j2 + 1).toLocaleString()} of ${count.toLocaleString()}`;
       if (unitValue !== 1) {
         body += ` &middot; ${unitValue.toLocaleString()} per dot`;
       }
@@ -26458,6 +30720,24 @@ class Tooltip {
     this.tooltipRect.ttHeight = rect.height;
   }
   /**
+   * Put the box where Intersect.handleHeatTreeTooltip placed it for a
+   * heatmap or treemap cell. Shared by the pointer and by keyboard focus on
+   * a box that follows the pointer (KeyboardNavigation._hoverFocusedCell).
+   * @param {HTMLElement} tooltipEl
+   * @param {{ x: number, y: number, positioned?: boolean, placement?: string, arrowX?: number }} markerXY
+   */
+  placeCellTooltip(tooltipEl, markerXY) {
+    if (markerXY.positioned) return;
+    tooltipEl.style.left = markerXY.x + "px";
+    tooltipEl.style.top = markerXY.y + "px";
+    if (markerXY.placement) {
+      tooltipEl.dataset.placement = markerXY.placement;
+      tooltipEl.style.setProperty("--apx-tt-arrow-x", markerXY.arrowX + "px");
+    } else if (tooltipEl.dataset.placement) {
+      delete tooltipEl.dataset.placement;
+    }
+  }
+  /**
    * @param {Event} e
    * @param {number} clientX
    * @param {number} clientY
@@ -26468,23 +30748,22 @@ class Tooltip {
     const capj = this.tooltipUtil.getNearestValues({
       context: this,
       hoverArea: opt.hoverArea,
-      elGrid: opt.elGrid,
       clientX,
       clientY
     });
-    const j = capj.j;
+    const j2 = capj.j;
     let capturedSeries = capj.capturedSeries;
     if (capturedSeries !== null && w.globals.collapsedSeriesIndices.includes(capturedSeries != null ? capturedSeries : -1))
       capturedSeries = null;
     const edgePad = w.globals.barPadForNumericAxis || 0;
-    if (capj.hoverX < -edgePad || capj.hoverX > w.layout.gridWidth + edgePad) {
+    if (capj.hoverX <= -edgePad - 1 || capj.hoverX >= w.layout.gridWidth + edgePad + 1) {
       this.handleMouseOut(opt);
       return;
     }
     if (capturedSeries !== null) {
-      this.handleStickyCapturedSeries(e2, capturedSeries != null ? capturedSeries : -1, opt, j != null ? j : 0);
+      this.handleStickyCapturedSeries(e2, capturedSeries != null ? capturedSeries : -1, opt, j2 != null ? j2 : 0);
     } else {
-      if (this.tooltipUtil.isXoverlap(j != null ? j : 0) || w.globals.isBarHorizontal) {
+      if (this.tooltipUtil.isXoverlap(j2 != null ? j2 : 0) || w.globals.isBarHorizontal) {
         const firstVisibleSeries = w.seriesData.series.findIndex(
           /**
            * @param {any} s
@@ -26492,7 +30771,7 @@ class Tooltip {
            */
           (s2, i2) => !w.globals.collapsedSeriesIndices.includes(i2)
         );
-        this.create(e2, this, firstVisibleSeries, j != null ? j : 0, opt.ttItems);
+        this.create(e2, this, firstVisibleSeries, j2 != null ? j2 : 0, opt.ttItems);
       }
     }
   }
@@ -26502,23 +30781,23 @@ class Tooltip {
    * @param {Record<string, any>} opt
    * @param {number} j
    */
-  handleStickyCapturedSeries(e2, capturedSeries, opt, j) {
+  handleStickyCapturedSeries(e2, capturedSeries, opt, j2) {
     const w = this.w;
     if (!this.tConfig.shared) {
-      const ignoreNull = w.seriesData.series[capturedSeries][j] === null;
+      const ignoreNull = w.seriesData.series[capturedSeries][j2] === null;
       if (ignoreNull) {
         this.handleMouseOut(opt);
         return;
       }
     }
-    if (typeof w.seriesData.series[capturedSeries][j] !== "undefined") {
-      if (this.tConfig.shared && this.tooltipUtil.isXoverlap(j) && this.tooltipUtil.isInitialSeriesSameLen()) {
-        this.create(e2, this, capturedSeries, j, opt.ttItems);
+    if (typeof w.seriesData.series[capturedSeries][j2] !== "undefined") {
+      if (this.tConfig.shared && this.tooltipUtil.isXoverlap(j2) && this.tooltipUtil.isInitialSeriesSameLen()) {
+        this.create(e2, this, capturedSeries, j2, opt.ttItems);
       } else {
-        this.create(e2, this, capturedSeries, j, opt.ttItems, false);
+        this.create(e2, this, capturedSeries, j2, opt.ttItems, false);
       }
     } else {
-      if (this.tooltipUtil.isXoverlap(j)) {
+      if (this.tooltipUtil.isXoverlap(j2)) {
         const firstVisibleSeries = w.seriesData.series.findIndex(
           /**
            * @param {any} s
@@ -26526,7 +30805,7 @@ class Tooltip {
            */
           (s2, i2) => !w.globals.collapsedSeriesIndices.includes(i2)
         );
-        this.create(e2, this, firstVisibleSeries, j, opt.ttItems);
+        this.create(e2, this, firstVisibleSeries, j2, opt.ttItems);
       }
     }
   }
@@ -26549,6 +30828,8 @@ class Tooltip {
   handleMouseOut(opt) {
     var _a, _b;
     const w = this.w;
+    this.tooltipHidden = true;
+    this.tooltipPosition.resetPlacementCache();
     const xcrosshairs = this.getElXCrosshairs();
     w.dom.baseEl.classList.remove("apexcharts-tooltip-active");
     opt.tooltipEl.classList.remove("apexcharts-active");
@@ -26634,32 +30915,36 @@ class Tooltip {
    * @param {any} ttItems
    * @param {boolean | null} shared
    */
-  create(e2, context, capturedSeries, j, ttItems, shared = null) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+  create(e2, context, capturedSeries, j2, ttItems, shared = null) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w;
     const w = this.w;
     const ttCtx = context;
     if (e2.type === "mouseup") {
-      this.markerClick(e2, capturedSeries, j);
+      this.markerClick(e2, capturedSeries, j2);
     }
     if (shared === null) shared = this.tConfig.shared;
     const hasMarkers = this.tooltipUtil.hasMarkers(capturedSeries);
     const canvasMode = ((_b = (_a = this.ctx) == null ? void 0 : _a.renderer) == null ? void 0 : _b.kind) === "canvas";
     const canvasNonBar = canvasMode && !this.tooltipUtil.hasBars();
+    const canvasPointSeries = canvasMode && !canvasNonBar && !Utils2.isBarLikeType(
+      /** @type {any} */
+      (_d = (_c = w.config.series[capturedSeries]) == null ? void 0 : _c.type) != null ? _d : w.config.chart.type
+    );
     const marksMode = !canvasMode && !hasMarkers && !this.tooltipUtil.hasBars() && this._hasCustomSeries();
-    const dynamicPoints = canvasNonBar || marksMode;
+    const dynamicPoints = canvasNonBar || canvasPointSeries || marksMode;
     const bars = this.tooltipUtil.getElBars();
     const handlePoints = () => {
       if (w.globals.markers.largestSize > 0 && !canvasMode && !w.globals.markers.batched) {
-        ttCtx.marker.enlargePoints(j);
+        ttCtx.marker.enlargePoints(j2);
       } else {
-        ttCtx.tooltipPosition.moveDynamicPointsOnHover(j);
+        ttCtx.tooltipPosition.moveDynamicPointsOnHover(j2);
       }
     };
     if (w.config.legend.tooltipHoverFormatter) {
       const legendFormatter = w.config.legend.tooltipHoverFormatter;
       const els = (
         /** @type {HTMLElement[]} */
-        Array.from((_c = this.legendLabels) != null ? _c : [])
+        Array.from((_e = this.legendLabels) != null ? _e : [])
       );
       els.forEach((l2) => {
         const legendName = l2.getAttribute("data:default-text");
@@ -26667,13 +30952,13 @@ class Tooltip {
       });
       for (let i2 = 0; i2 < els.length; i2++) {
         const l2 = els[i2];
-        const lsIndex = parseInt((_d = l2.getAttribute("i")) != null ? _d : "", 10);
+        const lsIndex = parseInt((_f = l2.getAttribute("i")) != null ? _f : "", 10);
         const legendName = decodeURIComponent(
-          (_e = l2.getAttribute("data:default-text")) != null ? _e : ""
+          (_g = l2.getAttribute("data:default-text")) != null ? _g : ""
         );
         const text = legendFormatter(legendName, {
           seriesIndex: shared ? lsIndex : capturedSeries,
-          dataPointIndex: j,
+          dataPointIndex: j2,
           w
         });
         if (!shared) {
@@ -26693,11 +30978,11 @@ class Tooltip {
     const commonSeriesTextsParams = __spreadValues(__spreadValues({
       ttItems,
       i: capturedSeries,
-      j
-    }, ((_i = (_h = (_g = (_f = _rangeData.seriesRange) == null ? void 0 : _f[capturedSeries]) == null ? void 0 : _g[j]) == null ? void 0 : _h.y[0]) == null ? void 0 : _i.y1) !== void 0 && {
-      y1: (_m = (_l = (_k = (_j = _rangeData.seriesRange) == null ? void 0 : _j[capturedSeries]) == null ? void 0 : _k[j]) == null ? void 0 : _l.y[0]) == null ? void 0 : _m.y1
-    }), ((_q = (_p = (_o = (_n = _rangeData.seriesRange) == null ? void 0 : _n[capturedSeries]) == null ? void 0 : _o[j]) == null ? void 0 : _p.y[0]) == null ? void 0 : _q.y2) !== void 0 && {
-      y2: (_u = (_t = (_s = (_r = _rangeData.seriesRange) == null ? void 0 : _r[capturedSeries]) == null ? void 0 : _s[j]) == null ? void 0 : _t.y[0]) == null ? void 0 : _u.y2
+      j: j2
+    }, ((_k = (_j = (_i = (_h = _rangeData.seriesRange) == null ? void 0 : _h[capturedSeries]) == null ? void 0 : _i[j2]) == null ? void 0 : _j.y[0]) == null ? void 0 : _k.y1) !== void 0 && {
+      y1: (_o = (_n = (_m = (_l = _rangeData.seriesRange) == null ? void 0 : _l[capturedSeries]) == null ? void 0 : _m[j2]) == null ? void 0 : _n.y[0]) == null ? void 0 : _o.y1
+    }), ((_s = (_r = (_q = (_p = _rangeData.seriesRange) == null ? void 0 : _p[capturedSeries]) == null ? void 0 : _q[j2]) == null ? void 0 : _r.y[0]) == null ? void 0 : _s.y2) !== void 0 && {
+      y2: (_w = (_v = (_u = (_t = _rangeData.seriesRange) == null ? void 0 : _t[capturedSeries]) == null ? void 0 : _u[j2]) == null ? void 0 : _v.y[0]) == null ? void 0 : _w.y2
     });
     if (shared) {
       ttCtx.tooltipLabels.drawSeriesTexts(__spreadProps(__spreadValues({}, commonSeriesTextsParams), {
@@ -26707,7 +30992,7 @@ class Tooltip {
         handlePoints();
       } else if (this.tooltipUtil.hasBars()) {
         if (canvasMode) {
-          ttCtx.tooltipPosition.moveStickyTooltipOverBars(j, capturedSeries);
+          ttCtx.tooltipPosition.moveStickyTooltipOverBars(j2, capturedSeries);
         }
         this.barSeriesHeight = this.tooltipUtil.getBarsHeight(
           /** @type {any[]} */
@@ -26715,13 +31000,13 @@ class Tooltip {
         );
         if (this.barSeriesHeight > 0) {
           const graphics = new Graphics(this.w, this.ctx);
-          const paths = w.dom.Paper.find(`.apexcharts-bar-area[j='${j}']`);
+          const paths = w.dom.Paper.find(`.apexcharts-bar-area[j='${j2}']`);
           this.deactivateHoverFilter();
           const points = ttCtx.tooltipUtil.getAllMarkers(true);
           if (points.length && !this.barSeriesHeight) {
             handlePoints();
           }
-          ttCtx.tooltipPosition.moveStickyTooltipOverBars(j, capturedSeries);
+          ttCtx.tooltipPosition.moveStickyTooltipOverBars(j2, capturedSeries);
           for (let b = 0; b < paths.length; b++) {
             graphics.pathMouseEnter(
               /** @type {any} */
@@ -26737,12 +31022,12 @@ class Tooltip {
         shared: false
       }, commonSeriesTextsParams));
       if (this.tooltipUtil.hasBars()) {
-        ttCtx.tooltipPosition.moveStickyTooltipOverBars(j, capturedSeries);
+        ttCtx.tooltipPosition.moveStickyTooltipOverBars(j2, capturedSeries);
       }
       if (hasMarkers) {
-        ttCtx.tooltipPosition.moveMarkers(capturedSeries, j);
+        ttCtx.tooltipPosition.moveMarkers(capturedSeries, j2);
       } else if (dynamicPoints) {
-        ttCtx.tooltipPosition.moveDynamicPointOnHover(j, capturedSeries);
+        ttCtx.tooltipPosition.moveDynamicPointOnHover(j2, capturedSeries);
       }
     }
   }
@@ -26871,6 +31156,22 @@ class RendererController {
     this.active = this.svg;
     this._activeKind = "svg";
     this._instances = {};
+    this.w.globals.activeRenderer = this.active;
+  }
+  /**
+   * Make `renderer` the active one everywhere it is read: here, on ctx, and
+   * mirrored on globals so w-only modules (tooltip hit tests, Series
+   * hover/legend restyle) can reach it without threading ctx. The mirror is
+   * persistent state (see Globals.globalVars), so it holds until the next
+   * resolve() or teardown(), across any number of data-only updates.
+   * @param {import('../renderers/Renderer').RendererKind} kind
+   * @param {any} renderer
+   */
+  _activate(kind, renderer) {
+    this.active = renderer;
+    this._activeKind = kind;
+    this.ctx.renderer = renderer;
+    this.w.globals.activeRenderer = renderer;
   }
   /**
    * The kind selection WANTS (before availability/fallback). Pure.
@@ -26902,15 +31203,16 @@ class RendererController {
         if (!this._instances[desired]) {
           this._instances[desired] = factory(this.w, this.ctx);
         }
-        this.active = this._instances[desired];
-        this._activeKind = desired;
-        this.ctx.renderer = this.active;
-        this.w.globals.activeRenderer = this.active;
+        this._activate(desired, this._instances[desired]);
         return this._activeKind;
       }
       if (mode === desired) {
-        console.warn(
-          `[apexcharts] renderer:"${desired}" requested but that renderer is not in the default bundle. Bundler: import 'apexcharts/features/renderer-${desired}'. Script tag: add <script src=".../dist/features/renderer-${desired}.js"> after apexcharts.js. Falling back to SVG.`
+        warnMissingFeature(
+          `\`chart.renderer: '${desired}'\``,
+          `renderer-${desired}`,
+          {
+            tail: "Falling back to SVG."
+          }
         );
       }
     } else if (mode === "canvas" && hasCanvasUnsupportedFeature(this.w)) {
@@ -26918,11 +31220,19 @@ class RendererController {
         `[apexcharts] renderer:"canvas" requested but this chart uses a feature the canvas renderer does not render yet (gradient/pattern/image fill or a state color-matrix filter); falling back to SVG.`
       );
     }
-    this.active = this.svg;
-    this._activeKind = "svg";
-    this.ctx.renderer = this.active;
-    this.w.globals.activeRenderer = this.active;
+    this._activate("svg", this.svg);
     return this._activeKind;
+  }
+  /**
+   * The kind resolve() would select right now: the desired kind when its
+   * backend is registered, SVG otherwise. Pure (no instance, no warning), so
+   * the data-only fast update can ask whether a full render would switch
+   * backends before it repaints into the one on screen.
+   * @returns {import('../renderers/Renderer').RendererKind}
+   */
+  pendingKind() {
+    const desired = this._desiredKind();
+    return desired === "svg" || getRendererRegistry().has(desired) ? desired : "svg";
   }
   /** @returns {import('../renderers/Renderer').RendererKind} */
   getActiveKind() {
@@ -26937,6 +31247,7 @@ class RendererController {
     this._instances = {};
     this.active = this.svg;
     this._activeKind = "svg";
+    this.w.globals.activeRenderer = null;
   }
 }
 class SVGElement {
@@ -27014,8 +31325,8 @@ class SVGElement {
    * @param {number} w
    * @param {number} h
    */
-  size(w, h2) {
-    return this.attr({ width: w, height: h2 });
+  size(w, h) {
+    return this.attr({ width: w, height: h });
   }
   /**
    * @param {number} x
@@ -27310,14 +31621,14 @@ class SVGPattern extends SVGElement {
    * @param {number} h
    * @param {Function} builder
    */
-  constructor(container, w, h2, builder) {
+  constructor(container, w, h, builder) {
     const node = BrowserAPIs.createElementNS(SVGNS$1, "pattern");
     super(node);
     this._id = "SvgjsPattern" + ++patternCounter;
     this.attr({
       id: this._id,
       width: w,
-      height: h2,
+      height: h,
       patternUnits: "userSpaceOnUse"
     });
     if (typeof builder === "function") {
@@ -27362,10 +31673,10 @@ class SVGContainer extends SVGElement {
    * @param {import('../types/internal').ChartStateW} w
    * @param {number} h
    */
-  rect(w, h2) {
+  rect(w, h) {
     const el = this._make("rect");
     if (w !== void 0) {
-      el.attr({ width: w, height: h2 });
+      el.attr({ width: w, height: h });
     }
     return el;
   }
@@ -27454,8 +31765,8 @@ class SVGContainer extends SVGElement {
    * @param {number} h
    * @param {Function} builder
    */
-  pattern(w, h2, builder) {
-    return new SVGPattern(this, w, h2, builder);
+  pattern(w, h, builder) {
+    return new SVGPattern(this, w, h, builder);
   }
   /**
    * @param {string} tag
@@ -27649,22 +31960,22 @@ function installDraggable(ElementClass) {
         let newX = startAttrX + dx;
         let newY = startAttrY + dy;
         const w = parseFloat(svgEl.getAttribute("width")) || 0;
-        const h2 = parseFloat(svgEl.getAttribute("height")) || 0;
+        const h = parseFloat(svgEl.getAttribute("height")) || 0;
         if (constraints.minX !== void 0 && newX < constraints.minX)
           newX = constraints.minX;
         if (constraints.minY !== void 0 && newY < constraints.minY)
           newY = constraints.minY;
         if (constraints.maxX !== void 0 && newX + w > constraints.maxX)
           newX = constraints.maxX - w;
-        if (constraints.maxY !== void 0 && newY + h2 > constraints.maxY)
-          newY = constraints.maxY - h2;
+        if (constraints.maxY !== void 0 && newY + h > constraints.maxY)
+          newY = constraints.maxY - h;
         const box = {
           x: newX,
           y: newY,
           w,
-          h: h2,
+          h,
           x2: newX + w,
-          y2: newY + h2
+          y2: newY + h
         };
         const event = new CustomEvent("dragmove", {
           detail: {
@@ -27745,7 +32056,7 @@ function installSelectable(ElementClass) {
       const x = parseFloat(el.attr("x")) || 0;
       const y = parseFloat(el.attr("y")) || 0;
       const w = parseFloat(el.attr("width")) || 0;
-      const h2 = parseFloat(el.attr("height")) || 0;
+      const h = parseFloat(el.attr("height")) || 0;
       const elTransform = el.node.getAttribute("transform");
       if (elTransform) {
         handleGroup.setAttribute("transform", elTransform);
@@ -27754,13 +32065,13 @@ function installSelectable(ElementClass) {
       }
       const positions = {
         t: [x + w / 2, y],
-        b: [x + w / 2, y + h2],
-        l: [x, y + h2 / 2],
-        r: [x + w, y + h2 / 2],
+        b: [x + w / 2, y + h],
+        l: [x, y + h / 2],
+        r: [x + w, y + h / 2],
         lt: [x, y],
         rt: [x + w, y],
-        lb: [x, y + h2],
-        rb: [x + w, y + h2]
+        lb: [x, y + h],
+        rb: [x + w, y + h]
       };
       handleNames.forEach((name2) => {
         if (handles[name2] && positions[name2]) {
@@ -27998,7 +32309,8 @@ class InitCtxVariables {
     this.ctx.config = new Config({});
     this.ctx.data = new Data(this.w, {
       resetGlobals: () => this.ctx.core.resetGlobals(),
-      isMultipleY: () => this.ctx.core.isMultipleY()
+      isMultipleY: () => this.ctx.core.isMultipleY(),
+      highlight: () => this.ctx.highlightFilter
     });
     this.ctx.grid = new Grid(this.w, this.ctx);
     this.ctx.graphics = new Graphics(this.w, this.ctx);
@@ -28101,6 +32413,17 @@ class InitCtxVariables {
       },
       configurable: true
     });
+    Object.defineProperty(ctx, "highlightFilter", {
+      get() {
+        var _a;
+        if (!this._highlightFilter) {
+          const C2 = reg.get("highlightFilter");
+          if (C2) this._highlightFilter = new C2(w, this);
+        }
+        return (_a = this._highlightFilter) != null ? _a : null;
+      },
+      configurable: true
+    });
     const KeyboardCtor = reg.get("keyboardNavigation");
     Object.defineProperty(ctx, "keyboardNavigation", {
       get() {
@@ -28125,7 +32448,7 @@ class Destroy {
    * @param {{ isUpdating: boolean }} opts
    */
   clear({ isUpdating }) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
     (_a = this.ctx.weave) == null ? void 0 : _a.teardown(isUpdating);
     if (!isUpdating) {
       this.w.globals.isDestroyed = true;
@@ -28161,12 +32484,14 @@ class Destroy {
       this.ctx.ink = null;
       (_i = this.ctx.measure) == null ? void 0 : _i.teardown();
       this.ctx.measure = null;
-      (_j = this.ctx.contextMenu) == null ? void 0 : _j.teardown();
+      (_j = this.ctx._highlightFilter) == null ? void 0 : _j.teardown();
+      this.ctx._highlightFilter = null;
+      (_k = this.ctx.contextMenu) == null ? void 0 : _k.teardown();
       this.ctx.contextMenu = null;
-      (_k = this.ctx.osThemeWatcher) == null ? void 0 : _k.teardown();
+      (_l = this.ctx.osThemeWatcher) == null ? void 0 : _l.teardown();
       this.ctx.osThemeWatcher = null;
       this.ctx.weave = null;
-      (_m = (_l = this.ctx.rendererController) == null ? void 0 : _l.teardown) == null ? void 0 : _m.call(_l);
+      (_n = (_m = this.ctx.rendererController) == null ? void 0 : _m.teardown) == null ? void 0 : _n.call(_m);
       this.ctx.rendererController = null;
       this.ctx.renderer = null;
       this.ctx.drilldown = null;
@@ -28411,7 +32736,7 @@ function addResizeListener(el, fn) {
     called = true;
   });
   if (el.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-    Array.from(el.children).forEach((c2) => ro.observe(c2));
+    Array.from(el.children).forEach((c) => ro.observe(c));
   } else {
     ro.observe(el);
   }
@@ -28425,10 +32750,10 @@ function removeResizeListener(el, fn) {
     ros.delete(fn);
   }
 }
-const apexCSS = "@keyframes opaque {\n  0% {\n    opacity: 0\n  }\n\n  to {\n    opacity: 1\n  }\n}\n\n@keyframes resizeanim {\n\n  0%,\n  to {\n    opacity: 0\n  }\n}\n\n.apexcharts-canvas {\n  position: relative;\n  direction: ltr !important;\n  user-select: none;\n  /* Focus indicator colour. Themes override below. */\n  --apexcharts-focus-color: #008FFB;\n}\n\n/* Dark theme & high-contrast: brighter focus colour for sufficient contrast. */\n.apexcharts-canvas .apexcharts-theme-dark,\n.apexcharts-theme-dark.apexcharts-canvas {\n  --apexcharts-focus-color: #FFD500;\n}\n.apexcharts-canvas.apexcharts-high-contrast,\n.apexcharts-high-contrast.apexcharts-canvas {\n  --apexcharts-focus-color: #FFFF00;\n}\n\n/* Visually-hidden aria-live status region (WCAG 4.1.3 Status Messages). */\n.apexcharts-sr-status {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border: 0;\n}\n\n/* Respect OS-level reduced-motion preference (WCAG 2.3.3). */\n@media (prefers-reduced-motion: reduce) {\n  .apexcharts-canvas *,\n  .apexcharts-canvas *::before,\n  .apexcharts-canvas *::after {\n    animation-duration: 0.01ms !important;\n    animation-iteration-count: 1 !important;\n    transition-duration: 0.01ms !important;\n  }\n}\n\n.apexcharts-canvas ::-webkit-scrollbar {\n  -webkit-appearance: none;\n  width: 6px\n}\n\n.apexcharts-canvas ::-webkit-scrollbar-thumb {\n  border-radius: 4px;\n  background-color: rgba(0, 0, 0, .5);\n  box-shadow: 0 0 1px rgba(255, 255, 255, .5);\n  -webkit-box-shadow: 0 0 1px rgba(255, 255, 255, .5)\n}\n\n.apexcharts-inner {\n  position: relative\n}\n\n.apexcharts-text tspan {\n  font-family: inherit\n}\n\nrect.legend-mouseover-inactive,\n.legend-mouseover-inactive rect,\n.legend-mouseover-inactive path,\n.legend-mouseover-inactive circle,\n.legend-mouseover-inactive line,\n.legend-mouseover-inactive text.apexcharts-yaxis-title-text,\n.legend-mouseover-inactive text.apexcharts-yaxis-label {\n  transition: .15s ease all;\n  opacity: .2\n}\n\n/* Linked Views (#4): per-mark crossfilter dim. Applied to individual data\n   marks (not whole series) whose x is outside the brushed range. Opacity is\n   overridable per chart via the --apx-cf-dim custom property. */\n.apexcharts-crossfilter-dimmed {\n  transition: opacity .25s ease;\n  opacity: var(--apx-cf-dim, .2)\n}\n\n/* Linked Views (#4): default styling for the built-in crossfilter data table\n   (cf.dataTable). Deliberately light so host styles can override. */\n.apexcharts-cf-table {\n  border-collapse: collapse;\n  width: 100%;\n  font-size: 13px;\n}\n.apexcharts-cf-table caption {\n  caption-side: bottom;\n  text-align: right;\n  padding: 6px 2px;\n  font-size: 12px;\n  opacity: .7\n}\n.apexcharts-cf-table th,\n.apexcharts-cf-table td {\n  padding: 6px 10px;\n  text-align: left;\n  border-bottom: 1px solid rgba(0, 0, 0, .08)\n}\n.apexcharts-cf-table th {\n  font-weight: 600;\n  border-bottom-width: 2px\n}\n.apexcharts-cf-table tbody tr:hover {\n  background: rgba(99, 102, 241, .06)\n}\n\n/* Measure ruler (#18): measure / delta ruler.\n   Theme via these classes or the --apx-measure-* custom properties below\n   (config `chart.measure.colors` overrides both). The ruler group also carries\n   a direction class: apexcharts-measure-up | -down | -flat.\n   Element classes:\n     .apexcharts-measure-band     shaded span band\n     .apexcharts-measure-vline    vertical guide lines\n     .apexcharts-measure-line     free-mode diagonal line\n     .apexcharts-measure-label-bg readout box     .apexcharts-measure-label text\n   Colors are applied as SVG presentation attributes, so any rule you write on\n   these classes overrides them. */\n.apexcharts-canvas {\n  --apx-measure-up: #16a34a;\n  --apx-measure-down: #dc2626;\n  --apx-measure-neutral: #64748b;\n  --apx-measure-guide: #94a3b8;\n}\n.apexcharts-measure-capture {\n  cursor: crosshair;\n}\n\n/* Radial Actions (#chrome): right-click context menu. Theme via these classes\n   or the --apx-menu-* custom properties. */\n.apexcharts-canvas {\n  --apx-menu-bg: #ffffff;\n  --apx-menu-fg: #1e293b;\n  --apx-menu-border: #e2e8f0;\n  --apx-menu-hover: #f1f5f9;\n  --apx-menu-shadow: rgba(15, 23, 42, 0.18);\n}\n.apexcharts-context-menu {\n  min-width: 168px;\n  padding: 4px;\n  border-radius: 8px;\n  background: var(--apx-menu-bg);\n  border: 1px solid var(--apx-menu-border);\n  box-shadow: 0 6px 22px var(--apx-menu-shadow);\n  font-family: Helvetica, Arial, sans-serif;\n  font-size: 13px;\n  z-index: 20;\n  user-select: none;\n}\n.apexcharts-context-menu-item {\n  display: block;\n  width: 100%;\n  box-sizing: border-box;\n  text-align: left;\n  padding: 7px 12px;\n  border: 0;\n  border-radius: 5px;\n  background: transparent;\n  color: var(--apx-menu-fg);\n  font: inherit;\n  cursor: pointer;\n}\n.apexcharts-context-menu-item:hover,\n.apexcharts-context-menu-item--active {\n  background: var(--apx-menu-hover);\n}\n.apexcharts-context-menu-item:focus {\n  outline: none;\n}\n\n/* Ink Layer (#7): the floating note editor card, opened by clicking an\n   ink-managed annotation. Theme via these classes or the --apx-ink-* vars. */\n.apexcharts-canvas {\n  --apx-ink-card-bg: #ffffff;\n  --apx-ink-card-fg: #1e293b;\n  --apx-ink-card-border: #e2e8f0;\n  --apx-ink-card-hover: #f1f5f9;\n  --apx-ink-card-accent: #6366f1;\n  --apx-ink-card-shadow: rgba(15, 23, 42, 0.18);\n}\n.apexcharts-ink-card {\n  position: absolute;\n  z-index: 25;\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  padding: 8px;\n  border-radius: 8px;\n  background: var(--apx-ink-card-bg);\n  border: 1px solid var(--apx-ink-card-border);\n  box-shadow: 0 6px 22px var(--apx-ink-card-shadow);\n  font-family: Helvetica, Arial, sans-serif;\n  font-size: 12px;\n  color: var(--apx-ink-card-fg);\n  user-select: none;\n}\n.apexcharts-ink-card-row {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n}\n.apexcharts-ink-card input.apexcharts-ink-editor {\n  flex: 1 1 auto;\n  width: 150px;\n  min-width: 0;\n  box-sizing: border-box;\n  padding: 4px 6px;\n  font: inherit;\n  color: inherit;\n  background: transparent;\n  border: 1px solid var(--apx-ink-card-border);\n  border-radius: 5px;\n}\n.apexcharts-ink-card input.apexcharts-ink-editor:focus {\n  outline: none;\n  border-color: var(--apx-ink-card-accent);\n}\n.apexcharts-ink-btn {\n  flex: 0 0 auto;\n  width: 24px;\n  height: 24px;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  padding: 0;\n  border: 0;\n  border-radius: 5px;\n  background: transparent;\n  color: inherit;\n  font: inherit;\n  font-size: 12px;\n  line-height: 1;\n  cursor: pointer;\n}\n.apexcharts-ink-btn:hover,\n.apexcharts-ink-btn--active {\n  background: var(--apx-ink-card-hover);\n}\n.apexcharts-ink-btn:focus-visible,\n.apexcharts-ink-swatch:focus-visible {\n  outline: 2px solid var(--apx-ink-card-accent);\n  outline-offset: 1px;\n}\n.apexcharts-ink-btn--bold {\n  font-weight: 700;\n}\n.apexcharts-ink-btn--delete:hover {\n  color: #dc2626;\n}\n.apexcharts-ink-swatch {\n  flex: 0 0 auto;\n  width: 16px;\n  height: 16px;\n  padding: 0;\n  border: 1px solid rgba(100, 116, 139, 0.45);\n  border-radius: 50%;\n  cursor: pointer;\n}\n.apexcharts-ink-swatch--active {\n  box-shadow:\n    0 0 0 2px var(--apx-ink-card-bg),\n    0 0 0 4px var(--apx-ink-card-accent);\n}\n.apexcharts-ink-sep {\n  flex: 0 0 auto;\n  width: 1px;\n  height: 16px;\n  margin: 0 2px;\n  background: var(--apx-ink-card-border);\n}\n.apexcharts-ink-cardlabel {\n  flex: 0 0 auto;\n  font-size: 10px;\n  letter-spacing: 0.4px;\n  text-transform: uppercase;\n  opacity: 0.65;\n  margin-right: 2px;\n}\n.apexcharts-ink-marker-size {\n  flex: 0 0 auto;\n  min-width: 16px;\n  text-align: center;\n  font-variant-numeric: tabular-nums;\n}\n\n.apexcharts-legend-text {\n  padding-left: 15px;\n  margin-left: -15px;\n}\n\n.apexcharts-legend-series[role=\"button\"]:focus {\n  outline: 2px solid var(--apexcharts-focus-color, #008FFB);\n  outline-offset: 2px;\n}\n\n.apexcharts-legend-series[role=\"button\"]:focus:not(:focus-visible) {\n  outline: none;\n}\n\n.apexcharts-legend-series[role=\"button\"]:focus-visible {\n  outline: 2px solid var(--apexcharts-focus-color, #008FFB);\n  outline-offset: 2px;\n}\n\n.apexcharts-series-collapsed {\n  opacity: 0\n}\n\n/* A series still playing its exit tween stays painted so it can visibly shrink\n   away, hiding it on the first frame leaves a hole in a stacked chart for the\n   length of the animation. Dropped once the tween lands. */\n.apexcharts-series-collapsed.apexcharts-series-collapsing {\n  opacity: 1\n}\n\n/* Its labels ride the shrinking marks, but a mark runs out of room for its text\n   well before it reaches zero, so fade them across the exit instead of holding\n   them crisp over a sliver. Duration is set inline from dynamicAnimation.speed. */\n.apexcharts-datalabels.apexcharts-series-collapsing {\n  animation: apexcharts-datalabels-exit var(--apexcharts-dl-exit, 400ms) ease-in\n    forwards;\n}\n\n@keyframes apexcharts-datalabels-exit {\n  from {\n    opacity: 1\n  }\n  to {\n    opacity: 0\n  }\n}\n\n.apexcharts-canvas svg:focus:not(:focus-visible) {\n  outline: none;\n}\n\n/* Keyboard navigation focus indicator on SVG data elements.\n   SVG elements don't support CSS outline, so we use stroke. */\n.apexcharts-bar-area.apexcharts-keyboard-focused,\n.apexcharts-candlestick-area.apexcharts-keyboard-focused,\n.apexcharts-boxPlot-area.apexcharts-keyboard-focused,\n.apexcharts-rangebar-area.apexcharts-keyboard-focused,\n.apexcharts-pie-area.apexcharts-keyboard-focused,\n.apexcharts-heatmap-rect.apexcharts-keyboard-focused,\n.apexcharts-treemap-rect.apexcharts-keyboard-focused {\n  stroke: var(--apexcharts-focus-color, #008FFB);\n  stroke-width: 2;\n  stroke-opacity: 1;\n}\n\n.apexcharts-tooltip {\n  --apx-tt-bg: #ffffff;\n  /* Shared by the body and the arrow's two outward facets, so the\n   * hairline reads as one continuous outline around the whole shape.\n   * Keep it strong enough to survive on its own: the shadow below is\n   * elevation, not edge definition. */\n  --apx-tt-border: rgba(15, 23, 42, 0.12);\n  /* Elevation, in three layers: a tight contact shadow that anchors the\n   * bottom edge, a directional key shadow for the lift, and a wide\n   * ambient one that grounds the whole box. Each is weaker and more\n   * diffuse than the last.\n   *\n   * A tooltip is unusual in that it floats over *data*, so reach costs\n   * more than it does on a page: every pixel the shadow travels tints a\n   * bar or a line the reader is trying to compare. These numbers are\n   * tuned to keep the near-edge contrast that reads as elevation while\n   * dropping the long low haze that only muddies the plot.\n   *\n   * Note there is deliberately no `0 0 0 1px` ring layer. That used to\n   * stand in for edge definition back when --apx-tt-border was barely\n   * visible; now that the border is a real hairline (and the arrow\n   * shares it) a ring only double-draws the outline, and being spread\n   * rather than offset it leaked ink upward too, flattening the lift.\n   *\n   * `--apx-tt-shadow-dir` flips the whole stack's Y in one place — see\n   * the `[data-placement=\"bottom\"]` rule further down. */\n  --apx-tt-shadow-dir: 1;\n  --apx-tt-shadow: 0 calc(var(--apx-tt-shadow-dir) * 1px) 2px rgba(15, 23, 42, 0.06), 0 calc(var(--apx-tt-shadow-dir) * 4px) 8px -2px rgba(15, 23, 42, 0.10), 0 calc(var(--apx-tt-shadow-dir) * 12px) 20px -8px rgba(15, 23, 42, 0.14);\n  --apx-tt-arrow-bg: var(--apx-tt-bg);\n  --apx-tt-color: #0f172a;\n  --apx-tt-color-muted: rgba(15, 23, 42, 0.55);\n  border-radius: 8px;\n  background: var(--apx-tt-bg);\n  border: 1px solid var(--apx-tt-border);\n  box-shadow: var(--apx-tt-shadow);\n  color: var(--apx-tt-color);\n  cursor: default;\n  font-size: 13px;\n  left: 0;\n  top: 0;\n  opacity: 0;\n  pointer-events: none;\n  position: absolute;\n  display: flex;\n  flex-direction: column;\n  padding: 2px 0;\n  white-space: nowrap;\n  z-index: 12;\n  transition: opacity .12s ease\n}\n\n/* While the tooltip is visible, smoothly animate position changes\n * between data points. Kept short (160 ms) and ease-out so it stays\n * responsive — too long would feel laggy when sweeping across many\n * points fast. The position transition is only attached after the\n * first paint (Position.applyTooltipPosition flips `data-positioned`\n * once the tooltip has been placed) so the *first* show doesn't slide\n * the tooltip in from the previously-stale (0,0) coordinates. */\n.apexcharts-tooltip.apexcharts-active {\n  opacity: 1;\n  transition: opacity .12s ease\n}\n.apexcharts-tooltip.apexcharts-active[data-positioned=\"true\"] {\n  transition: opacity .12s ease, left .16s ease-out, top .16s ease-out\n}\n\n.apexcharts-tooltip.apexcharts-theme-light {\n  /* defaults already set above; class kept for backward-compat selectors */\n}\n\n.apexcharts-tooltip.apexcharts-theme-dark {\n  --apx-tt-bg: #1c1c1f;\n  --apx-tt-border: rgba(255, 255, 255, 0.16);\n  /* Dark needs more alpha than light to register at all, but not as much\n   * as it used to: the light rim above now carries the edge, so the\n   * shadow is free to be pure elevation instead of doubling as an\n   * outline. Same geometry as light, heavier ink. */\n  --apx-tt-shadow: 0 calc(var(--apx-tt-shadow-dir) * 1px) 2px rgba(0, 0, 0, 0.24), 0 calc(var(--apx-tt-shadow-dir) * 4px) 8px -2px rgba(0, 0, 0, 0.30), 0 calc(var(--apx-tt-shadow-dir) * 12px) 20px -8px rgba(0, 0, 0, 0.38);\n  --apx-tt-color: #f3f4f6;\n  --apx-tt-color-muted: rgba(243, 244, 246, 0.55);\n}\n\n.apexcharts-tooltip * {\n  font-family: inherit\n}\n\n/* Point-annotation hover tooltip (apexcharts/apexcharts.js#2424). Reuses the\n * glass body/border/shadow from `.apexcharts-tooltip` but holds free-form\n * content, so it needs its own padding, wrapping and a sane max width. */\n.apexcharts-tooltip.apexcharts-annotation-tooltip {\n  padding: 6px 10px;\n  max-width: 240px;\n  white-space: normal;\n  line-height: 1.4;\n  pointer-events: none;\n  z-index: 13\n}\n\n.apexcharts-tooltip-title {\n  padding: 8px 12px 4px;\n  font-size: 12px;\n  font-weight: 600;\n  letter-spacing: 0.01em;\n  color: var(--apx-tt-color-muted);\n  background: transparent;\n  border-bottom: none;\n  margin-bottom: 0\n}\n\n.apexcharts-tooltip.apexcharts-theme-light .apexcharts-tooltip-title,\n.apexcharts-tooltip.apexcharts-theme-dark .apexcharts-tooltip-title {\n  background: transparent;\n  border-bottom: none\n}\n\n/* `fillSeriesColor`: each series-group already paints itself with the\n * series colour. Drop the glass body entirely (transparent bg, no\n * border, no backdrop-filter, no padding) and clip the coloured\n * series-group(s) to the tooltip's rounded corners so they fill the\n * shell edge-to-edge. Text inside the coloured group is forced to\n * white for contrast. */\n.apexcharts-tooltip.apexcharts-tooltip-fill-series {\n  background: transparent;\n  -webkit-backdrop-filter: none;\n  backdrop-filter: none;\n  border: none;\n  padding: 0;\n  overflow: hidden;\n  color: #fff\n}\n\n.apexcharts-tooltip.apexcharts-tooltip-fill-series .apexcharts-tooltip-title {\n  background: rgba(0, 0, 0, 0.22);\n  color: #fff;\n  opacity: 1;\n  padding: 6px 12px\n}\n\n.apexcharts-tooltip.apexcharts-tooltip-fill-series .apexcharts-tooltip-series-group {\n  color: #fff\n}\n\n/* Arrow connector — a 45°-rotated square straddling the body's edge, so\n * the body's 1px border runs continuously out across the arrow and back.\n * The two facets that face away from the tooltip carry the border; the\n * two that face into it carry none, and the square's opaque fill covers\n * the segment of the body's own border it sits on, hiding the seam.\n *\n * This is why it's a rotated square and not a triangle: `clip-path`\n * erases `border` and `box-shadow` along with everything outside the\n * polygon, which left `filter: drop-shadow` as the only way to suggest\n * an edge — and a drop-shadow can only ever blur one, never draw a\n * hairline. Nothing here needs a filter.\n *\n * Geometry: a square of side S rotated 45° reaches S/√2 from its centre\n * to each corner, so S = 10px gives the ~7px tip overhang that\n * ARROW_TIP_OVERHANG assumes (tooltip/constants.js) over a ~14px base.\n * The offsets park the square's *centre* 1px outside the padding box\n * (-6px = -1px border - 10px/2), i.e. exactly on the body's border line,\n * so the two borders meet end to end instead of overlapping or gapping.\n * `box-sizing` must be border-box or the bordered sides would grow the\n * square asymmetrically and knock its centre off that line. */\n.apexcharts-tooltip-arrow {\n  position: absolute;\n  box-sizing: border-box;\n  width: 10px;\n  height: 10px;\n  background: var(--apx-tt-arrow-bg);\n  transform: rotate(45deg);\n  pointer-events: none;\n  top: calc(var(--apx-tt-arrow-y, 50%) - 5px)\n}\n\n/* Which two sides face outward depends on the placement. Under\n * `rotate(45deg)` the square's bottom-left corner swings to the left,\n * top-right to the right, top-left to the top and bottom-right to the\n * bottom — so the pair of borders below is always the two sharing the\n * corner that ends up as the tip. */\n.apexcharts-tooltip[data-placement=\"right\"] .apexcharts-tooltip-arrow {\n  left: -6px;\n  border-left: 1px solid var(--apx-tt-border);\n  border-bottom: 1px solid var(--apx-tt-border)\n}\n\n.apexcharts-tooltip[data-placement=\"left\"] .apexcharts-tooltip-arrow {\n  right: -6px;\n  border-top: 1px solid var(--apx-tt-border);\n  border-right: 1px solid var(--apx-tt-border)\n}\n\n/* Vertical arrow variants: tooltip is above/below the data point and the\n * arrow points down/up. The base rule above uses `--apx-tt-arrow-y` for\n * left/right placement; for top/bottom we centre on `--apx-tt-arrow-x`\n * instead (set by applyTooltipPosition). */\n.apexcharts-tooltip[data-placement=\"top\"] .apexcharts-tooltip-arrow,\n.apexcharts-tooltip[data-placement=\"bottom\"] .apexcharts-tooltip-arrow {\n  top: auto;\n  left: calc(var(--apx-tt-arrow-x, 50%) - 5px)\n}\n\n.apexcharts-tooltip[data-placement=\"top\"] .apexcharts-tooltip-arrow {\n  bottom: -6px;\n  border-right: 1px solid var(--apx-tt-border);\n  border-bottom: 1px solid var(--apx-tt-border)\n}\n\n.apexcharts-tooltip[data-placement=\"bottom\"] .apexcharts-tooltip-arrow {\n  top: -6px;\n  border-top: 1px solid var(--apx-tt-border);\n  border-left: 1px solid var(--apx-tt-border)\n}\n\n/* When the tooltip is flipped below the data point, the default\n * downward-biased shadow leaves its top edge undefined. Negating the\n * direction casts the whole elevation upward instead, so the shadow\n * falls between the tooltip and the mark above it. One multiplier flips\n * all three layers together; the arrow needs no counterpart, since its\n * border doesn't depend on light direction. */\n.apexcharts-tooltip[data-placement=\"bottom\"] {\n  --apx-tt-shadow-dir: -1\n}\n\n.apexcharts-tooltip-text-goals-value,\n.apexcharts-tooltip-text-y-value,\n.apexcharts-tooltip-text-z-value {\n  display: inline-block;\n  margin-left: 5px;\n  font-weight: 600\n}\n\n.apexcharts-tooltip-text-goals-label:empty,\n.apexcharts-tooltip-text-goals-value:empty,\n.apexcharts-tooltip-text-y-label:empty,\n.apexcharts-tooltip-text-y-value:empty,\n.apexcharts-tooltip-text-z-value:empty,\n.apexcharts-tooltip-title:empty {\n  display: none\n}\n\n.apexcharts-tooltip-text-goals-label,\n.apexcharts-tooltip-text-goals-value {\n  padding: 6px 0 5px\n}\n\n.apexcharts-tooltip-goals-group,\n.apexcharts-tooltip-text-goals-label,\n.apexcharts-tooltip-text-goals-value {\n  display: flex\n}\n\n.apexcharts-tooltip-text-goals-label:not(:empty),\n.apexcharts-tooltip-text-goals-value:not(:empty) {\n  margin-top: -6px\n}\n\n.apexcharts-tooltip-marker {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  position: relative;\n  width: 12px;\n  height: 12px;\n  margin-right: 6px;\n  vertical-align: middle;\n  color: inherit;\n}\n\n.apexcharts-tooltip-marker svg {\n  width: 100%;\n  height: 100%;\n  display: block;\n}\n\n.apexcharts-tooltip-series-group {\n  padding: 4px 12px;\n  display: none;\n  gap: 8px;\n  text-align: left;\n  justify-content: left;\n  align-items: center\n}\n\n.apexcharts-tooltip-series-group.apexcharts-active .apexcharts-tooltip-marker {\n  opacity: 1\n}\n\n.apexcharts-tooltip-series-group.apexcharts-active:last-child,\n.apexcharts-tooltip-series-group:last-child {\n  padding-bottom: 8px\n}\n\n.apexcharts-tooltip-y-group {\n  padding: 6px 0 5px\n}\n\n/* `tooltip.compact`: a tight box instead of a card, for panels a normal card\n   would cover (small multiples, sparklines, tiles). Only the box shrinks, so\n   the arrow and every anchor rule still apply. Rows stay stacked when there\n   are several series (the names are what tells them apart); a one-series\n   chart collapses to a single line, see `-value-only` below. */\n.apexcharts-tooltip.apexcharts-tooltip-compact {\n  padding: 3px 8px;\n  font-size: 11px;\n  line-height: 1.35\n}\n\n.apexcharts-tooltip-compact .apexcharts-tooltip-title {\n  padding: 0;\n  font-size: 11px;\n  white-space: nowrap\n}\n\n.apexcharts-tooltip-compact .apexcharts-tooltip-series-group,\n.apexcharts-tooltip-compact .apexcharts-tooltip-series-group.apexcharts-active:last-child,\n.apexcharts-tooltip-compact .apexcharts-tooltip-series-group:last-child {\n  padding: 0;\n  gap: 5px\n}\n\n.apexcharts-tooltip-compact .apexcharts-tooltip-y-group {\n  padding: 0\n}\n\n.apexcharts-tooltip-compact .apexcharts-tooltip-marker {\n  width: 8px;\n  height: 8px\n}\n\n/* A one-series panel: the series name repeats what the panel header already\n   says, so the value stands alone and the x label becomes its prefix on one\n   line (\"Aug 2024  6.59\"). */\n.apexcharts-tooltip.apexcharts-tooltip-compact.apexcharts-tooltip-value-only {\n  /* The tooltip body is a flex COLUMN by default (title row, then series\n     rows); one series needs no column, so the same box turns into one line. */\n  flex-direction: row;\n  align-items: baseline;\n  gap: 6px\n}\n\n.apexcharts-tooltip-value-only .apexcharts-tooltip-marker {\n  display: none\n}\n\n.apexcharts-tooltip-value-only .apexcharts-tooltip-text-y-label {\n  display: none\n}\n\n.apexcharts-custom-tooltip,\n.apexcharts-tooltip-box {\n  padding: 4px 8px\n}\n\n.apexcharts-tooltip-boxPlot {\n  display: flex;\n  flex-direction: column-reverse\n}\n\n.apexcharts-tooltip-box>div {\n  margin: 4px 0\n}\n\n.apexcharts-tooltip-box span.value {\n  font-weight: 700\n}\n\n.apexcharts-tooltip-rangebar {\n  padding: 5px 8px\n}\n\n.apexcharts-tooltip-rangebar .category {\n  font-weight: 600;\n  color: #777\n}\n\n.apexcharts-tooltip-rangebar .series-name {\n  font-weight: 700;\n  display: block;\n  margin-bottom: 5px\n}\n\n/* Streamgraph: every band read out at one column, top-down in stacking order.\n * A row per band rather than the shared tooltip's list, because a streamgraph's\n * `[lo, hi]` are stacking offsets and the values the reader gave live on\n * w.streamgraphData. */\n.apexcharts-tooltip-stream {\n  padding: 5px 8px\n}\n\n.apexcharts-tooltip-stream .apexcharts-tooltip-title {\n  background: transparent;\n  border: 0;\n  padding: 0 0 4px;\n  margin: 0;\n  font-weight: 700\n}\n\n.apexcharts-tooltip-stream-band {\n  display: flex;\n  align-items: center;\n  gap: 5px;\n  line-height: 1.6;\n  opacity: .72\n}\n\n.apexcharts-tooltip-stream-band.apexcharts-active {\n  opacity: 1;\n  font-weight: 700\n}\n\n.apexcharts-tooltip-stream-band .series-name {\n  flex: 1 1 auto;\n  margin-right: 8px\n}\n\n.apexcharts-tooltip-stream-band .value {\n  font-weight: 700;\n  margin-left: auto\n}\n\n.apexcharts-tooltip-stream-total {\n  display: flex;\n  align-items: center;\n  margin-top: 4px;\n  padding-top: 4px;\n  border-top: 1px solid var(--apx-tt-border, rgba(15, 23, 42, .12))\n}\n\n.apexcharts-tooltip-stream-total .series-name {\n  flex: 1 1 auto;\n  font-weight: 600\n}\n\n.apexcharts-tooltip-stream-total .value {\n  font-weight: 700;\n  margin-left: auto\n}\n\n/* The band labels themselves. Pointer events off so a name never blocks a\n * hover on the band it sits on. */\n.apexcharts-streamgraph-label {\n  pointer-events: none\n}\n\n/* X/Y axis tooltips — small popovers that label the crosshair on the\n * axes. Restyled to match the modern data-tooltip palette: solid white\n * body with a subtle border + soft drop-shadow, smaller font, rounded\n * corners. The arrows still use the CSS border-triangle technique\n * (cheap, crisp at small sizes); their colours flow from CSS variables\n * so light/dark themes only need one override per axis. */\n.apexcharts-xaxistooltip,\n.apexcharts-yaxistooltip {\n  --apx-axt-bg: #ffffff;\n  --apx-axt-border: rgba(15, 23, 42, 0.08);\n  --apx-axt-color: #0f172a;\n  --apx-axt-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.18), 0 1px 3px -1px rgba(15, 23, 42, 0.12);\n  opacity: 0;\n  pointer-events: none;\n  color: var(--apx-axt-color);\n  font-size: 12px;\n  font-weight: 500;\n  text-align: center;\n  border-radius: 6px;\n  position: absolute;\n  z-index: 10;\n  background: var(--apx-axt-bg);\n  border: 1px solid var(--apx-axt-border);\n  box-shadow: var(--apx-axt-shadow)\n}\n\n.apexcharts-xaxistooltip.apexcharts-theme-dark,\n.apexcharts-yaxistooltip.apexcharts-theme-dark {\n  --apx-axt-bg: #1c1c1f;\n  --apx-axt-border: rgba(255, 255, 255, 0.1);\n  --apx-axt-color: #f3f4f6;\n  --apx-axt-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.55), 0 1px 3px -1px rgba(0, 0, 0, 0.45)\n}\n\n.apexcharts-xaxistooltip {\n  padding: 4px 8px;\n  transition: .15s ease all\n}\n\n.apexcharts-xaxistooltip:after,\n.apexcharts-xaxistooltip:before {\n  left: 50%;\n  border: solid transparent;\n  content: \" \";\n  height: 0;\n  width: 0;\n  position: absolute;\n  pointer-events: none\n}\n\n/* :before paints the 1px border outline of the triangle (slightly larger\n * than :after); :after sits inside and paints the fill — leaves a 1px\n * ring of :before visible at the edges. */\n.apexcharts-xaxistooltip:after {\n  border-color: transparent;\n  border-width: 5px;\n  margin-left: -5px\n}\n\n.apexcharts-xaxistooltip:before {\n  border-color: transparent;\n  border-width: 6px;\n  margin-left: -6px\n}\n\n.apexcharts-xaxistooltip-bottom:after,\n.apexcharts-xaxistooltip-bottom:before {\n  bottom: 100%\n}\n\n.apexcharts-xaxistooltip-top:after,\n.apexcharts-xaxistooltip-top:before {\n  top: 100%\n}\n\n.apexcharts-xaxistooltip-bottom:after {\n  border-bottom-color: var(--apx-axt-bg)\n}\n\n.apexcharts-xaxistooltip-bottom:before {\n  border-bottom-color: var(--apx-axt-border)\n}\n\n.apexcharts-xaxistooltip-top:after {\n  border-top-color: var(--apx-axt-bg)\n}\n\n.apexcharts-xaxistooltip-top:before {\n  border-top-color: var(--apx-axt-border)\n}\n\n.apexcharts-xaxistooltip.apexcharts-active {\n  opacity: 1;\n  transition: .15s ease all\n}\n\n.apexcharts-yaxistooltip {\n  padding: 3px 8px\n}\n\n.apexcharts-yaxistooltip:after,\n.apexcharts-yaxistooltip:before {\n  top: 50%;\n  border: solid transparent;\n  content: \" \";\n  height: 0;\n  width: 0;\n  position: absolute;\n  pointer-events: none\n}\n\n.apexcharts-yaxistooltip:after {\n  border-color: transparent;\n  border-width: 5px;\n  margin-top: -5px\n}\n\n.apexcharts-yaxistooltip:before {\n  border-color: transparent;\n  border-width: 6px;\n  margin-top: -6px\n}\n\n.apexcharts-yaxistooltip-left:after,\n.apexcharts-yaxistooltip-left:before {\n  left: 100%\n}\n\n.apexcharts-yaxistooltip-right:after,\n.apexcharts-yaxistooltip-right:before {\n  right: 100%\n}\n\n.apexcharts-yaxistooltip-left:after {\n  border-left-color: var(--apx-axt-bg)\n}\n\n.apexcharts-yaxistooltip-left:before {\n  border-left-color: var(--apx-axt-border)\n}\n\n.apexcharts-yaxistooltip-right:after {\n  border-right-color: var(--apx-axt-bg)\n}\n\n.apexcharts-yaxistooltip-right:before {\n  border-right-color: var(--apx-axt-border)\n}\n\n.apexcharts-yaxistooltip.apexcharts-active {\n  opacity: 1\n}\n\n.apexcharts-yaxistooltip-hidden {\n  display: none\n}\n\n.apexcharts-xcrosshairs,\n.apexcharts-ycrosshairs {\n  pointer-events: none;\n  opacity: 0;\n  transition: .15s ease all\n}\n\n.apexcharts-xcrosshairs.apexcharts-active,\n.apexcharts-ycrosshairs.apexcharts-active {\n  opacity: 1;\n  transition: .15s ease all\n}\n\n.apexcharts-ycrosshairs-hidden {\n  opacity: 0\n}\n\n.apexcharts-selection-rect {\n  cursor: move\n}\n\n.svg_select_shape {\n  stroke-width: 1;\n  stroke-dasharray: 10 10;\n  stroke: black;\n  stroke-opacity: 0.1;\n  pointer-events: none;\n  fill: none;\n}\n\n.svg_select_handle {\n  stroke-width: 3;\n  stroke: black;\n  fill: none;\n}\n\n.svg_select_handle_r {\n  cursor: e-resize;\n}\n\n.svg_select_handle_l {\n  cursor: w-resize;\n}\n\n.apexcharts-svg.apexcharts-zoomable.hovering-zoom {\n  cursor: crosshair\n}\n\n.apexcharts-svg.apexcharts-zoomable.hovering-pan {\n  cursor: move\n}\n\n.apexcharts-menu-icon,\n.apexcharts-measure-icon,\n.apexcharts-pan-icon,\n.apexcharts-reset-icon,\n.apexcharts-selection-icon,\n.apexcharts-toolbar-custom-icon,\n.apexcharts-zoom-icon,\n.apexcharts-zoomin-icon,\n.apexcharts-zoomout-icon {\n  cursor: pointer;\n  /* WCAG 2.5.8 Target Size (Minimum): 24×24 CSS px hit target. */\n  width: 26px;\n  height: 24px;\n  line-height: 24px;\n  color: #6e8192;\n  text-align: center;\n  /* Reset native <button> chrome — these are styled via SVG icons. */\n  padding: 0;\n  margin: 0;\n  background: transparent;\n  border: 0;\n  border-radius: 5px;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  transition: background-color .12s ease, color .12s ease;\n}\n\n.apexcharts-menu-icon svg,\n.apexcharts-measure-icon svg,\n.apexcharts-pan-icon svg,\n.apexcharts-reset-icon svg,\n.apexcharts-selection-icon svg,\n.apexcharts-zoom-icon svg,\n.apexcharts-zoomin-icon svg,\n.apexcharts-zoomout-icon svg {\n  width: 18px;\n  height: 18px;\n  fill: none;\n  stroke: currentColor;\n  stroke-width: 2;\n  stroke-linecap: round;\n  stroke-linejoin: round\n}\n\n.apexcharts-theme-dark .apexcharts-menu-icon,\n.apexcharts-theme-dark .apexcharts-measure-icon,\n.apexcharts-theme-dark .apexcharts-pan-icon,\n.apexcharts-theme-dark .apexcharts-reset-icon,\n.apexcharts-theme-dark .apexcharts-selection-icon,\n.apexcharts-theme-dark .apexcharts-toolbar-custom-icon,\n.apexcharts-theme-dark .apexcharts-zoom-icon,\n.apexcharts-theme-dark .apexcharts-zoomin-icon,\n.apexcharts-theme-dark .apexcharts-zoomout-icon {\n  color: #d4d6dc\n}\n\n.apexcharts-canvas .apexcharts-measure-icon.apexcharts-selected,\n.apexcharts-canvas .apexcharts-pan-icon.apexcharts-selected,\n.apexcharts-canvas .apexcharts-reset-zoom-icon.apexcharts-selected,\n.apexcharts-canvas .apexcharts-selection-icon.apexcharts-selected,\n.apexcharts-canvas .apexcharts-zoom-icon.apexcharts-selected {\n  background: rgba(0, 143, 251, 0.12);\n  color: #008ffb\n}\n\n.apexcharts-theme-light .apexcharts-menu-icon:hover,\n.apexcharts-theme-light .apexcharts-measure-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-light .apexcharts-pan-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-light .apexcharts-reset-icon:hover,\n.apexcharts-theme-light .apexcharts-selection-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-light .apexcharts-zoom-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-light .apexcharts-zoomin-icon:hover,\n.apexcharts-theme-light .apexcharts-zoomout-icon:hover {\n  background: rgba(15, 23, 42, 0.06);\n  color: #1f2937\n}\n\n.apexcharts-theme-dark .apexcharts-menu-icon:hover,\n.apexcharts-theme-dark .apexcharts-measure-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-dark .apexcharts-pan-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-dark .apexcharts-reset-icon:hover,\n.apexcharts-theme-dark .apexcharts-selection-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-dark .apexcharts-zoom-icon:not(.apexcharts-selected):hover,\n.apexcharts-theme-dark .apexcharts-zoomin-icon:hover,\n.apexcharts-theme-dark .apexcharts-zoomout-icon:hover {\n  background: rgba(255, 255, 255, 0.08);\n  color: #fff\n}\n\n.apexcharts-menu-icon,\n.apexcharts-selection-icon {\n  position: relative\n}\n\n.apexcharts-toolbar {\n  position: absolute;\n  z-index: 11;\n  display: inline-flex;\n  align-items: center;\n  gap: 1px;\n  padding: 3px;\n  border-radius: 8px;\n  background: rgba(255, 255, 255, 0.85);\n  backdrop-filter: blur(8px);\n  -webkit-backdrop-filter: blur(8px);\n}\n\n.apexcharts-theme-dark .apexcharts-toolbar {\n  background: rgba(28, 28, 31, 0.82);\n}\n\n.apexcharts-menu {\n  background: rgba(255, 255, 255, 0.95);\n  backdrop-filter: blur(8px);\n  -webkit-backdrop-filter: blur(8px);\n  position: absolute;\n  top: calc(100% + 4px);\n  border: 1px solid rgba(15, 23, 42, 0.08);\n  border-radius: 8px;\n  padding: 4px;\n  right: 0;\n  opacity: 0;\n  min-width: 120px;\n  transition: opacity .15s ease, transform .15s ease;\n  transform: translateY(-2px);\n  pointer-events: none;\n  box-shadow: 0 4px 16px -4px rgba(15, 23, 42, 0.12), 0 2px 4px -1px rgba(15, 23, 42, 0.06)\n}\n\n.apexcharts-menu.apexcharts-menu-open {\n  opacity: 1;\n  transform: translateY(0);\n  pointer-events: all\n}\n\n.apexcharts-menu-item {\n  padding: 6px 9px;\n  font-size: 12px;\n  border-radius: 5px;\n  cursor: pointer\n}\n\n.apexcharts-theme-light .apexcharts-menu-item:hover {\n  background: rgba(15, 23, 42, 0.06)\n}\n\n.apexcharts-theme-dark .apexcharts-menu {\n  background: rgba(28, 28, 31, 0.92);\n  border-color: rgba(255, 255, 255, 0.08);\n  color: #f3f4f6;\n  box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.4)\n}\n\n.apexcharts-theme-dark .apexcharts-menu-item:hover {\n  background: rgba(255, 255, 255, 0.08)\n}\n\n@media screen and (min-width:768px) {\n  .apexcharts-canvas:hover .apexcharts-toolbar {\n    opacity: 1\n  }\n}\n\n/* Toolbar keyboard accessibility: show toolbar when any button inside it is focused */\n.apexcharts-toolbar:focus-within {\n  opacity: 1\n}\n\n/* Focus indicator for toolbar icon buttons */\n.apexcharts-menu-icon:focus-visible,\n.apexcharts-measure-icon:focus-visible,\n.apexcharts-pan-icon:focus-visible,\n.apexcharts-reset-icon:focus-visible,\n.apexcharts-selection-icon:focus-visible,\n.apexcharts-toolbar-custom-icon:focus-visible,\n.apexcharts-zoom-icon:focus-visible,\n.apexcharts-zoomin-icon:focus-visible,\n.apexcharts-zoomout-icon:focus-visible {\n  outline: 2px solid var(--apexcharts-focus-color, #008FFB);\n  outline-offset: 1px;\n  border-radius: 5px\n}\n\n/* Focus indicator for hamburger menu items */\n.apexcharts-menu-item:focus-visible {\n  outline: 2px solid var(--apexcharts-focus-color, #008FFB);\n  outline-offset: -2px;\n  background: #eee\n}\n\n.apexcharts-canvas .apexcharts-element-hidden,\n.apexcharts-datalabel.apexcharts-element-hidden,\n.apexcharts-hide .apexcharts-series-points {\n  opacity: 0;\n}\n\n.apexcharts-hidden-element-shown {\n  opacity: 1;\n  transition: 0.25s ease all;\n}\n\n.apexcharts-datalabel,\n.apexcharts-datalabel-label,\n.apexcharts-datalabel-value,\n.apexcharts-datalabels,\n.apexcharts-pie-label,\n.apexcharts-pie-name-label,\n.apexcharts-pie-name-label-group,\n.apexcharts-pie-label-connector,\n.apexcharts-unit-outer-label,\n.apexcharts-unit-outer-label-group,\n.apexcharts-unit-label-connector {\n  cursor: default;\n  pointer-events: none\n}\n\n.apexcharts-pie-label-connector,\n.apexcharts-unit-label-connector {\n  fill: none\n}\n\n.apexcharts-pie-label-delay,\n.apexcharts-unit-label-delay {\n  opacity: 0;\n  animation-name: opaque;\n  animation-duration: .3s;\n  animation-fill-mode: forwards;\n  animation-timing-function: ease\n}\n\n/* Slower than the pie's, on purpose: these come in while the dots are still\n   easing into place, so a longer fade reads as arriving WITH the crowd. */\n.apexcharts-unit-label-delay {\n  animation-duration: .5s\n}\n\n.apexcharts-radialbar-label {\n  cursor: pointer;\n}\n\n.apexcharts-annotation-rect,\n.apexcharts-area-series .apexcharts-area,\n.apexcharts-gridline,\n.apexcharts-line,\n.apexcharts-point-annotation-label,\n.apexcharts-radar-series path:not(.apexcharts-marker),\n.apexcharts-radar-series polygon,\n.apexcharts-toolbar svg,\n.apexcharts-tooltip .apexcharts-marker,\n.apexcharts-xaxis-annotation-label,\n.apexcharts-yaxis-annotation-label,\n.apexcharts-zoom-rect,\n.no-pointer-events {\n  pointer-events: none\n}\n\n.apexcharts-tooltip-active .apexcharts-marker {\n  transition: .15s ease all\n}\n\n.apexcharts-radar-series .apexcharts-yaxis {\n  pointer-events: none;\n}\n\n.resize-triggers {\n  animation: 1ms resizeanim;\n  visibility: hidden;\n  opacity: 0;\n  height: 100%;\n  width: 100%;\n  overflow: hidden\n}\n\n.contract-trigger:before,\n.resize-triggers,\n.resize-triggers>div {\n  content: \" \";\n  display: block;\n  position: absolute;\n  top: 0;\n  left: 0\n}\n\n.resize-triggers>div {\n  height: 100%;\n  width: 100%;\n  background: #eee;\n  overflow: auto\n}\n\n.contract-trigger:before {\n  overflow: hidden;\n  width: 200%;\n  height: 200%\n}\n\n.apexcharts-bar-goals-markers {\n  pointer-events: none\n}\n\n.apexcharts-bar-shadows {\n  pointer-events: none\n}\n\n.apexcharts-rangebar-goals-markers {\n  pointer-events: none\n}\n\n.apexcharts-drilldown-target {\n  cursor: pointer\n}\n\n.apexcharts-breadcrumb {\n  position: absolute;\n  z-index: 11;\n  display: inline-flex;\n  align-items: center;\n  gap: 2px;\n  font-size: 12px;\n  font-family: inherit;\n  padding: 2px 4px\n}\n\n.apexcharts-breadcrumb-item {\n  background: transparent;\n  border: none;\n  padding: 2px 6px;\n  border-radius: 3px;\n  font: inherit;\n  color: inherit;\n  cursor: pointer;\n  line-height: 1.2\n}\n\n.apexcharts-breadcrumb-item:hover:not(.apexcharts-breadcrumb-current) {\n  background: rgba(0, 0, 0, 0.08)\n}\n\n.apexcharts-breadcrumb-arrow {\n  margin-right: 4px;\n  font-weight: 600;\n  user-select: none\n}\n\n.apexcharts-breadcrumb-current {\n  cursor: default;\n  font-weight: 600;\n  opacity: 0.85\n}\n\n.apexcharts-breadcrumb-separator {\n  opacity: 0.5;\n  user-select: none\n}\n\n.apexcharts-theme-dark .apexcharts-breadcrumb-item:hover:not(.apexcharts-breadcrumb-current) {\n  background: rgba(255, 255, 255, 0.12)\n}\n\n.apexcharts-drilldown-loading {\n  position: absolute;\n  inset: 0;\n  z-index: 12;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 10px;\n  font-size: 13px;\n  font-family: inherit;\n  color: inherit;\n  background: rgba(255, 255, 255, 0.62);\n  /* The chart underneath stays interactive-looking but must not take clicks\n     while a level is resolving, or a second drill can start mid-fetch. */\n  cursor: progress\n}\n\n.apexcharts-drilldown-loading-spinner {\n  width: 26px;\n  height: 26px;\n  border-radius: 50%;\n  border: 2.5px solid rgba(0, 0, 0, 0.16);\n  border-top-color: rgba(0, 0, 0, 0.55);\n  animation: apexcharts-drilldown-spin 0.7s linear infinite\n}\n\n.apexcharts-drilldown-loading-text {\n  opacity: 0.8\n}\n\n.apexcharts-theme-dark .apexcharts-drilldown-loading {\n  background: rgba(30, 30, 30, 0.62)\n}\n\n.apexcharts-theme-dark .apexcharts-drilldown-loading-spinner {\n  border-color: rgba(255, 255, 255, 0.22);\n  border-top-color: rgba(255, 255, 255, 0.7)\n}\n\n@keyframes apexcharts-drilldown-spin {\n  to {\n    transform: rotate(360deg)\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .apexcharts-drilldown-loading-spinner {\n    animation: apexcharts-drilldown-pulse 1.4s ease-in-out infinite\n  }\n\n  @keyframes apexcharts-drilldown-pulse {\n    0%, 100% {\n      opacity: 0.35\n    }\n\n    50% {\n      opacity: 1\n    }\n  }\n}\n\n.apexcharts-disable-transitions * {\n  transition: none !important;\n}\n/* ── Trellis (#22): small multiples ─────────────────────────────────────── */\n.apexcharts-trellis {\n  position: relative;\n}\n.apexcharts-trellis-grid {\n  display: grid;\n}\n.apexcharts-trellis-cell {\n  min-width: 0;\n  position: relative;\n}\n.apexcharts-trellis-header {\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 22px;\n  height: 22px;\n  text-align: center;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  color: var(--apx-fore, #373d3f);\n}\n.apexcharts-trellis-title {\n  font-size: 14px;\n  font-weight: 700;\n  padding: 2px 0 6px;\n  color: var(--apx-fore, #373d3f);\n}\n/* Edge-label policy: a muted cell hides its axis-label INK, never the label\n   SPACE — every panel keeps the identical plot rectangle, and flipping the\n   policy on a resize is a class toggle, not a re-render. */\n.apexcharts-trellis-mute-y .apexcharts-yaxis {\n  opacity: 0;\n}\n.apexcharts-trellis-mute-x .apexcharts-xaxis {\n  opacity: 0;\n}\n/* The shared toolbar floats at the top-right, so a grid that has one starts\n   below it: from four columns on, the last cell's header (or a 2-D column\n   strip label) would otherwise run under the buttons. One band for the whole\n   grid, not per panel. */\n.apexcharts-trellis-has-toolbar {\n  padding-top: 24px;\n}\n/* 2-D faceting (P4): column labels once across the top, row labels once\n   down the left. The row strip column is auto-sized; panel columns stay\n   equal fractions, so panel alignment is independent of the strip width. */\n.apexcharts-trellis-strip {\n  font-size: 12px;\n  font-weight: 600;\n  color: var(--apx-fore, #373d3f);\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.apexcharts-trellis-strip-column {\n  text-align: center;\n  line-height: 22px;\n  height: 22px;\n  align-self: end;\n}\n.apexcharts-trellis-strip-row {\n  align-self: center;\n  max-width: 140px;\n  padding-right: 6px;\n}\n/* Empty (row, column) combinations. 'placeholder' keeps a REAL panel with a\n   quiet label; 'skip' shows the tinted skeleton; 'hide' shows nothing while\n   keeping the grid slot. */\n.apexcharts-trellis-cell-empty {\n  position: relative;\n}\n.apexcharts-trellis-empty-label {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  font-size: 12px;\n  color: var(--apx-fore, #373d3f);\n  opacity: 0.45;\n  pointer-events: none;\n}\n.apexcharts-trellis-cell-hidden > * {\n  visibility: hidden;\n}\n/* P5: one shared gradient strip is a heatmap grid's legend. The slot is\n   content-sized inline (the strip svg's own box); centering is its own. */\n.apexcharts-trellis-gradient-legend {\n  margin: 10px auto 0;\n}\n/* Virtualization (P2): an unmounted panel's mount div reserves the exact\n   panel height (inline min-height) so page height and scroll position never\n   shift; the skeleton itself is a quiet tinted block. Deliberately not\n   animated: a shimmering grid of 200 placeholders is noise. */\n.apexcharts-trellis-panel.apexcharts-trellis-skeleton {\n  background: var(--apx-fore, #373d3f);\n  opacity: 0.05;\n  border-radius: 4px;\n}\n/* tooltip: 'panel' — the group still syncs every panel's crosshair, but only\n   the hovered cell shows its tooltip cards. */\n.apexcharts-trellis[data-tooltip-mode='panel'] .apexcharts-trellis-cell:not(:hover) .apexcharts-tooltip,\n.apexcharts-trellis[data-tooltip-mode='panel'] .apexcharts-trellis-cell:not(:hover) .apexcharts-xaxistooltip,\n.apexcharts-trellis[data-tooltip-mode='panel'] .apexcharts-trellis-cell:not(:hover) .apexcharts-yaxistooltip {\n  opacity: 0 !important;\n}\n/* tooltip: 'grid' (P3) — ALL per-panel tooltip ink is hidden (the group\n   still computes it; the trellis card reads it) and one trellis-owned card\n   follows the cursor with one row per panel. */\n.apexcharts-trellis[data-tooltip-mode='grid'] .apexcharts-trellis-cell .apexcharts-tooltip,\n.apexcharts-trellis[data-tooltip-mode='grid'] .apexcharts-trellis-cell .apexcharts-xaxistooltip,\n.apexcharts-trellis[data-tooltip-mode='grid'] .apexcharts-trellis-cell .apexcharts-yaxistooltip {\n  opacity: 0 !important;\n}\n.apexcharts-trellis-tooltip {\n  position: absolute;\n  top: 0;\n  left: 0;\n  z-index: 14;\n  pointer-events: none;\n  opacity: 0;\n  transition: opacity 0.1s ease;\n  background: var(--apx-bg, #fff);\n  color: var(--apx-fore, #373d3f);\n  border: 1px solid rgba(120, 120, 120, 0.25);\n  border-radius: 5px;\n  box-shadow: 2px 2px 6px -4px rgba(0, 0, 0, 0.4);\n  font-size: 12px;\n  min-width: 140px;\n  max-width: 320px;\n}\n.apexcharts-trellis-tooltip-active {\n  opacity: 1;\n}\n.apexcharts-trellis-tooltip .apexcharts-tooltip-title {\n  padding: 5px 10px;\n  font-weight: 600;\n  background: rgba(120, 120, 120, 0.08);\n  border-bottom: 1px solid rgba(120, 120, 120, 0.18);\n  margin-bottom: 2px;\n}\n.apexcharts-trellis-tooltip-row {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 14px;\n  padding: 2px 10px;\n  line-height: 1.6;\n}\n.apexcharts-trellis-tooltip-row-active {\n  background: rgba(120, 120, 120, 0.1);\n  font-weight: 600;\n}\n.apexcharts-trellis-tooltip-key {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n.apexcharts-trellis-tooltip-vals {\n  display: flex;\n  gap: 10px;\n  white-space: nowrap;\n}\n.apexcharts-trellis-tooltip-val {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n}\n.apexcharts-trellis-tooltip-marker {\n  width: 8px;\n  height: 8px;\n  border-radius: 50%;\n  display: inline-block;\n  flex: none;\n}\n/* Panel promotion (P3): the promoted cell spans the grid; the rest park.\n   The promoted panel is the only visible one, so both its axes unmute. */\n.apexcharts-trellis-cell-promoted {\n  grid-column: 1 / -1;\n}\n.apexcharts-trellis-cell-parked {\n  display: none;\n}\n.apexcharts-trellis-cell-promoted.apexcharts-trellis-mute-y .apexcharts-yaxis,\n.apexcharts-trellis-cell-promoted.apexcharts-trellis-mute-x .apexcharts-xaxis {\n  opacity: 1;\n}\n.apexcharts-trellis-header-clickable {\n  cursor: pointer;\n}\n.apexcharts-trellis-header-clickable:hover {\n  text-decoration: underline;\n  text-underline-offset: 3px;\n}\n.apexcharts-trellis-breadcrumb {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 12px;\n  padding: 2px 0 6px;\n  color: var(--apx-fore, #373d3f);\n}\n.apexcharts-trellis-breadcrumb-back {\n  border: none;\n  background: none;\n  padding: 0;\n  font-size: 12px;\n  cursor: pointer;\n  color: var(--apx-accent, #008ffb);\n}\n.apexcharts-trellis-breadcrumb-back:hover {\n  text-decoration: underline;\n}\n.apexcharts-trellis-breadcrumb-sep {\n  opacity: 0.5;\n}\n.apexcharts-trellis-breadcrumb-current {\n  font-weight: 600;\n}\n/* The toolbar download menu (P3). */\n.apexcharts-trellis-menu {\n  position: absolute;\n  top: 26px;\n  right: 0;\n  display: none;\n  flex-direction: column;\n  min-width: 132px;\n  background: var(--apx-bg, #fff);\n  border: 1px solid rgba(120, 120, 120, 0.25);\n  border-radius: 5px;\n  box-shadow: 2px 2px 6px -4px rgba(0, 0, 0, 0.4);\n  padding: 4px;\n  z-index: 15;\n}\n.apexcharts-trellis-menu-open {\n  display: flex;\n}\n.apexcharts-trellis-menu-item {\n  border: none;\n  background: none;\n  text-align: left;\n  font-size: 12px;\n  padding: 5px 8px;\n  border-radius: 3px;\n  cursor: pointer;\n  color: var(--apx-fore, #373d3f);\n}\n.apexcharts-trellis-menu-item:hover {\n  background: rgba(120, 120, 120, 0.12);\n}\n.apexcharts-trellis-toolbar {\n  position: absolute;\n  top: 0;\n  right: 0;\n  display: flex;\n  gap: 2px;\n  z-index: 12;\n}\n.apexcharts-trellis-tool {\n  border: 0;\n  background: transparent;\n  padding: 2px;\n  cursor: pointer;\n  border-radius: 3px;\n  color: #6e8192;\n  line-height: 0;\n}\n.apexcharts-trellis-tool:hover {\n  color: var(--apx-fore, #373d3f);\n}\n.apexcharts-trellis-tool.apexcharts-selected {\n  color: var(--apx-accent, #008ffb);\n}\n.apexcharts-trellis-legend {\n  display: flex;\n  flex-wrap: wrap;\n  justify-content: center;\n  gap: 4px 14px;\n  padding: 8px 10px 2px;\n}\n.apexcharts-trellis-legend-item {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  cursor: pointer;\n  line-height: 1;\n}\n.apexcharts-trellis-legend-item .apexcharts-legend-marker {\n  width: 12px;\n  height: 12px;\n  border-radius: 50%;\n  display: inline-block;\n}\n.apexcharts-trellis-legend-item .apexcharts-legend-text {\n  font-size: 12px;\n  color: var(--apx-fore, #373d3f);\n}\n.apexcharts-trellis-legend-item.apexcharts-inactive-legend {\n  opacity: 0.45;\n}\n\n/* Printing (#3352). The sheet is narrower than the screen and nothing reports\n   its width to the page, so a chart laid out for the screen would be cropped at\n   the edge of the paper. The chart lays itself out again for print (see\n   chart.print in the options); this caps whatever is left over so it shrinks to\n   fit rather than being cut. Shrink only: a chart narrower than the page keeps\n   the size it was drawn at. */\n@media print {\n  /* Scoped to the class the chart adds while it is laid out for the sheet: this\n     pair of rules is only safe once an identity viewBox is in place, since\n     without one a capped width crops the drawing instead of scaling it. A chart\n     with chart.print.enabled:false gets neither, and prints as it always did. */\n  .apexcharts-canvas.apexcharts-printing,\n  .apexcharts-canvas.apexcharts-printing svg {\n    max-width: 100% !important;\n  }\n\n  .apexcharts-canvas.apexcharts-printing svg {\n    height: auto !important;\n  }\n\n  /* A scaled-down SVG is shorter than the box drawn for it, and the wrapper\n     carries the pre-scale height inline, so without this a chart shrunk to fit a\n     narrow column prints above a white gap the size of what it gave up. The\n     host element's own inline min-height is cleared by _beforePrint. */\n  .apexcharts-canvas.apexcharts-printing {\n    height: auto !important;\n  }\n\n  .apexcharts-toolbar {\n    display: none !important;\n  }\n}\n";
+const apexCSS = '@keyframes opaque{0%{opacity:0}to{opacity:1}}.apexcharts-canvas{position:relative;direction:ltr!important;user-select:none;--apexcharts-focus-color: #008FFB}.apexcharts-canvas .apexcharts-theme-dark,.apexcharts-theme-dark.apexcharts-canvas{--apexcharts-focus-color: #FFD500}.apexcharts-canvas.apexcharts-high-contrast,.apexcharts-high-contrast.apexcharts-canvas{--apexcharts-focus-color: #FFFF00}.apexcharts-sr-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(prefers-reduced-motion:reduce){.apexcharts-canvas:not(.apexcharts-ignore-reduced-motion) *,.apexcharts-canvas:not(.apexcharts-ignore-reduced-motion) *:before,.apexcharts-canvas:not(.apexcharts-ignore-reduced-motion) *:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}.apexcharts-canvas ::-webkit-scrollbar{-webkit-appearance:none;width:6px}.apexcharts-canvas ::-webkit-scrollbar-thumb{border-radius:4px;background-color:#00000080;box-shadow:0 0 1px #ffffff80;-webkit-box-shadow:0 0 1px rgba(255,255,255,.5)}.apexcharts-inner{position:relative}.apexcharts-text tspan{font-family:inherit}rect.legend-mouseover-inactive,.legend-mouseover-inactive rect,.legend-mouseover-inactive path,.legend-mouseover-inactive circle,.legend-mouseover-inactive line,.legend-mouseover-inactive text.apexcharts-yaxis-title-text,.legend-mouseover-inactive text.apexcharts-yaxis-label{transition:.15s ease all;opacity:.2}.apexcharts-crossfilter-dimmed{transition:opacity .25s ease;opacity:var(--apx-cf-dim, .2)}.apexcharts-cf-table{border-collapse:collapse;width:100%;font-size:13px}.apexcharts-cf-table caption{caption-side:bottom;text-align:right;padding:6px 2px;font-size:12px;opacity:.7}.apexcharts-cf-table th,.apexcharts-cf-table td{padding:6px 10px;text-align:left;border-bottom:1px solid rgba(0,0,0,.08)}.apexcharts-cf-table th{font-weight:600;border-bottom-width:2px}.apexcharts-cf-table tbody tr:hover{background:#6366f10f}.apexcharts-canvas{--apx-measure-up: #16a34a;--apx-measure-down: #dc2626;--apx-measure-neutral: #64748b;--apx-measure-guide: #94a3b8}.apexcharts-measure-capture{cursor:crosshair}.apexcharts-canvas{--apx-menu-bg: #ffffff;--apx-menu-fg: #1e293b;--apx-menu-border: #e2e8f0;--apx-menu-hover: #f1f5f9;--apx-menu-shadow: rgba(15, 23, 42, .18)}.apexcharts-context-menu{min-width:168px;padding:4px;border-radius:8px;background:var(--apx-menu-bg);border:1px solid var(--apx-menu-border);box-shadow:0 6px 22px var(--apx-menu-shadow);font-family:Helvetica,Arial,sans-serif;font-size:13px;z-index:20;user-select:none}.apexcharts-context-menu-item{display:block;width:100%;box-sizing:border-box;text-align:left;padding:7px 12px;border:0;border-radius:5px;background:transparent;color:var(--apx-menu-fg);font:inherit;cursor:pointer}.apexcharts-context-menu-item:hover,.apexcharts-context-menu-item--active{background:var(--apx-menu-hover)}.apexcharts-context-menu-item:focus{outline:none}.apexcharts-canvas{--apx-ink-card-bg: #ffffff;--apx-ink-card-fg: #1e293b;--apx-ink-card-border: #e2e8f0;--apx-ink-card-hover: #f1f5f9;--apx-ink-card-accent: #6366f1;--apx-ink-card-shadow: rgba(15, 23, 42, .18)}.apexcharts-ink-card{position:absolute;z-index:25;display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:8px;background:var(--apx-ink-card-bg);border:1px solid var(--apx-ink-card-border);box-shadow:0 6px 22px var(--apx-ink-card-shadow);font-family:Helvetica,Arial,sans-serif;font-size:12px;color:var(--apx-ink-card-fg);user-select:none}.apexcharts-ink-card-row{display:flex;align-items:center;gap:4px}.apexcharts-ink-card input.apexcharts-ink-editor{flex:1 1 auto;width:150px;min-width:0;box-sizing:border-box;padding:4px 6px;font:inherit;color:inherit;background:transparent;border:1px solid var(--apx-ink-card-border);border-radius:5px}.apexcharts-ink-card input.apexcharts-ink-editor:focus{outline:none;border-color:var(--apx-ink-card-accent)}.apexcharts-ink-btn{flex:0 0 auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:5px;background:transparent;color:inherit;font:inherit;font-size:12px;line-height:1;cursor:pointer}.apexcharts-ink-btn:hover,.apexcharts-ink-btn--active{background:var(--apx-ink-card-hover)}.apexcharts-ink-btn:focus-visible,.apexcharts-ink-swatch:focus-visible{outline:2px solid var(--apx-ink-card-accent);outline-offset:1px}.apexcharts-ink-btn--bold{font-weight:700}.apexcharts-ink-btn--delete:hover{color:#dc2626}.apexcharts-ink-swatch{flex:0 0 auto;width:16px;height:16px;padding:0;border:1px solid rgba(100,116,139,.45);border-radius:50%;cursor:pointer}.apexcharts-ink-swatch--active{box-shadow:0 0 0 2px var(--apx-ink-card-bg),0 0 0 4px var(--apx-ink-card-accent)}.apexcharts-ink-sep{flex:0 0 auto;width:1px;height:16px;margin:0 2px;background:var(--apx-ink-card-border)}.apexcharts-ink-cardlabel{flex:0 0 auto;font-size:10px;letter-spacing:.4px;text-transform:uppercase;opacity:.65;margin-right:2px}.apexcharts-ink-marker-size{flex:0 0 auto;min-width:16px;text-align:center;font-variant-numeric:tabular-nums}.apexcharts-legend-text{padding-left:15px;margin-left:-15px}.apexcharts-legend-series[role=button]:focus{outline:2px solid var(--apexcharts-focus-color, #008FFB);outline-offset:2px}.apexcharts-legend-series[role=button]:focus:not(:focus-visible){outline:none}.apexcharts-legend-series[role=button]:focus-visible{outline:2px solid var(--apexcharts-focus-color, #008FFB);outline-offset:2px}.apexcharts-series-collapsed{opacity:0}.apexcharts-series-collapsed.apexcharts-series-collapsing{opacity:1}.apexcharts-datalabels.apexcharts-series-collapsing{animation:apexcharts-datalabels-exit var(--apexcharts-dl-exit, .4s) ease-in forwards}@keyframes apexcharts-datalabels-exit{0%{opacity:1}to{opacity:0}}.apexcharts-canvas svg:focus:not(:focus-visible){outline:none}.apexcharts-bar-area.apexcharts-keyboard-focused,.apexcharts-candlestick-area.apexcharts-keyboard-focused,.apexcharts-boxPlot-area.apexcharts-keyboard-focused,.apexcharts-violin-area.apexcharts-keyboard-focused,.apexcharts-rangebar-area.apexcharts-keyboard-focused,.apexcharts-pie-area.apexcharts-keyboard-focused,.apexcharts-heatmap-rect.apexcharts-keyboard-focused,.apexcharts-treemap-rect.apexcharts-keyboard-focused,.apexcharts-keyboard-focus-ring{stroke:var(--apexcharts-focus-color, #008FFB);stroke-width:2;stroke-opacity:1}.apexcharts-keyboard-focus-ring{fill:none;pointer-events:none}.apexcharts-tooltip{--apx-tt-bg: #ffffff;--apx-tt-border: rgba(15, 23, 42, .12);--apx-tt-shadow-dir: 1;--apx-tt-shadow: 0 calc(var(--apx-tt-shadow-dir) * 1px) 2px rgba(15, 23, 42, .06), 0 calc(var(--apx-tt-shadow-dir) * 4px) 8px -2px rgba(15, 23, 42, .1), 0 calc(var(--apx-tt-shadow-dir) * 12px) 20px -8px rgba(15, 23, 42, .14);--apx-tt-arrow-bg: var(--apx-tt-bg);--apx-tt-color: #0f172a;--apx-tt-color-muted: rgba(15, 23, 42, .55);border-radius:8px;background:var(--apx-tt-bg);border:1px solid var(--apx-tt-border);box-shadow:var(--apx-tt-shadow);color:var(--apx-tt-color);cursor:default;font-size:13px;left:0;top:0;opacity:0;pointer-events:none;position:absolute;display:flex;flex-direction:column;padding:2px 0;white-space:nowrap;z-index:12;transition:opacity .12s ease}.apexcharts-tooltip.apexcharts-active{opacity:1;transition:opacity .12s ease}.apexcharts-tooltip.apexcharts-tooltip-interactive.apexcharts-active{pointer-events:auto}.apexcharts-tooltip.apexcharts-active[data-positioned=true]{transition:opacity .12s ease,left .16s ease-out,top .16s ease-out}.apexcharts-tooltip.apexcharts-theme-dark{--apx-tt-bg: #1c1c1f;--apx-tt-border: rgba(255, 255, 255, .16);--apx-tt-shadow: 0 calc(var(--apx-tt-shadow-dir) * 1px) 2px rgba(0, 0, 0, .24), 0 calc(var(--apx-tt-shadow-dir) * 4px) 8px -2px rgba(0, 0, 0, .3), 0 calc(var(--apx-tt-shadow-dir) * 12px) 20px -8px rgba(0, 0, 0, .38);--apx-tt-color: #f3f4f6;--apx-tt-color-muted: rgba(243, 244, 246, .55)}.apexcharts-tooltip *{font-family:inherit}.apexcharts-tooltip.apexcharts-annotation-tooltip{padding:6px 10px;max-width:240px;white-space:normal;line-height:1.4;pointer-events:none;z-index:13}.apexcharts-tooltip-title{padding:8px 12px 4px;font-size:12px;font-weight:600;letter-spacing:.01em;color:var(--apx-tt-color-muted);background:transparent;border-bottom:none;margin-bottom:0}.apexcharts-tooltip.apexcharts-theme-light .apexcharts-tooltip-title,.apexcharts-tooltip.apexcharts-theme-dark .apexcharts-tooltip-title{background:transparent;border-bottom:none}.apexcharts-tooltip.apexcharts-tooltip-fill-series{background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;border:none;padding:0;overflow:hidden;color:#fff}.apexcharts-tooltip.apexcharts-tooltip-fill-series .apexcharts-tooltip-title{background:#00000038;color:#fff;opacity:1;padding:6px 12px}.apexcharts-tooltip.apexcharts-tooltip-fill-series .apexcharts-tooltip-series-group{color:#fff}.apexcharts-tooltip-arrow{position:absolute;box-sizing:border-box;width:10px;height:10px;background:var(--apx-tt-arrow-bg);transform:rotate(45deg);pointer-events:none;top:calc(var(--apx-tt-arrow-y, calc(50% + 1px) ) - 6px)}.apexcharts-tooltip[data-placement=right] .apexcharts-tooltip-arrow{left:-6px;border-left:1px solid var(--apx-tt-border);border-bottom:1px solid var(--apx-tt-border)}.apexcharts-tooltip[data-placement=left] .apexcharts-tooltip-arrow{right:-6px;border-top:1px solid var(--apx-tt-border);border-right:1px solid var(--apx-tt-border)}.apexcharts-tooltip[data-placement=top] .apexcharts-tooltip-arrow,.apexcharts-tooltip[data-placement=bottom] .apexcharts-tooltip-arrow{top:auto;left:calc(var(--apx-tt-arrow-x, calc(50% + 1px) ) - 6px)}.apexcharts-tooltip[data-placement=top] .apexcharts-tooltip-arrow{bottom:-6px;border-right:1px solid var(--apx-tt-border);border-bottom:1px solid var(--apx-tt-border)}.apexcharts-tooltip[data-placement=bottom] .apexcharts-tooltip-arrow{top:-6px;border-top:1px solid var(--apx-tt-border);border-left:1px solid var(--apx-tt-border)}.apexcharts-tooltip[data-placement=bottom]{--apx-tt-shadow-dir: -1 }.apexcharts-tooltip-text-goals-value,.apexcharts-tooltip-text-y-value,.apexcharts-tooltip-text-z-value{display:inline-block;margin-left:5px;font-weight:600}.apexcharts-tooltip-text-goals-label:empty,.apexcharts-tooltip-text-goals-value:empty,.apexcharts-tooltip-text-y-label:empty,.apexcharts-tooltip-text-y-value:empty,.apexcharts-tooltip-text-z-value:empty,.apexcharts-tooltip-title:empty{display:none}.apexcharts-tooltip-text-goals-label,.apexcharts-tooltip-text-goals-value{padding:6px 0 5px}.apexcharts-tooltip-goals-group,.apexcharts-tooltip-text-goals-label,.apexcharts-tooltip-text-goals-value{display:flex}.apexcharts-tooltip-text-goals-label:not(:empty),.apexcharts-tooltip-text-goals-value:not(:empty){margin-top:-6px}.apexcharts-tooltip-marker{display:inline-flex;align-items:center;justify-content:center;position:relative;width:12px;height:12px;margin-right:6px;vertical-align:middle;color:inherit}.apexcharts-tooltip-marker svg{width:100%;height:100%;display:block}.apexcharts-tooltip-series-group{padding:4px 12px;display:none;gap:8px;text-align:left;justify-content:left;align-items:center}.apexcharts-tooltip-series-group.apexcharts-active .apexcharts-tooltip-marker{opacity:1}.apexcharts-tooltip-series-group.apexcharts-active:last-child,.apexcharts-tooltip-series-group:last-child{padding-bottom:8px}.apexcharts-tooltip-y-group{padding:6px 0 5px}.apexcharts-tooltip.apexcharts-tooltip-compact{padding:3px 8px;font-size:11px;line-height:1.35}.apexcharts-tooltip-compact .apexcharts-tooltip-title{padding:0;font-size:11px;white-space:nowrap}.apexcharts-tooltip-compact .apexcharts-tooltip-series-group,.apexcharts-tooltip-compact .apexcharts-tooltip-series-group.apexcharts-active:last-child,.apexcharts-tooltip-compact .apexcharts-tooltip-series-group:last-child{padding:0;gap:5px}.apexcharts-tooltip-compact .apexcharts-tooltip-y-group{padding:0}.apexcharts-tooltip-compact .apexcharts-tooltip-marker{width:8px;height:8px}.apexcharts-tooltip.apexcharts-tooltip-compact.apexcharts-tooltip-value-only{flex-direction:row;align-items:baseline;gap:6px}.apexcharts-tooltip-value-only .apexcharts-tooltip-marker,.apexcharts-tooltip-value-only .apexcharts-tooltip-text-y-label{display:none}.apexcharts-custom-tooltip,.apexcharts-tooltip-box{padding:4px 8px}.apexcharts-tooltip-boxPlot{display:flex;flex-direction:column-reverse}.apexcharts-tooltip-box>div{margin:4px 0}.apexcharts-tooltip-box span.value{font-weight:700}.apexcharts-tooltip-rangebar{padding:5px 8px}.apexcharts-tooltip-rangebar .category{font-weight:600;color:#777}.apexcharts-tooltip-rangebar .series-name{font-weight:700;display:block;margin-bottom:5px}.apexcharts-tooltip-stream{padding:5px 8px}.apexcharts-tooltip-stream .apexcharts-tooltip-title{background:transparent;border:0;padding:0 0 4px;margin:0;font-weight:700}.apexcharts-tooltip-stream-band{display:flex;align-items:center;gap:5px;line-height:1.6;opacity:.72}.apexcharts-tooltip-stream-band.apexcharts-active{opacity:1;font-weight:700}.apexcharts-tooltip-stream-band .series-name{flex:1 1 auto;margin-right:8px}.apexcharts-tooltip-stream-band .value{font-weight:700;margin-left:auto}.apexcharts-tooltip-stream-total{display:flex;align-items:center;margin-top:4px;padding-top:4px;border-top:1px solid var(--apx-tt-border, rgba(15, 23, 42, .12))}.apexcharts-tooltip-stream-total .series-name{flex:1 1 auto;font-weight:600}.apexcharts-tooltip-stream-total .value{font-weight:700;margin-left:auto}.apexcharts-streamgraph-label{pointer-events:none}.apexcharts-xaxistooltip,.apexcharts-yaxistooltip{--apx-axt-bg: #ffffff;--apx-axt-border: rgba(15, 23, 42, .08);--apx-axt-color: #0f172a;--apx-axt-shadow: 0 4px 12px -4px rgba(15, 23, 42, .18), 0 1px 3px -1px rgba(15, 23, 42, .12);opacity:0;pointer-events:none;color:var(--apx-axt-color);font-size:12px;font-weight:500;text-align:center;border-radius:6px;position:absolute;z-index:10;background:var(--apx-axt-bg);border:1px solid var(--apx-axt-border);box-shadow:var(--apx-axt-shadow)}.apexcharts-xaxistooltip.apexcharts-theme-dark,.apexcharts-yaxistooltip.apexcharts-theme-dark{--apx-axt-bg: #1c1c1f;--apx-axt-border: rgba(255, 255, 255, .1);--apx-axt-color: #f3f4f6;--apx-axt-shadow: 0 4px 12px -4px rgba(0, 0, 0, .55), 0 1px 3px -1px rgba(0, 0, 0, .45) }.apexcharts-xaxistooltip{padding:4px 8px;transition:.15s ease all}.apexcharts-xaxistooltip:after,.apexcharts-xaxistooltip:before{left:50%;border:solid transparent;content:" ";height:0;width:0;position:absolute;pointer-events:none}.apexcharts-xaxistooltip:after{border-color:transparent;border-width:5px;margin-left:-5px}.apexcharts-xaxistooltip:before{border-color:transparent;border-width:6px;margin-left:-6px}.apexcharts-xaxistooltip-bottom:after,.apexcharts-xaxistooltip-bottom:before{bottom:100%}.apexcharts-xaxistooltip-top:after,.apexcharts-xaxistooltip-top:before{top:100%}.apexcharts-xaxistooltip-bottom:after{border-bottom-color:var(--apx-axt-bg)}.apexcharts-xaxistooltip-bottom:before{border-bottom-color:var(--apx-axt-border)}.apexcharts-xaxistooltip-top:after{border-top-color:var(--apx-axt-bg)}.apexcharts-xaxistooltip-top:before{border-top-color:var(--apx-axt-border)}.apexcharts-xaxistooltip.apexcharts-active{opacity:1;transition:.15s ease all}.apexcharts-yaxistooltip{padding:3px 8px}.apexcharts-yaxistooltip:after,.apexcharts-yaxistooltip:before{top:50%;border:solid transparent;content:" ";height:0;width:0;position:absolute;pointer-events:none}.apexcharts-yaxistooltip:after{border-color:transparent;border-width:5px;margin-top:-5px}.apexcharts-yaxistooltip:before{border-color:transparent;border-width:6px;margin-top:-6px}.apexcharts-yaxistooltip-left:after,.apexcharts-yaxistooltip-left:before{left:100%}.apexcharts-yaxistooltip-right:after,.apexcharts-yaxistooltip-right:before{right:100%}.apexcharts-yaxistooltip-left:after{border-left-color:var(--apx-axt-bg)}.apexcharts-yaxistooltip-left:before{border-left-color:var(--apx-axt-border)}.apexcharts-yaxistooltip-right:after{border-right-color:var(--apx-axt-bg)}.apexcharts-yaxistooltip-right:before{border-right-color:var(--apx-axt-border)}.apexcharts-yaxistooltip.apexcharts-active{opacity:1}.apexcharts-yaxistooltip-hidden{display:none}.apexcharts-xcrosshairs,.apexcharts-ycrosshairs{pointer-events:none;opacity:0;transition:.15s ease all}.apexcharts-xcrosshairs.apexcharts-active,.apexcharts-ycrosshairs.apexcharts-active{opacity:1;transition:.15s ease all}.apexcharts-ycrosshairs-hidden{opacity:0}.apexcharts-selection-rect{cursor:move}.svg_select_shape{stroke-width:1;stroke-dasharray:10 10;stroke:#000;stroke-opacity:.1;pointer-events:none;fill:none}.svg_select_handle{stroke-width:3;stroke:#000;fill:none}.svg_select_handle_r{cursor:e-resize}.svg_select_handle_l{cursor:w-resize}.apexcharts-svg.apexcharts-zoomable.hovering-zoom{cursor:crosshair}.apexcharts-svg.apexcharts-zoomable.hovering-pan{cursor:move}.apexcharts-menu-icon,.apexcharts-measure-icon,.apexcharts-pan-icon,.apexcharts-reset-icon,.apexcharts-selection-icon,.apexcharts-toolbar-custom-icon,.apexcharts-zoom-icon,.apexcharts-zoomin-icon,.apexcharts-zoomout-icon{cursor:pointer;width:26px;height:24px;line-height:24px;color:#6e8192;text-align:center;padding:0;margin:0;background:transparent;border:0;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;transition:background-color .12s ease,color .12s ease}.apexcharts-menu-icon svg,.apexcharts-measure-icon svg,.apexcharts-pan-icon svg,.apexcharts-reset-icon svg,.apexcharts-selection-icon svg,.apexcharts-zoom-icon svg,.apexcharts-zoomin-icon svg,.apexcharts-zoomout-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.apexcharts-theme-dark .apexcharts-menu-icon,.apexcharts-theme-dark .apexcharts-measure-icon,.apexcharts-theme-dark .apexcharts-pan-icon,.apexcharts-theme-dark .apexcharts-reset-icon,.apexcharts-theme-dark .apexcharts-selection-icon,.apexcharts-theme-dark .apexcharts-toolbar-custom-icon,.apexcharts-theme-dark .apexcharts-zoom-icon,.apexcharts-theme-dark .apexcharts-zoomin-icon,.apexcharts-theme-dark .apexcharts-zoomout-icon{color:#d4d6dc}.apexcharts-canvas .apexcharts-measure-icon.apexcharts-selected,.apexcharts-canvas .apexcharts-pan-icon.apexcharts-selected,.apexcharts-canvas .apexcharts-reset-zoom-icon.apexcharts-selected,.apexcharts-canvas .apexcharts-selection-icon.apexcharts-selected,.apexcharts-canvas .apexcharts-zoom-icon.apexcharts-selected{background:#008ffb1f;color:#008ffb}.apexcharts-theme-light .apexcharts-menu-icon:hover,.apexcharts-theme-light .apexcharts-measure-icon:not(.apexcharts-selected):hover,.apexcharts-theme-light .apexcharts-pan-icon:not(.apexcharts-selected):hover,.apexcharts-theme-light .apexcharts-reset-icon:hover,.apexcharts-theme-light .apexcharts-selection-icon:not(.apexcharts-selected):hover,.apexcharts-theme-light .apexcharts-zoom-icon:not(.apexcharts-selected):hover,.apexcharts-theme-light .apexcharts-zoomin-icon:hover,.apexcharts-theme-light .apexcharts-zoomout-icon:hover{background:#0f172a0f;color:#1f2937}.apexcharts-theme-dark .apexcharts-menu-icon:hover,.apexcharts-theme-dark .apexcharts-measure-icon:not(.apexcharts-selected):hover,.apexcharts-theme-dark .apexcharts-pan-icon:not(.apexcharts-selected):hover,.apexcharts-theme-dark .apexcharts-reset-icon:hover,.apexcharts-theme-dark .apexcharts-selection-icon:not(.apexcharts-selected):hover,.apexcharts-theme-dark .apexcharts-zoom-icon:not(.apexcharts-selected):hover,.apexcharts-theme-dark .apexcharts-zoomin-icon:hover,.apexcharts-theme-dark .apexcharts-zoomout-icon:hover{background:#ffffff14;color:#fff}.apexcharts-menu-icon,.apexcharts-selection-icon{position:relative}.apexcharts-toolbar{position:absolute;z-index:11;display:inline-flex;align-items:center;gap:1px;padding:3px;border-radius:8px;background:#ffffffd9;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}.apexcharts-theme-dark .apexcharts-toolbar{background:#1c1c1fd1}.apexcharts-menu{background:#fffffff2;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);position:absolute;top:calc(100% + 4px);border:1px solid rgba(15,23,42,.08);border-radius:8px;padding:4px;right:0;opacity:0;min-width:120px;transition:opacity .15s ease,transform .15s ease;transform:translateY(-2px);pointer-events:none;box-shadow:0 4px 16px -4px #0f172a1f,0 2px 4px -1px #0f172a0f}.apexcharts-menu.apexcharts-menu-open{opacity:1;transform:translateY(0);pointer-events:all}.apexcharts-menu-item{padding:6px 9px;font-size:12px;border-radius:5px;cursor:pointer}.apexcharts-theme-light .apexcharts-menu-item:hover{background:#0f172a0f}.apexcharts-theme-dark .apexcharts-menu{background:#1c1c1feb;border-color:#ffffff14;color:#f3f4f6;box-shadow:0 4px 16px -4px #00000080,0 2px 4px -1px #0006}.apexcharts-theme-dark .apexcharts-menu-item:hover{background:#ffffff14}@media screen and (min-width:768px){.apexcharts-canvas:hover .apexcharts-toolbar{opacity:1}}.apexcharts-toolbar:focus-within{opacity:1}.apexcharts-menu-icon:focus-visible,.apexcharts-measure-icon:focus-visible,.apexcharts-pan-icon:focus-visible,.apexcharts-reset-icon:focus-visible,.apexcharts-selection-icon:focus-visible,.apexcharts-toolbar-custom-icon:focus-visible,.apexcharts-zoom-icon:focus-visible,.apexcharts-zoomin-icon:focus-visible,.apexcharts-zoomout-icon:focus-visible{outline:2px solid var(--apexcharts-focus-color, #008FFB);outline-offset:1px;border-radius:5px}.apexcharts-menu-item:focus-visible{outline:2px solid var(--apexcharts-focus-color, #008FFB);outline-offset:-2px;background:#eee}.apexcharts-canvas .apexcharts-element-hidden,.apexcharts-datalabel.apexcharts-element-hidden,.apexcharts-hide .apexcharts-series-points{opacity:0}.apexcharts-hidden-element-shown{opacity:1;transition:.25s ease all}.apexcharts-datalabel,.apexcharts-datalabel-label,.apexcharts-datalabel-value,.apexcharts-datalabels,.apexcharts-pie-label,.apexcharts-pie-name-label,.apexcharts-pie-name-label-group,.apexcharts-pie-label-connector,.apexcharts-unit-outer-label,.apexcharts-unit-outer-label-group,.apexcharts-unit-label-connector{cursor:default;pointer-events:none}.apexcharts-pie-label-connector,.apexcharts-unit-label-connector{fill:none}.apexcharts-pie-label-delay,.apexcharts-unit-label-delay{opacity:0;animation-name:opaque;animation-duration:.3s;animation-fill-mode:forwards;animation-timing-function:ease}.apexcharts-unit-label-delay{animation-duration:.5s}.apexcharts-radialbar-label{cursor:pointer}.apexcharts-annotation-rect,.apexcharts-area-series .apexcharts-area,.apexcharts-gridline,.apexcharts-line,.apexcharts-point-annotation-label,.apexcharts-radar-series path:not(.apexcharts-marker),.apexcharts-radar-series polygon,.apexcharts-toolbar svg,.apexcharts-tooltip .apexcharts-marker,.apexcharts-xaxis-annotation-label,.apexcharts-yaxis-annotation-label,.apexcharts-zoom-rect,.no-pointer-events{pointer-events:none}.apexcharts-tooltip-active .apexcharts-marker{transition:.15s ease all}.apexcharts-radar-series .apexcharts-yaxis,.apexcharts-bar-goals-markers,.apexcharts-bar-shadows,.apexcharts-rangebar-goals-markers{pointer-events:none}.apexcharts-drilldown-target{cursor:pointer}.apexcharts-breadcrumb{position:absolute;z-index:11;display:inline-flex;align-items:center;gap:2px;font-size:12px;font-family:inherit;padding:2px 4px}.apexcharts-breadcrumb-item{background:transparent;border:none;padding:2px 6px;border-radius:3px;font:inherit;color:inherit;cursor:pointer;line-height:1.2}.apexcharts-breadcrumb-item:hover:not(.apexcharts-breadcrumb-current){background:#00000014}.apexcharts-breadcrumb-arrow{margin-right:4px;font-weight:600;user-select:none}.apexcharts-breadcrumb-current{cursor:default;font-weight:600;opacity:.85}.apexcharts-breadcrumb-separator{opacity:.5;user-select:none}.apexcharts-theme-dark .apexcharts-breadcrumb-item:hover:not(.apexcharts-breadcrumb-current){background:#ffffff1f}.apexcharts-drilldown-loading{position:absolute;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;gap:10px;font-size:13px;font-family:inherit;color:inherit;background:#ffffff9e;cursor:progress}.apexcharts-drilldown-loading-spinner{width:26px;height:26px;border-radius:50%;border:2.5px solid rgba(0,0,0,.16);border-top-color:#0000008c;animation:apexcharts-drilldown-spin .7s linear infinite}.apexcharts-drilldown-loading-text{opacity:.8}.apexcharts-theme-dark .apexcharts-drilldown-loading{background:#1e1e1e9e}.apexcharts-theme-dark .apexcharts-drilldown-loading-spinner{border-color:#ffffff38;border-top-color:#ffffffb3}@keyframes apexcharts-drilldown-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.apexcharts-canvas:not(.apexcharts-ignore-reduced-motion) .apexcharts-drilldown-loading-spinner{animation:apexcharts-drilldown-pulse 1.4s ease-in-out infinite!important}@keyframes apexcharts-drilldown-pulse{0%,to{opacity:.35}50%{opacity:1}}}.apexcharts-disable-transitions *{transition:none!important}.apexcharts-trellis{position:relative}.apexcharts-trellis-grid{display:grid}.apexcharts-trellis-cell{min-width:0;position:relative}.apexcharts-trellis-header{font-size:12px;font-weight:600;line-height:22px;height:22px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--apx-fore, var(--apx-trellis-fore, #373d3f))}.apexcharts-trellis-title{font-size:14px;font-weight:700;padding:2px 0 6px;color:var(--apx-fore, var(--apx-trellis-fore, #373d3f))}.apexcharts-trellis-mute-y .apexcharts-yaxis,.apexcharts-trellis-mute-x .apexcharts-xaxis{opacity:0}.apexcharts-trellis-has-toolbar{padding-top:24px}.apexcharts-trellis-strip{font-size:12px;font-weight:600;color:var(--apx-fore, var(--apx-trellis-fore, #373d3f));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.apexcharts-trellis-strip-column{text-align:center;line-height:22px;height:22px;align-self:end}.apexcharts-trellis-strip-row{align-self:center;max-width:140px;padding-right:6px}.apexcharts-trellis-cell-empty{position:relative}.apexcharts-trellis-empty-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--apx-fore, var(--apx-trellis-fore, #373d3f));opacity:.45;pointer-events:none}.apexcharts-trellis-cell-hidden>*{visibility:hidden}.apexcharts-trellis-gradient-legend{margin:10px auto 0}.apexcharts-trellis-panel.apexcharts-trellis-skeleton{background:var(--apx-fore, var(--apx-trellis-fore, #373d3f));opacity:.05;border-radius:4px}.apexcharts-trellis[data-tooltip-mode=panel] .apexcharts-trellis-cell:not(:hover) .apexcharts-tooltip,.apexcharts-trellis[data-tooltip-mode=panel] .apexcharts-trellis-cell:not(:hover) .apexcharts-xaxistooltip,.apexcharts-trellis[data-tooltip-mode=panel] .apexcharts-trellis-cell:not(:hover) .apexcharts-yaxistooltip{opacity:0!important}.apexcharts-trellis[data-tooltip-mode=grid] .apexcharts-trellis-cell .apexcharts-tooltip,.apexcharts-trellis[data-tooltip-mode=grid] .apexcharts-trellis-cell .apexcharts-xaxistooltip,.apexcharts-trellis[data-tooltip-mode=grid] .apexcharts-trellis-cell .apexcharts-yaxistooltip{opacity:0!important}.apexcharts-trellis-tooltip{position:absolute;top:0;left:0;z-index:14;pointer-events:none;opacity:0;transition:opacity .1s ease;background:var(--apx-bg, #fff);color:var(--apx-fore, var(--apx-trellis-fore, #373d3f));border:1px solid rgba(120,120,120,.25);border-radius:5px;box-shadow:2px 2px 6px -4px #0006;font-size:12px;min-width:140px;max-width:320px}.apexcharts-trellis-tooltip-active{opacity:1}.apexcharts-trellis-tooltip .apexcharts-tooltip-title{padding:5px 10px;font-weight:600;background:#78787814;border-bottom:1px solid rgba(120,120,120,.18);margin-bottom:2px}.apexcharts-trellis-tooltip-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:2px 10px;line-height:1.6}.apexcharts-trellis-tooltip-row-active{background:#7878781a;font-weight:600}.apexcharts-trellis-tooltip-key{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.apexcharts-trellis-tooltip-vals{display:flex;gap:10px;white-space:nowrap}.apexcharts-trellis-tooltip-val{display:inline-flex;align-items:center;gap:5px}.apexcharts-trellis-tooltip-marker{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}.apexcharts-trellis-cell-promoted{grid-column:1 / -1}.apexcharts-trellis-cell-parked{display:none}.apexcharts-trellis-cell-promoted.apexcharts-trellis-mute-y .apexcharts-yaxis,.apexcharts-trellis-cell-promoted.apexcharts-trellis-mute-x .apexcharts-xaxis{opacity:1}.apexcharts-trellis-header-clickable{cursor:pointer}.apexcharts-trellis-header-clickable:hover{text-decoration:underline;text-underline-offset:3px}.apexcharts-trellis-breadcrumb{display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0 6px;color:var(--apx-fore, var(--apx-trellis-fore, #373d3f))}.apexcharts-trellis-breadcrumb-back{border:none;background:none;padding:0;font-size:12px;cursor:pointer;color:var(--apx-accent, #008ffb)}.apexcharts-trellis-breadcrumb-back:hover{text-decoration:underline}.apexcharts-trellis-breadcrumb-sep{opacity:.5}.apexcharts-trellis-breadcrumb-current{font-weight:600}.apexcharts-trellis-menu{position:absolute;top:26px;right:0;display:none;flex-direction:column;min-width:132px;background:var(--apx-bg, #fff);border:1px solid rgba(120,120,120,.25);border-radius:5px;box-shadow:2px 2px 6px -4px #0006;padding:4px;z-index:15}.apexcharts-trellis-menu-open{display:flex}.apexcharts-trellis-menu-item{border:none;background:none;text-align:left;font-size:12px;padding:5px 8px;border-radius:3px;cursor:pointer;color:var(--apx-fore, var(--apx-trellis-fore, #373d3f))}.apexcharts-trellis-menu-item:hover{background:#7878781f}.apexcharts-trellis-toolbar{position:absolute;top:0;right:0;display:flex;gap:2px;z-index:12}.apexcharts-trellis-tool{border:0;background:transparent;padding:2px;cursor:pointer;border-radius:3px;color:#6e8192;line-height:0}.apexcharts-trellis-tool:hover{color:var(--apx-fore, var(--apx-trellis-fore, #373d3f))}.apexcharts-trellis-tool.apexcharts-selected{color:var(--apx-accent, #008ffb)}.apexcharts-trellis-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 14px;padding:8px 10px 2px}.apexcharts-trellis-legend-item{display:flex;align-items:center;gap:6px;cursor:pointer;line-height:1}.apexcharts-trellis-legend-item .apexcharts-legend-marker{width:12px;height:12px;border-radius:50%;display:inline-block}.apexcharts-trellis-legend-item .apexcharts-legend-text{font-size:12px;color:var(--apx-fore, var(--apx-trellis-fore, #373d3f))}.apexcharts-trellis-legend-item.apexcharts-inactive-legend{opacity:.45}@media print{.apexcharts-canvas.apexcharts-printing,.apexcharts-canvas.apexcharts-printing svg{max-width:100%!important}.apexcharts-canvas.apexcharts-printing svg{height:auto!important}.apexcharts-canvas.apexcharts-printing{height:auto!important}.apexcharts-toolbar{display:none!important}}';
 const e = globalThis.console;
-function t(t2) {
-  e.error(t2);
+function t(t2, ...s2) {
+  e.error(t2, ...s2);
 }
 function s(t2) {
   e.warn(t2);
@@ -28540,29 +32865,29 @@ const l = class {
       const a2 = this.epoch, l2 = null == (r2 = globalThis.crypto) ? void 0 : r2.subtle;
       if (!l2 || 0 === this.publicKeysSpki.length) return this.verifying.delete(e2), void (this.warnedUnverifiable || (this.warnedUnverifiable = true, s(l2 ? "[Apex] No license signing key is configured in this build, so license signatures cannot be verified." : "[Apex] Web Crypto is unavailable (a secure context is required), so the license signature cannot be verified.")));
       const o2 = new TextEncoder().encode(this.canonicalPayload(i2.data));
-      let c2 = false;
+      let c = false;
       for (const e3 of this.publicKeysSpki) {
         try {
           const t2 = yield l2.importKey("spki", this.base64ToBytes(e3), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-          c2 = yield l2.verify({ hash: "SHA-256", name: "ECDSA" }, t2, this.base64ToBytes(i2.signature), o2);
+          c = yield l2.verify({ hash: "SHA-256", name: "ECDSA" }, t2, this.base64ToBytes(i2.signature), o2);
         } catch (e4) {
-          c2 = false;
+          c = false;
         }
-        if (c2) break;
+        if (c) break;
       }
       if (this.verifying.delete(e2), this.epoch !== a2) return;
-      if (this.verdicts.set(e2, c2), c2) {
+      if (this.verdicts.set(e2, c), c) {
         const t2 = __spreadProps(__spreadValues({}, n2), { signatureVerified: true });
         return void (this.licenseKey === e2 ? this.publish(t2) : this.notify(t2));
       }
-      const h2 = "Invalid license key. The license signature does not verify.", d = { data: i2.data, expired: false, message: h2, signatureVerified: true, valid: false };
-      this.licenseKey === e2 ? this.publish(d) : this.notify(d), t(`[Apex] ${h2}`);
+      const u = "Invalid license key. The license signature does not verify.", h = { data: i2.data, expired: false, message: u, signatureVerified: true, valid: false };
+      this.licenseKey === e2 ? this.publish(h) : this.notify(h), t(`[Apex] ${u}`);
     });
   }
 };
 l.publicKeysSpki = ["MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQIaK9UMD6n0oR/FIy8QdL0uSzKMQlf1BB+tOrji4/WuHsyRNxeDhVykoSsNURozMi1xhmqWvBH1L//xIfugTPA=="], l.verdicts = /* @__PURE__ */ new Map(), l.verifying = /* @__PURE__ */ new Set(), l.warnedUnverifiable = false, l.epoch = 0;
 let o = l;
-const c = class {
+const j = class {
   static applyStyles(e2) {
     Object.assign(e2.style, this.CRITICAL_STYLES, { backgroundImage: this.createWatermarkPattern(), backgroundRepeat: "repeat" });
   }
@@ -28620,15 +32945,27 @@ const c = class {
     })));
   }
 };
-c.WATERMARK_ATTR = "data-apexcharts-watermark", c.WATERMARK_TEXT = "APEXCHARTS", c.ATTR = "data-apexcharts-watermark", c.CRITICAL_STYLES = { bottom: "0", display: "block", left: "0", msUserSelect: "none", opacity: "1", pointerEvents: "none", position: "absolute", right: "0", top: "0", userSelect: "none", visibility: "visible", webkitUserSelect: "none", zIndex: "10000" }, c.managed = /* @__PURE__ */ new Set(), c.subscribed = false;
-let h = c;
+j.WATERMARK_ATTR = "data-apexcharts-watermark", j.WATERMARK_TEXT = "APEXCHARTS", j.ATTR = "data-apexcharts-watermark", j.CRITICAL_STYLES = { bottom: "0", display: "block", left: "0", msUserSelect: "none", opacity: "1", pointerEvents: "none", position: "absolute", right: "0", top: "0", userSelect: "none", visibility: "visible", webkitUserSelect: "none", zIndex: "10000" }, j.managed = /* @__PURE__ */ new Set(), j.subscribed = false;
+let C = j;
 const PRICING_URL = "https://apexcharts.com/pricing";
-let _perspectivesTokenDecoded = false;
-const enforced = /* @__PURE__ */ new Set();
+const STATE_KEY = "__apexcharts_license_enforcer_v1__";
+if (!/** @type {any} */
+globalThis[STATE_KEY]) {
+  globalThis[STATE_KEY] = {
+    perspectivesTokenDecoded: false,
+    enforced: /* @__PURE__ */ new Set()
+  };
+}
+const state = (
+  /** @type {any} */
+  globalThis[STATE_KEY]
+);
+const enforced = state.enforced;
 function untrackChart(ctx) {
   enforced.delete(ctx);
 }
 function premiumFeaturesInUse(w, ctx) {
+  var _a;
   const chart = w && w.config && w.config.chart || {};
   const used = [];
   if (chart.type === "unit") used.push("unit");
@@ -28648,12 +32985,13 @@ function premiumFeaturesInUse(w, ctx) {
   if (ctx.contextMenu && chart.contextMenu && chart.contextMenu.enabled === true) {
     used.push("context-menu");
   }
-  if (ctx.perspectives && (ctx.perspectives._used || _perspectivesTokenDecoded)) {
+  if (ctx.perspectives && (ctx.perspectives._used || state.perspectivesTokenDecoded)) {
     used.push("perspectives");
   }
   if (ctx.history && chart.history && chart.history.enabled === true) {
     used.push("history");
   }
+  if ((_a = ctx._highlightFilter) == null ? void 0 : _a.isActive()) used.push("highlight-filter");
   return used;
 }
 function resolveKey(w) {
@@ -28674,15 +33012,15 @@ function licensedForPremium(key) {
   return typeof plan === "string" && PREMIUM_PLANS.has(plan.toLowerCase());
 }
 function reinstateWatermark(ctx, elWrap) {
-  const node = h.add(elWrap, { manage: false });
+  const node = C.add(elWrap, { manage: false });
   if (!node || typeof MutationObserver === "undefined") return;
   if (ctx._wmNodeObserver && ctx._wmObservedNode === node) return;
   if (ctx._wmNodeObserver) ctx._wmNodeObserver.disconnect();
   const nodeObs = new MutationObserver(() => {
-    const n2 = h.node(elWrap);
+    const n2 = C.node(elWrap);
     if (!n2) return;
     nodeObs.disconnect();
-    h.applyStyles(n2);
+    C.applyStyles(n2);
     nodeObs.takeRecords();
     nodeObs.observe(n2, { attributes: true, attributeFilter: ["style"] });
   });
@@ -28694,7 +33032,7 @@ function addWatermark(ctx, elWrap) {
   reinstateWatermark(ctx, elWrap);
   if (typeof MutationObserver === "undefined" || ctx._wmWrapObserver) return;
   const wrapObs = new MutationObserver(() => {
-    if (!h.node(elWrap)) reinstateWatermark(ctx, elWrap);
+    if (!C.node(elWrap)) reinstateWatermark(ctx, elWrap);
   });
   wrapObs.observe(elWrap, { childList: true });
   ctx._wmWrapObserver = wrapObs;
@@ -28710,7 +33048,7 @@ function teardownWatermark(ctx, elWrap) {
   }
   ctx._wmObservedNode = null;
   const wrap = elWrap || ctx.w && ctx.w.dom && ctx.w.dom.elWrap;
-  if (wrap) h.remove(wrap, { manage: false });
+  if (wrap) C.remove(wrap, { manage: false });
 }
 function notifyTrial(ctx, key, features) {
   if (ctx._premiumLicenseNotified) return;
@@ -28786,6 +33124,26 @@ function reevaluateLicenseAcrossCharts() {
   });
 }
 o.onChange(reevaluateLicenseAcrossCharts);
+function unloadedTypeRejection(chartType, series) {
+  const types = [chartType];
+  if (Array.isArray(series)) {
+    for (const s2 of series) {
+      types.push(s2 && typeof s2 === "object" ? s2.type : void 0);
+    }
+  }
+  for (const t2 of types) {
+    if (typeof t2 !== "string") continue;
+    const base = TYPE_ALIASES[t2] || t2;
+    if (RESERVED_TYPES.includes(base) && !hasChartClass(base)) {
+      try {
+        getChartClass(base, t2);
+      } catch (e2) {
+        return Promise.reject(e2);
+      }
+    }
+  }
+  return null;
+}
 const _ApexCharts = class _ApexCharts {
   /**
    * Creates a new ApexCharts instance.
@@ -28939,7 +33297,7 @@ const _ApexCharts = class _ApexCharts {
     }
     if (this._renderPromise) return this._renderPromise;
     const renderPromise = new Promise((resolve, reject) => {
-      var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
+      var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
       if (Utils$1.elementExists(this.el)) {
         if (typeof Apex._chartInstances === "undefined") {
           Apex._chartInstances = [];
@@ -28961,19 +33319,15 @@ const _ApexCharts = class _ApexCharts {
         const wantsTrellis = !!(trellisCfg && (trellisCfg.by || trellisCfg.row || trellisCfg.column));
         const isTrellisHost = !!(wantsTrellis && this.trellis && this.trellis.isActive());
         if (wantsTrellis && !this.trellis) {
-          console.warn(
-            "ApexCharts: `trellis` requires the trellis feature, which is not in the default bundle. Bundler: import 'apexcharts/features/trellis'. Script tag: add <script src='.../dist/features/trellis.js'> after apexcharts.js. Rendering as a single chart."
-          );
+          warnMissingFeature("`trellis`", "trellis", {
+            tail: "Rendering as a single chart."
+          });
         }
         if (((_b2 = (_a2 = this.w.config.chart) == null ? void 0 : _a2.measure) == null ? void 0 : _b2.enabled) && !this.measure) {
-          console.warn(
-            "ApexCharts: `chart.measure` requires the measure feature, which is not in the default bundle. Bundler: import 'apexcharts/features/measure'. Script tag: add <script src='.../dist/features/measure.js'> after apexcharts.js."
-          );
+          warnMissingFeature("`chart.measure`", "measure");
         }
         if (((_d = (_c = this.w.config.chart) == null ? void 0 : _c.link) == null ? void 0 : _d.enabled) && !this.linkedViews) {
-          console.warn(
-            "ApexCharts: `chart.link` requires the link feature, which is not in the default bundle. Bundler: import 'apexcharts/features/link'. Script tag: add <script src='.../dist/features/link.js'> after apexcharts.js."
-          );
+          warnMissingFeature("`chart.link`", "link");
         }
         if (!this.ink) {
           const inkOn = (_f = (_e = this.w.config.chart) == null ? void 0 : _e.ink) == null ? void 0 : _f.enabled;
@@ -28981,20 +33335,21 @@ const _ApexCharts = class _ApexCharts {
             (p) => p && p.draggable
           );
           if (inkOn || anyDraggable) {
-            console.warn(
-              "ApexCharts: `chart.ink` / `annotations.points[].draggable` requires the ink feature, which is not in the default bundle. Bundler: import 'apexcharts/features/ink'. Script tag: add <script src='.../dist/features/ink.js'> after apexcharts.js."
+            warnMissingFeature(
+              "`chart.ink` / `annotations.points[].draggable`",
+              "ink"
             );
           }
         }
         if (((_j = (_i = this.w.config.chart) == null ? void 0 : _i.contextMenu) == null ? void 0 : _j.enabled) && !this.contextMenu) {
-          console.warn(
-            "ApexCharts: `chart.contextMenu` requires the context-menu feature, which is not in the default bundle. Bundler: import 'apexcharts/features/context-menu'. Script tag: add <script src='.../dist/features/context-menu.js'> after apexcharts.js."
-          );
+          warnMissingFeature("`chart.contextMenu`", "context-menu");
         }
         if (((_l = (_k = this.w.config.chart) == null ? void 0 : _k.history) == null ? void 0 : _l.enabled) && !this.history) {
-          console.warn(
-            "ApexCharts: `chart.history` requires the history feature, which is not in the default bundle. Bundler: import 'apexcharts/features/history'. Script tag: add <script src='.../dist/features/history.js'> after apexcharts.js."
-          );
+          warnMissingFeature("`chart.history`", "history");
+        }
+        if (((_m = this.w.config.drilldown) == null ? void 0 : _m.enabled) && !/** @type {any} */
+        this.ctx.drilldown) {
+          warnMissingFeature("`drilldown`", "drilldown");
         }
         if (Environment.isBrowser()) {
           if (!isTrellisHost) {
@@ -29023,14 +33378,14 @@ const _ApexCharts = class _ApexCharts {
             );
             css.id = "apexcharts-css";
             css.textContent = apexCSS;
-            const nonce = ((_m = this.opts.chart) == null ? void 0 : _m.nonce) || this.w.config.chart.nonce;
+            const nonce = ((_n = this.opts.chart) == null ? void 0 : _n.nonce) || this.w.config.chart.nonce;
             if (nonce) {
               css.setAttribute("nonce", nonce);
             }
             if (inShadowRoot) {
               rootNode.prepend(css);
             } else if (this.w.config.chart.injectStyleSheet !== false) {
-              doc.head.appendChild(css);
+              doc.head.prepend(css);
             }
           }
         }
@@ -29087,8 +33442,9 @@ const _ApexCharts = class _ApexCharts {
   /**
    * @param {any[]} ser
    * @param {object} opts
+   * @param {boolean} [overwriteInitialSeries=true]
    */
-  create(ser, opts) {
+  create(ser, opts, overwriteInitialSeries = true) {
     var _a, _b, _c, _d, _e, _f;
     const w = this.w;
     if (!this.core) {
@@ -29106,7 +33462,7 @@ const _ApexCharts = class _ApexCharts {
     applyAnimationPolicy(w);
     if (w.config.xaxis.convertedCatToNumeric) {
       const defaults = new Defaults(w.config);
-      defaults.convertCatToNumericXaxis(w.config, this.ctx);
+      defaults.convertCatToNumericXaxis(w.config);
     }
     this.core.setupElements();
     if (w.config.chart.type === "treemap") {
@@ -29118,11 +33474,13 @@ const _ApexCharts = class _ApexCharts {
       return null;
     }
     let series = ser;
+    const hiddenAtInit = [];
     ser.forEach((s2, realIndex) => {
       if (s2.hidden) {
         series = this.legend.legendHelpers.getSeriesAfterCollapsing({
           realIndex
         });
+        hiddenAtInit.push(realIndex);
       }
     });
     const combo = CoreUtils.checkComboSeries(series, w.config.chart.type);
@@ -29135,12 +33493,29 @@ const _ApexCharts = class _ApexCharts {
     if (Environment.isBrowser()) {
       this.events.setupEventHandlers();
     }
-    const parsedState = this.data.parseData(series);
+    const parsedState = this.data.parseData(series, overwriteInitialSeries);
     this._writeParsedSeriesData(parsedState.seriesData);
     this._writeParsedRangeData(parsedState.rangeData);
     this._writeParsedCandleData(parsedState.candleData);
     this._writeParsedLabelData(parsedState.labelData);
     this._writeParsedAxisFlags(parsedState.axisFlags);
+    if (overwriteInitialSeries && hiddenAtInit.length) {
+      const baseline = (
+        /** @type {any[]} */
+        gl._initialSeriesPeek || []
+      );
+      const records = (
+        /** @type {any[]} */
+        gl.collapsedSeries.concat(
+          gl.ancillaryCollapsedSeries
+        )
+      );
+      gl.initialSeries = baseline.map((s2, i2) => {
+        if (hiddenAtInit.indexOf(i2) === -1 || !Utils$1.isObject(s2)) return s2;
+        const rec = records.find((c) => c.index === i2);
+        return rec && Array.isArray(rec.data) && rec.data.length ? __spreadProps(__spreadValues({}, s2), { data: rec.data.slice() }) : s2;
+      });
+    }
     (_a = this.rendererController) == null ? void 0 : _a.resolve();
     (_b = this.weave) == null ? void 0 : _b.dispatch("afterParse");
     this.theme.init();
@@ -29173,6 +33548,7 @@ const _ApexCharts = class _ApexCharts {
     const elGraph = this.core.plotChartType(series, xyRatios);
     const dataLabels = new DataLabels(this.w, this);
     dataLabels.bringForward();
+    dataLabels.avoidOverlaps();
     if (w.config.dataLabels.background.enabled) {
       dataLabels.dataLabelsBackground();
     }
@@ -29202,7 +33578,7 @@ const _ApexCharts = class _ApexCharts {
     const me = this;
     const w = me.w;
     return new Promise((resolve, reject) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m;
       if (me.el === null) {
         return reject(
           new Error("Not enough data to display or target element not found")
@@ -29234,6 +33610,7 @@ const _ApexCharts = class _ApexCharts {
       } else {
         w.dom.elGraphical.add(graphData.elGraph);
       }
+      this.series.settleCollapsedShapes(graphData.elGraph);
       if (w.config.grid.position === "front") {
         if (elgrid) {
           w.dom.elGraphical.add(elgrid.el);
@@ -29268,6 +33645,7 @@ const _ApexCharts = class _ApexCharts {
           }
         });
       }
+      AxesUtils.pruneRedundantLabelTitles(w.dom.baseEl);
       (_g = me.annotations) == null ? void 0 : _g.drawAxesAnnotations();
       if (!w.globals.noData) {
         if (Environment.isBrowser() && w.config.tooltip.enabled && !w.globals.noData) {
@@ -29300,9 +33678,11 @@ const _ApexCharts = class _ApexCharts {
         }
         if (w.config.chart.toolbar.show && !w.globals.allSeriesCollapsed) {
           (_k = me.toolbar) == null ? void 0 : _k.createToolbar();
+        } else if (!w.globals.allSeriesCollapsed && ((_l = me.toolbar) == null ? void 0 : _l.resetControlDue())) {
+          me.toolbar.createToolbar({ resetOnly: true });
         }
       }
-      (_l = me.weave) == null ? void 0 : _l.dispatch("draw", {
+      (_m = me.weave) == null ? void 0 : _m.dispatch("draw", {
         pass: "full",
         xyRatios: graphData == null ? void 0 : graphData.xyRatios
       });
@@ -29344,8 +33724,8 @@ const _ApexCharts = class _ApexCharts {
     const chartID = this.w.config.chart.id;
     if (chartID && Array.isArray(Apex._chartInstances)) {
       Apex._chartInstances.forEach(
-        (c2, i2) => {
-          if (c2.id === Utils$1.escapeString(chartID)) {
+        (c, i2) => {
+          if (c.id === Utils$1.escapeString(chartID)) {
             Apex._chartInstances.splice(i2, 1);
           }
         }
@@ -29369,6 +33749,7 @@ const _ApexCharts = class _ApexCharts {
    * @returns {Promise<ApexCharts>} Resolves with the chart instance after re-render.
    */
   updateOptions(options2, redraw = false, animate = true, updateSyncedCharts = true, overwriteInitialConfig = true) {
+    var _a;
     const w = this.w;
     if (options2 && "series" in options2 && !Array.isArray(options2.series)) {
       console.warn(
@@ -29377,11 +33758,24 @@ const _ApexCharts = class _ApexCharts {
       options2 = __spreadValues({}, options2);
       delete options2.series;
     }
-    if (this.trellis && this.trellis._mounted) {
+    options2 = Config.dropEmptyOptions(options2);
+    const unloaded = unloadedTypeRejection(
+      (_a = options2 == null ? void 0 : options2.chart) == null ? void 0 : _a.type,
+      options2 == null ? void 0 : options2.series
+    );
+    if (unloaded) return unloaded;
+    if (this.trellis && (this.trellis._mounted || this.trellis._rendering)) {
+      const inPlace = this.trellis.canApplyInPlace(options2);
       this.opts = Utils$1.extend(this.opts || {}, options2 || {});
       this.w.config = Utils$1.extend(w.config, options2 || {});
-      this.trellis.teardown();
-      return this.render();
+      const settled = this.trellis._rendering ? this.trellis.whenSettled() : Promise.resolve();
+      return settled.then(() => {
+        if (inPlace && this.trellis.canApplyInPlace(options2)) {
+          return this.trellis.applyPanelOptions(animate).then(() => this);
+        }
+        this.trellis.teardown();
+        return this.render();
+      });
     }
     w.interact.selection = void 0;
     if (this.lastUpdateOptions) {
@@ -29447,6 +33841,11 @@ const _ApexCharts = class _ApexCharts {
       );
       return Promise.resolve(this);
     }
+    const unloaded = unloadedTypeRejection(void 0, newSeries);
+    if (unloaded) return unloaded;
+    if (this.trellis && this.trellis._rendering) {
+      return this.trellis.whenSettled().then(() => this.trellis.updateSeries(newSeries, animate));
+    }
     if (this.trellis && this.trellis._mounted) {
       return this.trellis.updateSeries(newSeries, animate);
     }
@@ -29468,6 +33867,8 @@ const _ApexCharts = class _ApexCharts {
    * @returns {Promise<ApexCharts>} Resolves with the chart instance after re-render.
    */
   appendSeries(newSerie, animate = true, overwriteInitialSeries = true) {
+    const unloaded = unloadedTypeRejection(void 0, [newSerie]);
+    if (unloaded) return unloaded;
     this.data.resetParsingFlags();
     const newSeries = this.w.config.series.slice();
     newSeries.push(
@@ -29491,9 +33892,11 @@ const _ApexCharts = class _ApexCharts {
    * @returns {Promise<ApexCharts>} Resolves with the chart instance after re-render.
    */
   appendData(newData, overwriteInitialSeries = true) {
+    var _a;
     const me = this;
     me.data.resetParsingFlags();
     me.w.globals.dataChanged = true;
+    me.w.globals.shouldAnimate = true;
     if (me.w.config.chart.animations.enabled) {
       me.series.getPreviousPaths();
     }
@@ -29505,14 +33908,13 @@ const _ApexCharts = class _ApexCharts {
           newData[i2]
         );
         if (src && Array.isArray(src.data) && Array.isArray(derivedRaw[i2].data)) {
-          for (let j = 0; j < src.data.length; j++) {
-            derivedRaw[i2].data.push(src.data[j]);
-          }
+          derivedRaw[i2].data = derivedRaw[i2].data.concat(src.data);
         }
       }
-      return this.update();
+      return this.update(void 0, overwriteInitialSeries);
     }
     const newSeries = me.w.config.series.slice();
+    const reducerRaw = me.w.globals.dataReducerRawSeries;
     for (let i2 = 0; i2 < newSeries.length; i2++) {
       if (newData[i2] !== null && typeof newData[i2] !== "undefined") {
         const srcSerie = (
@@ -29523,17 +33925,15 @@ const _ApexCharts = class _ApexCharts {
           /** @type {any} */
           newSeries[i2]
         );
-        for (let j = 0; j < srcSerie.data.length; j++) {
-          dstSerie.data.push(srcSerie.data[j]);
+        dstSerie.data = dstSerie.data.concat(srcSerie.data);
+        if (reducerRaw && Array.isArray((_a = reducerRaw[i2]) == null ? void 0 : _a.data)) {
+          reducerRaw[i2].data = reducerRaw[i2].data.concat(srcSerie.data);
         }
       }
     }
     trimStreamingSeries(newSeries, me.w);
     me.w.config.series = newSeries;
-    if (overwriteInitialSeries) {
-      me.w.globals.initialSeries = me.w.config.series;
-    }
-    return this.update();
+    return this.update(void 0, overwriteInitialSeries);
   }
   /**
    * True when an options object carries enough series data that a
@@ -29555,21 +33955,36 @@ const _ApexCharts = class _ApexCharts {
   }
   /**
    * @param {object} [options]
+   * @param {boolean} [overwriteInitialSeries=false] true only when the caller
+   *   redefined the series before triggering this re-render, so the parse it
+   *   runs is the one that captures the new baseline.
    */
-  update(options2) {
+  update(options2, overwriteInitialSeries = false) {
     return new Promise((resolve, reject) => {
+      var _a;
       if (options2 && this.lastUpdateOptions && !_ApexCharts._optionsTooBigToCompare(options2) && Utils$1.stringifyForCompare(this.lastUpdateOptions) === Utils$1.stringifyForCompare(options2)) {
         return resolve(this);
       }
       this.lastUpdateOptions = options2 && !_ApexCharts._optionsTooBigToCompare(options2) ? Utils$1.clone(options2) : null;
+      (_a = this.morphTypeChange) == null ? void 0 : _a.retire();
       new Destroy(this.ctx).clear({ isUpdating: true });
-      const graphData = this.create(this.w.config.series, options2 != null ? options2 : {});
+      const graphData = this.create(
+        this.w.config.series,
+        options2 != null ? options2 : {},
+        overwriteInitialSeries
+      );
       if (!graphData) return resolve(this);
       this.mount(graphData).then(() => {
-        var _a;
-        (_a = this.morphTypeChange) == null ? void 0 : _a.applyChromeFade();
-        applyAxisTransition(this.w);
+        var _a2, _b, _c;
+        (_a2 = this.morphTypeChange) == null ? void 0 : _a2.applyChromeFade();
+        applyAxisTransition(this.w, {
+          layout: !((_b = this.morphTypeChange) == null ? void 0 : _b.isActive())
+        });
+        applyCircleTransition(this.w, {
+          layout: !((_c = this.morphTypeChange) == null ? void 0 : _c.isActive())
+        });
         applyDataLabelTransition(this.w);
+        playExitLabels(this.w);
         if (typeof this.w.config.chart.events.updated === "function") {
           this.w.config.chart.events.updated(this, this.w);
         }
@@ -29708,6 +34123,7 @@ const _ApexCharts = class _ApexCharts {
           }
         });
       }
+      AxesUtils.pruneRedundantLabelTitles(w.dom.baseEl);
       return true;
     } catch (e2) {
       this._fastAxisBailReason = "error: " + (e2 && /** @type {any} */
@@ -29731,10 +34147,11 @@ const _ApexCharts = class _ApexCharts {
    */
   fastUpdate(animate, prevAxisScaleSig) {
     return new Promise((resolve, reject) => {
-      var _a, _b, _c, _d, _e;
+      var _a, _b, _c, _d, _e, _f;
       try {
         const w = this.w;
         const gl = w.globals;
+        (_a = this.morphTypeChange) == null ? void 0 : _a.retire();
         gl.shouldAnimate = animate;
         gl.dataChanged = true;
         gl.animationEnded = false;
@@ -29765,6 +34182,8 @@ const _ApexCharts = class _ApexCharts {
         gl2.cachedSelectors = {};
         gl2.disableZoomIn = false;
         gl2.disableZoomOut = false;
+        gl2.fadeRevealEls = [];
+        gl2.morphBatch = { pending: 0, onDone: null, series: /* @__PURE__ */ new Map() };
         if (gl.axisCharts) {
           this.core.coreCalculations();
           if (w.config.xaxis.type !== "category") {
@@ -29789,7 +34208,7 @@ const _ApexCharts = class _ApexCharts {
         } else {
           this._updateStats.fast++;
         }
-        (_a = this.weave) == null ? void 0 : _a.dispatch("afterScales", { pass: "fast", xyRatios });
+        (_b = this.weave) == null ? void 0 : _b.dispatch("afterScales", { pass: "fast", xyRatios });
         const rr = (
           /** @type {any} */
           this.ctx.renderer
@@ -29821,19 +34240,22 @@ const _ApexCharts = class _ApexCharts {
             w.dom.elGraphical.add(g);
           });
         }
+        this.series.settleCollapsedShapes(graphs);
         const dataLabels = new DataLabels(w, this);
         dataLabels.bringForward();
+        dataLabels.avoidOverlaps();
         if (w.config.dataLabels.background.enabled) {
           dataLabels.dataLabelsBackground();
         }
-        (_b = this.waterfall) == null ? void 0 : _b.drawConnectors();
-        (_c = this.streamgraph) == null ? void 0 : _c.draw();
+        (_c = this.waterfall) == null ? void 0 : _c.drawConnectors();
+        (_d = this.streamgraph) == null ? void 0 : _d.draw();
         if (!gl.streamScrolled) applyAxisTransition(w);
         applyDataLabelTransition(w);
+        playExitLabels(w);
         if (Environment.isBrowser() && w.config.tooltip.enabled && !gl.noData) {
-          (_d = w.globals.tooltip) == null ? void 0 : _d.drawTooltip(xyRatios);
+          (_e = w.globals.tooltip) == null ? void 0 : _e.drawTooltip(xyRatios);
         }
-        (_e = this.weave) == null ? void 0 : _e.dispatch("draw", { pass: "fast", xyRatios });
+        (_f = this.weave) == null ? void 0 : _f.dispatch("draw", { pass: "fast", xyRatios });
         if (typeof w.config.chart.events.updated === "function") {
           w.config.chart.events.updated(this, w);
         }
@@ -29899,10 +34321,10 @@ const _ApexCharts = class _ApexCharts {
   static getChartByID(id) {
     const chartId = Utils$1.escapeString(id);
     if (!Apex._chartInstances) return void 0;
-    const c2 = Apex._chartInstances.filter(
+    const c = Apex._chartInstances.filter(
       (ch) => ch.id === chartId
     )[0];
-    return c2 && c2.chart;
+    return c && c.chart;
   }
   /**
    * Trellis (#22): imperative entry point. Creates a trellis host and starts
@@ -29920,9 +34342,7 @@ const _ApexCharts = class _ApexCharts {
    */
   static trellis(el, options2) {
     if (!InitCtxVariables._featureRegistry.get("trellis")) {
-      console.warn(
-        "ApexCharts.trellis requires the trellis feature, which is not in the default bundle. Bundler: import 'apexcharts/features/trellis'. Script tag: add <script src='.../dist/features/trellis.js'> after apexcharts.js."
-      );
+      warnMissingFeature("ApexCharts.trellis()", "trellis");
       return null;
     }
     const chart = new _ApexCharts(el, options2);
@@ -30035,7 +34455,7 @@ const _ApexCharts = class _ApexCharts {
    * Register a Weave plugin definition (a plain { name, setup } object).
    * Lives in core so plugins can always be registered; they only activate when
    * the Weave host is bundled (`import 'apexcharts/features/weave'`, included in
-   * the full bundle) and listed in a chart's `plugins` config.
+   * the default bundle) and listed in a chart's `plugins` config.
    *
    * @param {{ name: string, apiVersion?: number, setup: Function, destroy?: Function }} def
    * @returns {typeof ApexCharts}
@@ -30071,7 +34491,7 @@ const _ApexCharts = class _ApexCharts {
    * Register a custom series type (Marks #11): a `{ renderItem }` definition
    * that draws primitives (path/line/rect/circle/text) per datum. Requires the
    * Marks feature to be bundled (`import 'apexcharts/features/marks'`, included
-   * in the full bundle); without it this warns and no-ops. Once registered, use
+   * in the default bundle); without it this warns and no-ops. Once registered, use
    * it via `series[].type` or `chart.type`.
    *
    * @param {string} name  the type name, e.g. 'dumbbell'
@@ -30095,7 +34515,7 @@ const _ApexCharts = class _ApexCharts {
       );
       return _ApexCharts;
     }
-    if (hasChartClass(name2) && !isCustom(name2) || TYPE_ALIASES[name2]) {
+    if (hasChartClass(name2) && !isCustom(name2) || TYPE_ALIASES[name2] || RESERVED_TYPES.includes(name2)) {
       console.warn(
         `[apexcharts] registerSeriesType("${name2}") would override the built-in "${name2}" chart type; pick another name.`
       );
@@ -30300,9 +34720,7 @@ const _ApexCharts = class _ApexCharts {
       _ApexCharts._crossfilterFactory
     );
     if (!factory) {
-      console.warn(
-        `[apexcharts] ApexCharts.crossfilter(...) requires the link feature, which is not in the default bundle. Bundler: import 'apexcharts/features/link'. Script tag: add <script src='.../dist/features/link.js'> after apexcharts.js.`
-      );
+      warnMissingFeature("ApexCharts.crossfilter()", "link");
       return null;
     }
     const coordinator = factory(opts);
@@ -30584,6 +35002,9 @@ const _ApexCharts = class _ApexCharts {
     const w = this.w;
     const gl = w.globals;
     return {
+      // The merged options this chart is running on (defaults < window.Apex <
+      // user), so a reader does not have to go through the internal `w`.
+      config: w.config,
       // Series data — computed/parsed form used for rendering
       series: w.seriesData.series,
       seriesNames: w.seriesData.seriesNames,
@@ -31047,6 +35468,11 @@ export {
   DataLabels as __apex_DataLabels,
   DateTime as __apex_DateTime,
   Defaults as __apex_Defaults,
+  DEFAULT_EASING_NAME as __apex_Easing_DEFAULT_EASING_NAME,
+  cubicBezier as __apex_Easing_cubicBezier,
+  easeInOutSine as __apex_Easing_easeInOutSine,
+  registerEasing as __apex_Easing_registerEasing,
+  resolveEasing as __apex_Easing_resolveEasing,
   Environment as __apex_Environment_Environment,
   Events as __apex_Events,
   Fill as __apex_Fill,

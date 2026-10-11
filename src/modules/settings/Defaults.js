@@ -3,7 +3,7 @@ import Utils from '../../utils/Utils'
 import DateTime from '../../utils/DateTime'
 import Formatters from '../Formatters'
 import Options from './Options'
-import { TYPE_ALIASES } from './TypeAliases'
+import { TYPE_ALIASES, BUILTIN_TYPES } from './TypeAliases'
 
 /**
  * ApexCharts Default Class for setting default options for all chart types.
@@ -344,27 +344,8 @@ export default class Defaults {
    */
   static forType(opts) {
     const defaults = new Defaults(opts)
-    const chartTypes = [
-      'line',
-      'area',
-      'bar',
-      'candlestick',
-      'boxPlot',
-      'violin',
-      'rangeBar',
-      'rangeArea',
-      'bubble',
-      'scatter',
-      'heatmap',
-      'treemap',
-      'unit',
-      'sunburst',
-      'pie',
-      'polarArea',
-      'donut',
-      'radar',
-      'radialBar',
-    ]
+    // Every name here is also a method on this class; see BUILTIN_TYPES.
+    const chartTypes = BUILTIN_TYPES
     const requestedType = opts.chart.requestedType
     let chartDefaults
 
@@ -735,7 +716,9 @@ export default class Defaults {
               show: true,
               fontSize: '32px',
               fontWeight: 600,
-              offsetY: 8,
+              // Placed as the gauge is drawn (see Radial.draw): 8, or on the
+              // needle shape below where the needle reaches.
+              offsetY: undefined,
             },
           },
         },
@@ -786,17 +769,24 @@ export default class Defaults {
         // `end - start`, which is the delta for a step bar and the sum for a
         // subtotal / total bar.
         enabled: true,
-        // Small steps are normal in a waterfall, and a label wider or taller
-        // than its bar gets placed OUTSIDE it. The range column's white label
-        // is then white text on the chart background, so the two smallest steps
-        // of a P&L bridge simply vanished. A pale chip with dark ink reads
-        // wherever the label lands: over a green, red or blue bar, or off it.
+        // No chip behind the label. A waterfall is usually a dense row of
+        // steps, and a chip per label is a second rectangle competing with the
+        // bar it names.
         background: {
-          enabled: true,
-          backgroundColor: '#fff',
-          foreColor: '#373d3f',
-          borderColor: '#e3e8ee',
-          opacity: 0.92,
+          enabled: false,
+        },
+        style: {
+          .../** @type {any} */ (range).dataLabels?.style,
+          // Small steps are normal in a waterfall, and a label wider or taller
+          // than its bar gets placed OUTSIDE it. The range column's white ink
+          // is then white text on the chart background, so the two smallest
+          // steps of a P&L bridge simply vanished. Following `chart.foreColor`
+          // instead keeps the label readable off the bar in either theme, and
+          // legible enough over an increase/decrease/total bar.
+          colors: [
+            /** @param {any} opts */
+            (opts) => opts.w.config.chart.foreColor,
+          ],
         },
       },
       legend: {
@@ -959,13 +949,10 @@ export default class Defaults {
 
   boxPlot() {
     return {
-      chart: {
-        animations: {
-          dynamicAnimation: {
-            enabled: false,
-          },
-        },
-      },
+      // No dynamicAnimation override any more: box plot updates used to be
+      // switched off here (2021), since nothing captured a box's previous shape
+      // and every update snapped. Boxes now morph from their own previous
+      // shape, keyed by datum, like candlesticks and bars.
       stroke: {
         width: 1,
         colors: ['#24292e'],
@@ -1727,8 +1714,6 @@ export default class Defaults {
    */
   stacked100(opts) {
     opts.dataLabels = opts.dataLabels || {}
-    opts.dataLabels.formatter = opts.dataLabels.formatter || undefined
-    const existingDataLabelFormatter = opts.dataLabels.formatter
 
     /**
      * @param {ApexYAxis} yaxe
@@ -1739,20 +1724,57 @@ export default class Defaults {
       opts.yaxis[index].max = 100
     })
 
-    const isBar = opts.chart.type === 'bar'
+    // A formatter the user set wins in every chart type. Nothing is written
+    // back otherwise: an own `formatter: undefined` on the user config used to
+    // be copied over the Options default by Utils.extend, so any 100% stacked
+    // chart that is not typed `bar` (a combo, an area) had NO formatter at all
+    // and threw the moment data labels were switched on (#2429).
+    if (opts.dataLabels.formatter) return opts
 
-    if (isBar) {
-      opts.dataLabels.formatter =
-        existingDataLabelFormatter ||
-        /**
-         * @param {any} val
-         */
-        function (val) {
-          if (typeof val === 'number') {
-            return val ? val.toFixed(0) + '%' : val
-          }
-          return val
-        }
+    /** @param {any} val */
+    const percent = (val) => {
+      if (typeof val === 'number') {
+        return val ? val.toFixed(0) + '%' : val
+      }
+      return val
+    }
+
+    // Only the series drawn as bars are part of the 100% total, and only
+    // their labels are handed the percentage (BarDataLabels reads
+    // w.globals.seriesPercent). Any other series (a line mixed into a combo,
+    // whichever type the chart is declared as) still gets its raw value, so
+    // it keeps the plain default rather than a '%'. In a pure bar chart
+    // columnSeries.i covers every series, so nothing changes there.
+    // The plain default is the same as Options' `dataLabels.formatter`,
+    // inlined rather than building a full Options tree for one function.
+    /** @param {any} val */
+    const plain = (val) => (val !== null ? val : '')
+
+    // columnSeries is only built by plotChartType, which runs AFTER
+    // Dimensions has already measured the stacked-total label
+    // (gridPadForStackedTotalDataLabels, during plotCoords). Classified
+    // from config — as CoreUtils.getPercentSeries does — so the formatter
+    // is safe however early it is read: without this the reserve measured
+    // the plain string ("5700") while the drawn label read "5700%",
+    // under-reserving by the "%" and pushing the total label past the SVG
+    // viewport on a horizontal 100% stack (#3579).
+    const chartType = opts.chart.type
+    const isBarSeries = (/** @type {any} */ s) =>
+      s.type
+        ? s.type === 'bar' || s.type === 'column'
+        : chartType === 'bar' || chartType === 'column'
+    const hasBars = (opts.series || []).some(isBarSeries)
+    /**
+     * @param {any} val
+     * @param {{ seriesIndex?: number, w?: any }} [ctx]
+     */
+    opts.dataLabels.formatter = (val, ctx) => {
+      const barIndices = ctx?.w?.globals?.columnSeries?.i
+      const isBarLabel = barIndices
+        ? barIndices.includes(ctx?.seriesIndex)
+        : hasBars
+      if (isBarLabel) return percent(val)
+      return plain(val)
     }
     return opts
   }
@@ -1783,7 +1805,7 @@ export default class Defaults {
 
   /**
    * @param {Record<string, any>} opts
-   * @param {any} cats
+   * @param {any[]} [cats] the category names, when they are not in `opts`
    */
   convertCatToNumericXaxis(opts, cats) {
     opts.xaxis.type = 'numeric'
@@ -1813,14 +1835,27 @@ export default class Defaults {
     }
 
     if (labels && labels.length) {
-      /**
-       * @param {any} val
-       */
-      opts.xaxis.labels.formatter = function (val) {
-        return Utils.isNumber(val)
-          ? defaultFormatter(labels[Math.floor(val) - 1])
-          : defaultFormatter(val)
+      const names = labels
+      /** @type {any} */
+      const format = function (/** @type {any} */ val) {
+        if (!Utils.isNumber(val)) return defaultFormatter(val)
+
+        // The converted axis is numeric, so its scale can put a tick where no
+        // category sits: past the last one, before the first, or between two
+        // after a zoom. There is nothing to format there, so the slot stays
+        // blank. Handing the user's formatter the `undefined` that
+        // out-of-range indexing produces is what made a formatter declared
+        // (value: string | number) throw on a plain category chart (#5324);
+        // and the built-in formatter already turned that undefined into '' one
+        // step later, so the rendered axis is unchanged.
+        const label = names[Math.floor(val) - 1]
+        return label === undefined ? '' : defaultFormatter(label)
       }
+      // Once converted, this formatter is the only place the names live
+      // (`categories` is emptied below). An update that brings a new
+      // formatter but no categories reads them back from here.
+      format.categoryNames = names
+      opts.xaxis.labels.formatter = format
     }
 
     opts.xaxis.categories = []
@@ -2011,6 +2046,43 @@ export default class Defaults {
       },
       legend: {
         show: true,
+        position: 'bottom',
+      },
+      grid: {
+        padding: {
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+        },
+      },
+    }
+  }
+
+  icicle() {
+    return {
+      chart: {
+        toolbar: {
+          show: false,
+        },
+      },
+      dataLabels: {
+        style: {
+          colors: ['#fff'],
+        },
+      },
+      stroke: {
+        colors: ['#fff'],
+      },
+      fill: {
+        opacity: 1,
+      },
+      // Off by default: every cell carries its own label, so a legend repeats
+      // what the chart already says. It also only lines up with the colours
+      // when the tree has several roots, because the palette is applied to the
+      // shallowest level that branches. A multi-root icicle can turn it on.
+      legend: {
+        show: false,
         position: 'bottom',
       },
       grid: {

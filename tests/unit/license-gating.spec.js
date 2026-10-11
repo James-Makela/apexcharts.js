@@ -1,7 +1,10 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createChartWithOptions } from './utils/utils.js'
-import ApexCharts from '../../src/entries/full.js'
-// measure, link, ink, storyboard, context-menu, history and perspectives are Tier 2 and no longer in `entries/full.js`. This suite
+// Not in the default bundle since 8.0, so imported the way an app would.
+import '../../src/entries/unit.js'
+import '../../src/entries/violin.js'
+import ApexCharts from '../../src/entries/standard.js'
+// measure, link, ink, storyboard, context-menu, history and perspectives are Tier 2 and no longer in `entries/standard.js`. This suite
 // is about license gating, not bundling, so it imports each feature the way
 // an application would and keeps asserting on a chart that HAS the tool.
 import '../../src/features/measure.js'
@@ -131,7 +134,7 @@ describe('License gating', () => {
     })
 
     it('does NOT flag a bundled-but-not-enabled premium feature', () => {
-      const chart = premiumLineChart() // full bundle: all slots present, none enabled
+      const chart = premiumLineChart() // default bundle + add-ons: all slots present, none enabled
       expect(chart.measure).toBeTruthy() // bundled
       expect(chart.ink).toBeTruthy()
       expect(chart.linkedViews).toBeTruthy()
@@ -418,6 +421,36 @@ describe('License gating', () => {
       const w = { config: { chart: { measure: { enabled: true } } }, dom: {} }
       const ctx = { measure: {} }
       expect(() => enforceLicense(w, ctx)).not.toThrow()
+    })
+  })
+
+  // ── one state across module copies ────────────────────────────────────────
+  // A script-tag add-on inlines its own copy of LicenseEnforcer (it is not a
+  // shared module). With module-level state, the perspectives add-on's static
+  // decode() set ITS flag while core read its own, so the premium static API
+  // never watermarked. vi.resetModules() + a dynamic import is that second copy.
+  describe('shared state across module copies', () => {
+    it('a static decode through another copy marks perspectives in use here', async () => {
+      const chart = premiumLineChart()
+      expect(premiumFeaturesInUse(chart.w, chart)).not.toContain('perspectives')
+
+      vi.resetModules()
+      const copy = await import('../../src/modules/license/LicenseEnforcer.js')
+      expect(copy.markPerspectivesTokenDecoded).not.toBe(undefined)
+      expect(copy.premiumFeaturesInUse).not.toBe(premiumFeaturesInUse)
+
+      copy.markPerspectivesTokenDecoded()
+      expect(premiumFeaturesInUse(chart.w, chart)).toContain('perspectives')
+    })
+
+    it('a copy sees the charts this copy is reconciling', async () => {
+      const before = _enforcedCount()
+      premiumLineChart({ measure: { enabled: true } })
+      expect(_enforcedCount()).toBe(before + 1)
+
+      vi.resetModules()
+      const copy = await import('../../src/modules/license/LicenseEnforcer.js')
+      expect(copy._enforcedCount()).toBe(before + 1)
     })
   })
 })

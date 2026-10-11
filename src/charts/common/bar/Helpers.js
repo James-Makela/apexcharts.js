@@ -506,13 +506,25 @@ export default class Helpers {
    * not grouped. Order within a bucket follows series order, which is stacking
    * order.
    *
+   * `w.globals.columnSeries` (when set) is the combo chart's own list of which
+   * series it draws as bars; a line or area series never occupies a stack
+   * segment, so it is filtered out here rather than left to compete for the
+   * outermost slot (#5296).
+   *
    * @param {number} numSeries
    * @returns {number[][]}
    */
   getStackedSeriesIndices(numSeries) {
-    const groups = this.w.labelData.seriesGroups
+    const w = this.w
+    const groups = w.labelData.seriesGroups
+    const barIndices = w.globals.columnSeries
+      ? new Set(/** @type {any} */ (w.globals.columnSeries).i)
+      : null
+    const isBar = (/** @type {number} */ i) => !barIndices || barIndices.has(i)
+
     if (!groups || groups.length < 2) {
-      return [Array.from({ length: numSeries }, (_, i) => i)]
+      const bucket = Array.from({ length: numSeries }, (_, i) => i).filter(isBar)
+      return bucket.length ? [bucket] : []
     }
 
     /** @type {number[][]} */
@@ -520,6 +532,7 @@ export default class Helpers {
     /** @type {number[]} */
     const ungrouped = []
     for (let i = 0; i < numSeries; i++) {
+      if (!isBar(i)) continue
       const g = this.getSeriesGroupIndex(i)
       if (g > -1) buckets[g].push(i)
       else ungrouped.push(i)
@@ -547,6 +560,14 @@ export default class Helpers {
    * second at the top, and nothing else touched. Stacked totals already resolve
    * per group (see drawsStackedTotal, #4173); corners never got the same fix.
    *
+   * plotOptions.bar.borderRadiusWhenStacked picks which ends round: 'all'
+   * caps both the baseline and the far end, 'last' only the far end (#4845).
+   *
+   * A single-data-point chart used to hand its baseline segment 'top' (and a
+   * solo segment 'top' instead of 'both'), which on a horizontal stack rounded
+   * the first segment on its INNER edge and left a pill in the middle of the
+   * bar (#4845). One data point is resolved like any other now.
+   *
    * @param {any[]} series
    * @returns {string[][]}
    */
@@ -564,12 +585,17 @@ export default class Helpers {
 
     if (alwaysApplyRadius) return output
 
-    // A lone horizontal bar in a single-category chart keeps 'top' where a
-    // column would take the full 'both'. Preserved from the original.
-    const isSoloHorizontal =
-      this.w.config.chart.type === 'bar' && numColumns === 1
-    const soloCorner = isSoloHorizontal ? 'top' : 'both'
-    const baseCorner = isSoloHorizontal ? 'top' : 'bottom'
+    // 'last' rounds only the far end of a stack and leaves the baseline end
+    // square (#4845); 'all' caps both ends. Corner names are screen-side:
+    // for a positive segment the far end is 'top', for a negative one it is
+    // 'bottom', so a lone positive drops from 'both' to 'top' and a lone
+    // negative from 'both' to 'bottom'.
+    const lastOnly =
+      w.config.plotOptions.bar.borderRadiusWhenStacked === 'last'
+    const soloPositive = lastOnly ? 'top' : 'both'
+    const soloNegative = lastOnly ? 'bottom' : 'both'
+    const positiveBase = lastOnly ? 'none' : 'bottom'
+    const negativeBase = lastOnly ? 'none' : 'top'
 
     for (const stack of this.getStackedSeriesIndices(numSeries)) {
       for (let j = 0; j < numColumns; j++) {
@@ -586,24 +612,30 @@ export default class Helpers {
 
         if (positiveIndices.length > 0 && negativeIndices.length === 0) {
           if (positiveIndices.length === 1) {
-            output[positiveIndices[0]][j] = soloCorner
+            output[positiveIndices[0]][j] = soloPositive
           } else {
             const first = positiveIndices[0]
             const last = positiveIndices[positiveIndices.length - 1]
             for (const i of positiveIndices) {
               output[i][j] =
-                i === first ? baseCorner : i === last ? 'top' : 'none'
+                i === first ? positiveBase : i === last ? 'top' : 'none'
             }
           }
         } else if (negativeIndices.length > 0 && positiveIndices.length === 0) {
           if (negativeIndices.length === 1) {
-            output[negativeIndices[0]][j] = 'both'
+            output[negativeIndices[0]][j] = soloNegative
           } else {
-            const highest = Math.max(...negativeIndices) // closest to the axis
-            const lowest = Math.min(...negativeIndices) // farthest from it
+            // Negatives stack away from the axis in series order, so the
+            // first is at the baseline and the last is the far end.
+            const nearest = Math.min(...negativeIndices)
+            const farthest = Math.max(...negativeIndices)
             for (const i of negativeIndices) {
               output[i][j] =
-                i === highest ? 'bottom' : i === lowest ? 'top' : 'none'
+                i === nearest
+                  ? negativeBase
+                  : i === farthest
+                    ? 'bottom'
+                    : 'none'
             }
           }
         } else if (positiveIndices.length > 0 && negativeIndices.length > 0) {
@@ -653,6 +685,109 @@ export default class Helpers {
     }
   }
 
+  /**
+   * The rect a column or bar is drawn as: its slot across the category axis
+   * (`a`, `len`) and its two ends on the value axis (`v1` the baseline, `v2`
+   * the value), with the stroke centred on the edges and the configured
+   * corners rounded. getColumnPaths and getBarpaths build their bars here, and
+   * so does the highlight filter's part, which is how a part lines up with its
+   * whole to the sub-pixel.
+   *
+   * `base` is the rect collapsed onto its baseline, padded to the command
+   * count of `pathTo` so the rise morphs cleanly.
+   *
+   * @param {{a: number, len: number, v1: number, v2: number, strokeWidth: any, realIndex: number, j: number, dir: number, horizontal?: boolean}} o
+   */
+  barRect({ a, len, v1, v2, strokeWidth, realIndex, j, dir, horizontal }) {
+    const w = this.w
+    const graphics = new Graphics(w)
+    strokeWidth = Array.isArray(strokeWidth)
+      ? strokeWidth[realIndex]
+      : strokeWidth
+    if (!strokeWidth) strokeWidth = 0
+
+    const datum = /** @type {any} */ (w.config.series[realIndex]).data[j]
+    const offset = horizontal
+      ? datum?.barHeightOffset
+      : datum?.columnWidthOffset
+    if (offset) {
+      a -= offset / 2
+      len += offset
+    }
+
+    // Center the stroke on the coordinates
+    const strokeCenter = strokeWidth / 2
+    const direction = dir * (this.barCtx.isReversed ? -1 : 1)
+    const closing =
+      w.config.plotOptions.bar.borderRadiusApplication === 'around' ||
+      this.arrBorderRadius[realIndex][j] === 'both'
+        ? ' Z'
+        : ' z'
+
+    // The 0.001 nudges avoid exponentials, which break border-radius.
+    let x1, x2, y1, y2, sl, squarePathTo
+    if (horizontal) {
+      y1 = a + strokeCenter
+      y2 = a + len - strokeCenter
+      x1 = v1 + 0.001 + strokeCenter * direction
+      x2 = v2 + 0.001 - strokeCenter * direction
+      sl = graphics.line(x1, y2)
+      squarePathTo =
+        graphics.move(x1, y1) +
+        graphics.line(x2, y1) +
+        graphics.line(x2, y2) +
+        sl +
+        closing
+    } else {
+      x1 = a + strokeCenter
+      x2 = a + len - strokeCenter
+      y1 = v1 + 0.001 - strokeCenter * direction
+      y2 = v2 + 0.001 + strokeCenter * direction
+      sl = graphics.line(x2, y1)
+      squarePathTo =
+        graphics.move(x1, y1) +
+        graphics.line(x1, y2) +
+        graphics.line(x2, y2) +
+        sl +
+        closing
+    }
+
+    // squarePathTo is kept because a bar that is GAINING a rounded corner has
+    // to travel to its new slot square and only round once it gets there, see
+    // Bar.getPreviousPath.
+    const pathTo =
+      this.arrBorderRadius[realIndex][j] !== 'none'
+        ? graphics.roundPathCorners(
+            squarePathTo,
+            w.config.plotOptions.bar.borderRadius
+          )
+        : squarePathTo
+
+    return {
+      x1,
+      x2,
+      y1,
+      y2,
+      sl,
+      closing,
+      squarePathTo,
+      pathTo,
+      base:
+        graphics.move(x1, y1) +
+        graphics.line(x1, y1) +
+        sl +
+        sl +
+        sl +
+        sl +
+        sl +
+        graphics.line(x1, y1) +
+        closing,
+      strokeWidth,
+      strokeCenter,
+      direction,
+    }
+  }
+
   /** @param {{ barWidth?: any, barXPosition?: any, y1?: any, y2?: any, yRatio?: any, strokeWidth?: any, isReversed?: any, series?: any, seriesGroup?: any, realIndex?: any, i?: any, j?: any, w?: any }} opts */
   getColumnPaths({
     barWidth,
@@ -660,7 +795,6 @@ export default class Helpers {
     y1,
     y2,
     strokeWidth,
-    isReversed,
     series,
     seriesGroup,
     realIndex,
@@ -668,56 +802,19 @@ export default class Helpers {
     j,
     w,
   }) {
-    const graphics = new Graphics(this.barCtx.w)
-    strokeWidth = Array.isArray(strokeWidth)
-      ? strokeWidth[realIndex]
-      : strokeWidth
-    if (!strokeWidth) strokeWidth = 0
-
-    let bW = barWidth
-    let bXP = barXPosition
-
-    if (w.config.series[realIndex].data[j]?.columnWidthOffset) {
-      bXP =
-        barXPosition - w.config.series[realIndex].data[j].columnWidthOffset / 2
-      bW = barWidth + w.config.series[realIndex].data[j].columnWidthOffset
-    }
-
-    // Center the stroke on the coordinates
-    const strokeCenter = strokeWidth / 2
-
-    const x1 = bXP + strokeCenter
-    const x2 = bXP + bW - strokeCenter
-
-    const direction = (series[i][j] >= 0 ? 1 : -1) * (isReversed ? -1 : 1)
-
-    // append tiny pixels to avoid exponentials (which cause issues in border-radius)
-    y1 += 0.001 - strokeCenter * direction
-    y2 += 0.001 + strokeCenter * direction
-
-    const sl = graphics.line(x2, y1)
-    const closing =
-      w.config.plotOptions.bar.borderRadiusApplication === 'around' ||
-      this.arrBorderRadius[realIndex][j] === 'both'
-        ? ' Z'
-        : ' z'
-
-    // The square rect this bar is built from, kept because a bar that is
-    // GAINING a rounded corner has to travel to its new slot square and only
-    // round once it gets there, see Bar.getPreviousPath.
-    const squarePathTo =
-      graphics.move(x1, y1) +
-      graphics.line(x1, y2) +
-      graphics.line(x2, y2) +
-      sl +
-      closing
-    let pathTo = squarePathTo
-    if (this.arrBorderRadius[realIndex][j] !== 'none') {
-      pathTo = graphics.roundPathCorners(
-        pathTo,
-        w.config.plotOptions.bar.borderRadius
-      )
-    }
+    const r = this.barRect({
+      a: barXPosition,
+      len: barWidth,
+      v1: y1,
+      v2: y2,
+      strokeWidth,
+      realIndex,
+      j,
+      dir: series[i][j] >= 0 ? 1 : -1,
+    })
+    const { pathTo, squarePathTo, strokeCenter, direction } = r
+    y1 = r.y1
+    y2 = r.y2
 
     let pathFrom = null
     // Cross-type morph: use the captured outgoing path as the start so the
@@ -737,24 +834,15 @@ export default class Helpers {
     }
     if (pathFrom == null) {
       // Initial mount or entering datum: rise from the baseline of the final
-      // slot; pad command count to match pathTo.
-      pathFrom =
-        graphics.move(x1, y1) +
-        graphics.line(x1, y1) +
-        sl +
-        sl +
-        sl +
-        sl +
-        sl +
-        graphics.line(x1, y1) +
-        closing
+      // slot (command count padded to match pathTo, see barRect).
+      pathFrom = r.base
     }
 
     if (w.config.chart.stacked) {
       let _ctx = this.barCtx
       _ctx = this.barCtx[seriesGroup]
       _ctx.yArrj.push(y2 - strokeCenter * direction)
-      _ctx.yArrjF.push(Math.abs(y1 - y2 + strokeWidth * direction))
+      _ctx.yArrjF.push(Math.abs(y1 - y2 + r.strokeWidth * direction))
       _ctx.yArrjVal.push(this.barCtx.series[i][j])
     }
 
@@ -766,7 +854,7 @@ export default class Helpers {
       // bar (the waterfall connectors) reads this rather than recomputing the
       // edges, which is how it stays exact when a stroke width is set.
       // `y1` is the lower value's edge and `y2` the upper one's.
-      drawnBox: { x1, x2, y1, y2 },
+      drawnBox: { x1: r.x1, x2: r.x2, y1, y2 },
     }
   }
 
@@ -984,7 +1072,6 @@ export default class Helpers {
     x1,
     x2,
     strokeWidth,
-    isReversed,
     series,
     seriesGroup,
     realIndex,
@@ -993,60 +1080,27 @@ export default class Helpers {
     w,
   }) {
     const graphics = new Graphics(this.barCtx.w)
-    strokeWidth = Array.isArray(strokeWidth)
-      ? strokeWidth[realIndex]
-      : strokeWidth
-    if (!strokeWidth) strokeWidth = 0
-
-    let bYP = barYPosition
-    let bH = barHeight
-
-    if (w.config.series[realIndex].data[j]?.barHeightOffset) {
-      bYP =
-        barYPosition - w.config.series[realIndex].data[j].barHeightOffset / 2
-      bH = barHeight + w.config.series[realIndex].data[j].barHeightOffset
-    }
-
-    // Center the stroke on the coordinates
-    const strokeCenter = strokeWidth / 2
-
-    const y1 = bYP + strokeCenter
-    const y2 = bYP + bH - strokeCenter
-
-    const direction = (series[i][j] >= 0 ? 1 : -1) * (isReversed ? -1 : 1)
-
-    // append tiny pixels to avoid exponentials (which cause issues in border-radius)
-    x1 += 0.001 + strokeCenter * direction
-    x2 += 0.001 - strokeCenter * direction
+    const r = this.barRect({
+      a: barYPosition,
+      len: barHeight,
+      v1: x1,
+      v2: x2,
+      strokeWidth,
+      realIndex,
+      j,
+      dir: series[i][j] >= 0 ? 1 : -1,
+      horizontal: true,
+    })
+    const { y1, y2, sl, closing, squarePathTo, pathTo, strokeCenter, direction } =
+      r
+    x1 = r.x1
+    x2 = r.x2
 
     // Funnel / pyramid (non-trapezoid): the segment expands outward from the
     // chart center rather than growing in from the left edge, matching the
     // trapezoid funnel's natural metaphor of "filling a vessel".
     const isFunnel = this.barCtx.isFunnel
     const fromX = isFunnel ? (x1 + x2) / 2 : x1
-
-    const sl = graphics.line(x1, y2)
-    const closing =
-      w.config.plotOptions.bar.borderRadiusApplication === 'around' ||
-      this.arrBorderRadius[realIndex][j] === 'both'
-        ? ' Z'
-        : ' z'
-
-    // See the column builder: kept so a bar gaining a rounded corner can
-    // travel to its new slot square and only round once it gets there.
-    const squarePathTo =
-      graphics.move(x1, y1) +
-      graphics.line(x2, y1) +
-      graphics.line(x2, y2) +
-      sl +
-      closing
-    let pathTo = squarePathTo
-    if (this.arrBorderRadius[realIndex][j] !== 'none') {
-      pathTo = graphics.roundPathCorners(
-        pathTo,
-        w.config.plotOptions.bar.borderRadius
-      )
-    }
 
     let pathFrom = null
     const morphFrom = this.barCtx.ctx?.morphTypeChange?.getInitialPathFor(
@@ -1081,7 +1135,7 @@ export default class Helpers {
       let _ctx = this.barCtx
       _ctx = this.barCtx[seriesGroup]
       _ctx.xArrj.push(x2 + strokeCenter * direction)
-      _ctx.xArrjF.push(Math.abs(x1 - x2 - strokeWidth * direction))
+      _ctx.xArrjF.push(Math.abs(x1 - x2 - r.strokeWidth * direction))
       _ctx.xArrjVal.push(this.barCtx.series[i][j])
     }
     return {

@@ -7,7 +7,10 @@
  * neither renderer iterates the (realIndex, j) grid the bar family does.
  */
 
-import ApexCharts from '../../src/entries/full.js'
+import ApexCharts from '../../src/entries/standard.js'
+// Not in the default bundle since 8.0, so imported the way an app would.
+import '../../src/entries/unit.js'
+import '../../src/entries/sunburst.js'
 import MorphTypeChange from '../../src/modules/MorphTypeChange.js'
 import SunburstChart from '../../src/charts/Sunburst.js'
 import TreemapChart from '../../src/charts/Treemap.js'

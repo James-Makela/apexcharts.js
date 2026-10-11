@@ -7,7 +7,9 @@
  * explode and collapse are inverses.
  */
 
-import ApexCharts from '../../src/entries/full.js'
+import ApexCharts from '../../src/entries/standard.js'
+// Not in the default bundle since 8.0, so imported the way an app would.
+import '../../src/entries/unit.js'
 import MorphTypeChange from '../../src/modules/MorphTypeChange.js'
 
 function stubW() {

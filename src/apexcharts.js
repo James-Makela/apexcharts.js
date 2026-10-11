@@ -4,7 +4,8 @@ import CoreUtils from './modules/CoreUtils'
 import DataLabels from './modules/DataLabels'
 import PerformanceCache from './utils/PerformanceCache'
 import Defaults from './modules/settings/Defaults'
-import { TYPE_ALIASES } from './modules/settings/TypeAliases'
+import Config from './modules/settings/Config'
+import { RESERVED_TYPES, TYPE_ALIASES } from './modules/settings/TypeAliases'
 import Grid from './modules/axes/Grid'
 import Markers from './modules/Markers'
 import Range from './modules/Range'
@@ -12,6 +13,7 @@ import Utils from './utils/Utils'
 import { getThemePalettes } from './utils/ThemePalettes.js'
 import XAxis from './modules/axes/XAxis'
 import YAxis from './modules/axes/YAxis'
+import AxesUtils from './modules/axes/AxesUtils'
 import InitCtxVariables from './modules/helpers/InitCtxVariables'
 import { applyAnimationPolicy } from './modules/Animations'
 import Destroy from './modules/helpers/Destroy'
@@ -20,6 +22,7 @@ import {
   markCustom,
   isCustom,
   hasChartClass,
+  getChartClass,
   unregister,
 } from './modules/ChartFactory'
 import { registerTheme, unregisterTheme } from './modules/ThemeRegistry'
@@ -39,7 +42,11 @@ import {
 import { registerEasing } from './modules/animations/Easing'
 import { trimStreamingSeries } from './modules/animations/StreamScroll'
 import { applyAxisTransition } from './modules/animations/AxisTransition'
-import { applyDataLabelTransition } from './modules/animations/DataLabelTransition'
+import { applyCircleTransition } from './modules/animations/CircleTransition'
+import {
+  applyDataLabelTransition,
+  playExitLabels,
+} from './modules/animations/DataLabelTransition'
 import {
   registerPlugin as registerPluginImpl,
   unregisterPlugin as unregisterPluginImpl,
@@ -48,6 +55,7 @@ import RendererController from './modules/RendererController'
 import { addResizeListener, removeResizeListener } from './utils/Resize'
 import apexCSS from './assets/apexcharts.css'
 import { Environment } from './utils/Environment.js'
+import warnMissingFeature from './utils/MissingFeature.js'
 import { BrowserAPIs } from './ssr/BrowserAPIs.js'
 import { LicenseManager } from 'apex-commons'
 import {
@@ -61,6 +69,38 @@ import {
  *
  * @module ApexCharts
  **/
+
+/**
+ * The rejection for an update that names an opt-in type this page never
+ * loaded, or null. Checks `chart.type` and every series' `type`: violin is an
+ * XY type, so a combo can add one without changing the chart's own type, and
+ * that path tore the chart down and left the series stuck in its config, so
+ * every later update failed too.
+ *
+ * @param {unknown} chartType the update's `chart.type`, if any
+ * @param {unknown} series the update's series, if any
+ * @returns {Promise<never> | null}
+ */
+function unloadedTypeRejection(chartType, series) {
+  const types = [chartType]
+  if (Array.isArray(series)) {
+    for (const s of series) {
+      types.push(s && typeof s === 'object' ? s.type : undefined)
+    }
+  }
+  for (const t of types) {
+    if (typeof t !== 'string') continue
+    const base = TYPE_ALIASES[t] || t
+    if (RESERVED_TYPES.includes(base) && !hasChartClass(base)) {
+      try {
+        getChartClass(base, t)
+      } catch (e) {
+        return Promise.reject(e)
+      }
+    }
+  }
+  return null
+}
 
 export default class ApexCharts {
   // Module properties set dynamically by InitCtxVariables.initModules().
@@ -235,9 +275,9 @@ export default class ApexCharts {
           this.trellis.isActive()
         )
         if (wantsTrellis && !this.trellis) {
-          console.warn(
-            "ApexCharts: `trellis` requires the trellis feature, which is not in the default bundle. Bundler: import 'apexcharts/features/trellis'. Script tag: add <script src='.../dist/features/trellis.js'> after apexcharts.js. Rendering as a single chart.",
-          )
+          warnMissingFeature('`trellis`', 'trellis', {
+            tail: 'Rendering as a single chart.',
+          })
         }
 
         // Same guard for the measure ruler: asking for it without the feature
@@ -246,18 +286,14 @@ export default class ApexCharts {
         // upgrade. Config-driven, so it fires whether or not they ever call
         // startMeasure().
         if (this.w.config.chart?.measure?.enabled && !this.measure) {
-          console.warn(
-            "ApexCharts: `chart.measure` requires the measure feature, which is not in the default bundle. Bundler: import 'apexcharts/features/measure'. Script tag: add <script src='.../dist/features/measure.js'> after apexcharts.js.",
-          )
+          warnMissingFeature('`chart.measure`', 'measure')
         }
 
         // And for linked views. `chart.link` carries the crossfilter dimension
         // config too, so an absent feature means the chart quietly stops
         // participating in its dashboard rather than erroring anywhere.
         if (this.w.config.chart?.link?.enabled && !this.linkedViews) {
-          console.warn(
-            "ApexCharts: `chart.link` requires the link feature, which is not in the default bundle. Bundler: import 'apexcharts/features/link'. Script tag: add <script src='.../dist/features/link.js'> after apexcharts.js.",
-          )
+          warnMissingFeature('`chart.link`', 'link')
         }
 
         // And for the ink layer. Two ways in, so check both: the global switch
@@ -270,8 +306,9 @@ export default class ApexCharts {
             (/** @type {any} */ p) => p && p.draggable,
           )
           if (inkOn || anyDraggable) {
-            console.warn(
-              "ApexCharts: `chart.ink` / `annotations.points[].draggable` requires the ink feature, which is not in the default bundle. Bundler: import 'apexcharts/features/ink'. Script tag: add <script src='.../dist/features/ink.js'> after apexcharts.js.",
+            warnMissingFeature(
+              '`chart.ink` / `annotations.points[].draggable`',
+              'ink',
             )
           }
         }
@@ -280,18 +317,24 @@ export default class ApexCharts {
         // right-click, which looks enough like "nothing happened" that it
         // reads as a broken build rather than a missing import.
         if (this.w.config.chart?.contextMenu?.enabled && !this.contextMenu) {
-          console.warn(
-            "ApexCharts: `chart.contextMenu` requires the context-menu feature, which is not in the default bundle. Bundler: import 'apexcharts/features/context-menu'. Script tag: add <script src='.../dist/features/context-menu.js'> after apexcharts.js.",
-          )
+          warnMissingFeature('`chart.contextMenu`', 'context-menu')
         }
 
         // And for Rewind. Absent, edits still apply and simply cannot be undone
         // — Ctrl-Z does nothing, which users read as a lost keystroke rather
         // than a missing feature.
         if (this.w.config.chart?.history?.enabled && !this.history) {
-          console.warn(
-            "ApexCharts: `chart.history` requires the history feature, which is not in the default bundle. Bundler: import 'apexcharts/features/history'. Script tag: add <script src='.../dist/features/history.js'> after apexcharts.js.",
-          )
+          warnMissingFeature('`chart.history`', 'history')
+        }
+
+        // And for drilldown, whose config is top-level `drilldown`. Absent, the
+        // root level draws and a click on a drillable point does nothing, a
+        // chart that looks finished and simply never navigates.
+        if (
+          this.w.config.drilldown?.enabled &&
+          !(/** @type {any} */ (this.ctx).drilldown)
+        ) {
+          warnMissingFeature('`drilldown`', 'drilldown')
         }
 
         // add event listeners in browser environment
@@ -336,8 +379,15 @@ export default class ApexCharts {
               // We are in Shadow DOM, add to shadow root
               rootNode.prepend(css)
             } else if (this.w.config.chart.injectStyleSheet !== false) {
-              // Add to <head> of element's document
-              doc.head.appendChild(css)
+              // Prepended, not appended, so the page's own stylesheet wins.
+              // This sheet is injected when the FIRST chart renders, which is
+              // long after the page's <link>s have parsed, so appending put it
+              // last in the cascade: an author rule at equal specificity lost
+              // on document order alone, wherever they put it, and the only way
+              // through was to out-specify us (repeating a class). Prepending
+              // makes us the weakest author styles, which is what a library's
+              // defaults should be, and matches the Shadow DOM branch above.
+              doc.head.prepend(css)
             }
           }
         }
@@ -400,8 +450,9 @@ export default class ApexCharts {
   /**
    * @param {any[]} ser
    * @param {object} opts
+   * @param {boolean} [overwriteInitialSeries=true]
    */
-  create(ser, opts) {
+  create(ser, opts, overwriteInitialSeries = true) {
     const w = this.w
 
     // Core modules are preserved across updates (Destroy.clear skips them when
@@ -431,7 +482,7 @@ export default class ApexCharts {
     // @ts-ignore — convertedCatToNumeric is an internal property set by Defaults
     if (w.config.xaxis.convertedCatToNumeric) {
       const defaults = new Defaults(w.config)
-      defaults.convertCatToNumericXaxis(w.config, this.ctx)
+      defaults.convertCatToNumericXaxis(w.config)
     }
 
     this.core.setupElements()
@@ -448,6 +499,12 @@ export default class ApexCharts {
     }
 
     let series = ser
+    // Which series the `hidden: true` flag collapses. getSeriesAfterCollapsing
+    // empties their data, and it runs BEFORE the parse below, so the baseline
+    // that parse captures describes them as empty -- see the repair that
+    // follows parseData().
+    /** @type {number[]} */
+    const hiddenAtInit = []
     /**
      * @param {Record<string, any>} s
      * @param {number} realIndex
@@ -457,6 +514,7 @@ export default class ApexCharts {
         series = this.legend.legendHelpers.getSeriesAfterCollapsing({
           realIndex,
         })
+        hiddenAtInit.push(realIndex)
       }
     })
 
@@ -483,12 +541,55 @@ export default class ApexCharts {
     // Handle the data inputted by user and set some of the global variables (for eg, if data is datetime / numeric / category). Don't calculate the range / min / max at this time
     // Phase 1: return value is captured; named writers are stubs (mutations already wrote to gl).
     // Phase 2: writers will route each slice to its dedicated w.* namespace.
-    const parsedState = this.data.parseData(series)
+    const parsedState = this.data.parseData(series, overwriteInitialSeries)
     this._writeParsedSeriesData(parsedState.seriesData)
     this._writeParsedRangeData(parsedState.rangeData)
     this._writeParsedCandleData(parsedState.candleData)
     this._writeParsedLabelData(parsedState.labelData)
     this._writeParsedAxisFlags(parsedState.axisFlags)
+
+    // `hidden: true` collapsed those series above, so what parseData just
+    // snapshotted as the baseline holds `data: []` for every one of them --
+    // and nothing refreshes it afterwards, because the legend's own updates
+    // pass `overwriteInitialSeries: false` so that an internal re-render keeps
+    // the baseline it was given (#5283). Put their data back for exactly those
+    // rows, which leaves the raw-stash baselines (histogram, dumbbell,
+    // streamgraph, waterfall, treemap, dataReducer) as parseData wrote them.
+    //
+    // The data comes from the collapse record rather than from `ser`, because
+    // the two agree only on the first pass. `hidden` stays on the config row,
+    // so this repair fires again on any re-entry that also asks to overwrite
+    // the baseline -- and on the one that does, appendData(), `ser[i].data` is
+    // the collapsed row concatenated with the new points, i.e. just the points
+    // that were appended. The record still holds the series. Reading it keeps
+    // the baseline whole there, and composes with #5310, which appends into
+    // that same record.
+    //
+    // Only ever a repair: a record with no data, or none at all, leaves the
+    // row as parseData wrote it, so this cannot turn a good baseline into an
+    // empty one. A non-axis collapse records one slice's VALUE instead of a
+    // series' rows, and the Array check leaves those alone.
+    //
+    // Leaving it costs two things. resetSeries() clones this baseline, so a
+    // series declared hidden comes back from a reset EMPTY and its data is
+    // gone for the life of the chart. And Tooltip's isInitialSeriesSameLen()
+    // skips collapsed rows but measures the rest, so the moment the viewer
+    // un-hides one from the legend its length of 0 is compared against its
+    // siblings', the check fails, and every shared tooltip on the chart
+    // silently drops to the single series nearest the cursor.
+    if (overwriteInitialSeries && hiddenAtInit.length) {
+      const baseline = /** @type {any[]} */ (gl._initialSeriesPeek || [])
+      const records = /** @type {any[]} */ (gl.collapsedSeries).concat(
+        gl.ancillaryCollapsedSeries,
+      )
+      gl.initialSeries = baseline.map((/** @type {any} */ s, i) => {
+        if (hiddenAtInit.indexOf(i) === -1 || !Utils.isObject(s)) return s
+        const rec = records.find((/** @type {any} */ c) => c.index === i)
+        return rec && Array.isArray(rec.data) && rec.data.length
+          ? { ...s, data: rec.data.slice() }
+          : s
+      })
+    }
 
     // Strata: choose the active series renderer now that mark count is known.
     this.rendererController?.resolve()
@@ -558,6 +659,7 @@ export default class ApexCharts {
 
     const dataLabels = new DataLabels(this.w, this)
     dataLabels.bringForward()
+    dataLabels.avoidOverlaps()
     if (w.config.dataLabels.background.enabled) {
       dataLabels.dataLabelsBackground()
     }
@@ -637,6 +739,8 @@ export default class ApexCharts {
       } else {
         w.dom.elGraphical.add(graphData.elGraph)
       }
+      // Hidden series: clear their resting shape once their exit is over.
+      this.series.settleCollapsedShapes(graphData.elGraph)
 
       if (w.config.grid.position === 'front') {
         if (elgrid) {
@@ -685,6 +789,10 @@ export default class ApexCharts {
           }
         })
       }
+
+      // Shortening a label is the last thing done to it, so only now is it
+      // known which labels still need their full text on hover.
+      AxesUtils.pruneRedundantLabelTitles(w.dom.baseEl)
 
       me.annotations?.drawAxesAnnotations()
 
@@ -741,6 +849,15 @@ export default class ApexCharts {
 
         if (w.config.chart.toolbar.show && !w.globals.allSeriesCollapsed) {
           me.toolbar?.createToolbar()
+        } else if (
+          !w.globals.allSeriesCollapsed &&
+          me.toolbar?.resetControlDue()
+        ) {
+          // The way out of a zoom on a chart whose page asked for no toolbar.
+          // Drag-to-zoom stays on when the toolbar is hidden, since it is a
+          // deliberate gesture rather than an incidental one, so without this
+          // the viewer lands in a window with nothing on screen that undoes it.
+          me.toolbar.createToolbar({ resetOnly: true })
         }
       }
 
@@ -853,15 +970,47 @@ export default class ApexCharts {
       options = { ...options }
       delete options.series
     }
+    // `tooltip: undefined` means "not given" (see Config.dropEmptyOptions).
+    options = Config.dropEmptyOptions(options)
+
+    // A change to an opt-in type this page never loaded (a morph button to
+    // `unit` on a page without dist/unit.js) used to get as far as tearing the
+    // chart down before the renderer lookup threw, leaving an empty frame
+    // where a working chart had been. Refuse it before anything moves: the
+    // chart stays as it was, and the rejection (logged once per type) names
+    // the import.
+    const unloaded = unloadedTypeRejection(
+      options?.chart?.type,
+      options?.series,
+    )
+    if (unloaded) return unloaded
 
     // Trellis (#22): an option change on a live trellis host is structural
     // (it can move the split, the scales, the layout or any panel option), so
     // it merges into the host's config and re-renders the whole grid.
-    if (this.trellis && this.trellis._mounted) {
+    //
+    // `_rendering` counts as much as `_mounted`: an update that lands while
+    // the first render is still mounting panels used to miss this branch and
+    // fall through to the single-chart pipeline, which drew a plain chart
+    // beside the half-built grid and left it there. Merge now, rebuild once
+    // the in-flight mount has settled.
+    if (this.trellis && (this.trellis._mounted || this.trellis._rendering)) {
+      const inPlace = this.trellis.canApplyInPlace(options)
       this.opts = Utils.extend(this.opts || {}, options || {})
       this.w.config = Utils.extend(w.config, options || {})
-      this.trellis.teardown()
-      return this.render()
+      const settled = this.trellis._rendering
+        ? this.trellis.whenSettled()
+        : Promise.resolve()
+      return settled.then(() => {
+        // A change that only affects how a panel PAINTS goes to the live
+        // panels. Rebuilding for every option, however small, threw away
+        // hover state, keyboard focus and each panel's own zoom.
+        if (inPlace && this.trellis.canApplyInPlace(options)) {
+          return this.trellis.applyPanelOptions(animate).then(() => this)
+        }
+        this.trellis.teardown()
+        return this.render()
+      })
     }
 
     // when called externally, clear some global variables
@@ -960,9 +1109,19 @@ export default class ApexCharts {
       )
       return Promise.resolve(this)
     }
+    // A combo series of an opt-in type the page never loaded: refused before
+    // anything moves, as in updateOptions.
+    const unloaded = unloadedTypeRejection(undefined, newSeries)
+    if (unloaded) return unloaded
     // Trellis (#22): the host re-splits and fans the new slices out to its
     // panels (same key set: in-place panel updates; changed key set: a full
-    // trellis re-render).
+    // trellis re-render). As in updateOptions, an in-flight mount counts:
+    // falling through here drew a stray single chart beside the grid.
+    if (this.trellis && this.trellis._rendering) {
+      return this.trellis
+        .whenSettled()
+        .then(() => this.trellis.updateSeries(newSeries, animate))
+    }
     if (this.trellis && this.trellis._mounted) {
       return this.trellis.updateSeries(newSeries, animate)
     }
@@ -988,6 +1147,8 @@ export default class ApexCharts {
    * @returns {Promise<ApexCharts>} Resolves with the chart instance after re-render.
    */
   appendSeries(newSerie, animate = true, overwriteInitialSeries = true) {
+    const unloaded = unloadedTypeRejection(undefined, [newSerie])
+    if (unloaded) return unloaded
     this.data.resetParsingFlags()
 
     const newSeries = this.w.config.series.slice()
@@ -1014,6 +1175,11 @@ export default class ApexCharts {
 
     me.data.resetParsingFlags()
     me.w.globals.dataChanged = true
+    // appendData takes no `animate`: it animates per the config. The flag is
+    // sticky, so without this an earlier unanimated update (a pan, a wheel
+    // zoom, a brush moving its target, updateSeries(data, false)) silently
+    // switched off the animation of every append after it.
+    me.w.globals.shouldAnimate = true
     // previous paths feed the update morph; with animations off nothing
     // consumes them, and the capture is O(n) (stream-frame + DOM walk)
     if (me.w.config.chart.animations.enabled) {
@@ -1041,23 +1207,30 @@ export default class ApexCharts {
           Array.isArray(src.data) &&
           Array.isArray(derivedRaw[i].data)
         ) {
-          for (let j = 0; j < src.data.length; j++) {
-            derivedRaw[i].data.push(src.data[j])
-          }
+          derivedRaw[i].data = derivedRaw[i].data.concat(src.data)
         }
       }
-      return this.update()
+      return this.update(undefined, overwriteInitialSeries)
     }
 
     const newSeries = me.w.config.series.slice()
+    // chart.dataReducer: config.series is the downsampled window, but the stash
+    // is what every later parse re-reduces from, so the new points have to land
+    // in both. Below the reducer's threshold no reduction runs and config.series
+    // is the one that draws; above it the stash is.
+    const reducerRaw = me.w.globals.dataReducerRawSeries
 
     for (let i = 0; i < newSeries.length; i++) {
       if (newData[i] !== null && typeof newData[i] !== 'undefined') {
         // series entries are always ApexAxisChartSeries objects here
         const srcSerie = /** @type {any} */ (newData[i])
         const dstSerie = /** @type {any} */ (newSeries[i])
-        for (let j = 0; j < srcSerie.data.length; j++) {
-          dstSerie.data.push(srcSerie.data[j])
+        // Replace the array rather than push into it: the snapshots share this
+        // array, and growing it in place is the one internal mutation they
+        // cannot be shielded from.
+        dstSerie.data = dstSerie.data.concat(srcSerie.data)
+        if (reducerRaw && Array.isArray(reducerRaw[i]?.data)) {
+          reducerRaw[i].data = reducerRaw[i].data.concat(srcSerie.data)
         }
       }
     }
@@ -1068,12 +1241,8 @@ export default class ApexCharts {
     trimStreamingSeries(newSeries, me.w)
 
     me.w.config.series = newSeries
-    if (overwriteInitialSeries) {
-      // lazy snapshot: deep clone deferred to first read
-      me.w.globals.initialSeries = me.w.config.series
-    }
 
-    return this.update()
+    return this.update(undefined, overwriteInitialSeries)
   }
 
   /**
@@ -1097,8 +1266,11 @@ export default class ApexCharts {
 
   /**
    * @param {object} [options]
+   * @param {boolean} [overwriteInitialSeries=false] true only when the caller
+   *   redefined the series before triggering this re-render, so the parse it
+   *   runs is the one that captures the new baseline.
    */
-  update(options) {
+  update(options, overwriteInitialSeries = false) {
     return new Promise((resolve, reject) => {
       // The identical-options skip only pays off for small configs: comparing
       // and cloning megabytes of series data costs more per update than the
@@ -1123,9 +1295,21 @@ export default class ApexCharts {
           ? Utils.clone(options)
           : null
 
+      // A type-change morph that has already been shown is over for this
+      // render: it starts from the screen, not from the old chart's shapes.
+      this.morphTypeChange?.retire()
+
       new Destroy(this.ctx).clear({ isUpdating: true })
 
-      const graphData = this.create(this.w.config.series, options ?? {})
+      // A re-render replays w.config.series, which carries whatever the last
+      // legend collapse or appendData did to it. An internal re-render must not
+      // move the baseline resetSeries() restores; only a caller that redefined
+      // the series asks this parse to capture it (#5283).
+      const graphData = this.create(
+        this.w.config.series,
+        options ?? {},
+        overwriteInitialSeries,
+      )
       if (!graphData) return resolve(this)
       this.mount(graphData)
         .then(() => {
@@ -1136,12 +1320,23 @@ export default class ApexCharts {
           // Variable-length update: slide surviving tick labels/gridlines to
           // their new positions and fade in the new ones, on the same clock
           // as the series morph (no-op otherwise; consumes prevChromeFrame).
-          applyAxisTransition(this.w)
+          // A moved plot area eases too, except under a cross-type morph,
+          // which offsets its own start shapes by the move.
+          applyAxisTransition(this.w, {
+            layout: !this.morphTypeChange?.isActive(),
+          })
+          // A circle chart the chrome re-centred or resized (a title, the
+          // legend) eases to its new centre and radius on the same clock, with
+          // the plot rect when it has no axes. Same cross-type morph rule.
+          applyCircleTransition(this.w, {
+            layout: !this.morphTypeChange?.isActive(),
+          })
 
           // Ride data labels to their new slot (and, opt-in, count their value
           // up) on the same clock as the morph. No-op when nothing moved or no
           // frame was captured this update.
           applyDataLabelTransition(this.w)
+          playExitLabels(this.w)
 
           if (typeof this.w.config.chart.events.updated === 'function') {
             this.w.config.chart.events.updated(this, this.w)
@@ -1322,6 +1517,7 @@ export default class ApexCharts {
           }
         })
       }
+      AxesUtils.pruneRedundantLabelTitles(w.dom.baseEl)
 
       return true
     } catch (e) {
@@ -1351,6 +1547,8 @@ export default class ApexCharts {
       try {
         const w = this.w
         const gl = w.globals
+        // As in update(): a morph already shown is over for this render.
+        this.morphTypeChange?.retire()
 
         gl.shouldAnimate = animate
         gl.dataChanged = true
@@ -1387,6 +1585,8 @@ export default class ApexCharts {
         gl2.cachedSelectors = {}
         gl2.disableZoomIn = false
         gl2.disableZoomOut = false
+        gl2.fadeRevealEls = []
+        gl2.morphBatch = { pending: 0, onDone: null, series: new Map() }
 
         // Recompute axis min/max and scale ranges from new data.
         if (gl.axisCharts) {
@@ -1494,10 +1694,12 @@ export default class ApexCharts {
             w.dom.elGraphical.add(g)
           })
         }
+        this.series.settleCollapsedShapes(graphs)
 
         // Bring data labels forward and apply backgrounds if configured.
         const dataLabels = new DataLabels(w, this)
         dataLabels.bringForward()
+        dataLabels.avoidOverlaps()
         if (w.config.dataLabels.background.enabled) {
           dataLabels.dataLabelsBackground()
         }
@@ -1531,6 +1733,7 @@ export default class ApexCharts {
         // scroll itself.
         if (!gl.streamScrolled) applyAxisTransition(w)
         applyDataLabelTransition(w)
+        playExitLabels(w)
 
         // Reattach tooltip event listeners to new series elements.
         if (Environment.isBrowser() && w.config.tooltip.enabled && !gl.noData) {
@@ -1647,9 +1850,7 @@ export default class ApexCharts {
    */
   static trellis(el, options) {
     if (!InitCtxVariables._featureRegistry.get('trellis')) {
-      console.warn(
-        "ApexCharts.trellis requires the trellis feature, which is not in the default bundle. Bundler: import 'apexcharts/features/trellis'. Script tag: add <script src='.../dist/features/trellis.js'> after apexcharts.js.",
-      )
+      warnMissingFeature('ApexCharts.trellis()', 'trellis')
       return null
     }
     const chart = new ApexCharts(el, options)
@@ -1770,7 +1971,7 @@ export default class ApexCharts {
    * Register a Weave plugin definition (a plain { name, setup } object).
    * Lives in core so plugins can always be registered; they only activate when
    * the Weave host is bundled (`import 'apexcharts/features/weave'`, included in
-   * the full bundle) and listed in a chart's `plugins` config.
+   * the default bundle) and listed in a chart's `plugins` config.
    *
    * @param {{ name: string, apiVersion?: number, setup: Function, destroy?: Function }} def
    * @returns {typeof ApexCharts}
@@ -1809,7 +2010,7 @@ export default class ApexCharts {
    * Register a custom series type (Marks #11): a `{ renderItem }` definition
    * that draws primitives (path/line/rect/circle/text) per datum. Requires the
    * Marks feature to be bundled (`import 'apexcharts/features/marks'`, included
-   * in the full bundle); without it this warns and no-ops. Once registered, use
+   * in the default bundle); without it this warns and no-ops. Once registered, use
    * it via `series[].type` or `chart.type`.
    *
    * @param {string} name  the type name, e.g. 'dumbbell'
@@ -1840,7 +2041,16 @@ export default class ApexCharts {
     // the renderer it routes to before dispatch ever reaches the registry, so a
     // custom type registered under one of those names would take the
     // registration and then never be drawn.
-    if ((hasChartClass(name) && !isCustom(name)) || TYPE_ALIASES[name]) {
+    // An OPT-IN built-in (RESERVED_TYPES: `icicle`, `unit`, ...) is rejected on
+    // the same grounds again, and needs its own arm: its class is absent from
+    // the default bundle, so the registration check above would let a custom
+    // type take the name and then core's dispatch would route it to the
+    // built-in's renderer.
+    if (
+      (hasChartClass(name) && !isCustom(name)) ||
+      TYPE_ALIASES[name] ||
+      RESERVED_TYPES.includes(name)
+    ) {
       console.warn(
         `[apexcharts] registerSeriesType("${name}") would override the built-in "${name}" chart type; pick another name.`,
       )
@@ -2057,9 +2267,7 @@ export default class ApexCharts {
     }
     const factory = /** @type {any} */ (ApexCharts)._crossfilterFactory
     if (!factory) {
-      console.warn(
-        `[apexcharts] ApexCharts.crossfilter(...) requires the link feature, which is not in the default bundle. Bundler: import 'apexcharts/features/link'. Script tag: add <script src='.../dist/features/link.js'> after apexcharts.js.`,
-      )
+      warnMissingFeature('ApexCharts.crossfilter()', 'link')
       return null
     }
     const coordinator = factory(opts)
@@ -2345,6 +2553,9 @@ export default class ApexCharts {
     const gl = w.globals
 
     return {
+      // The merged options this chart is running on (defaults < window.Apex <
+      // user), so a reader does not have to go through the internal `w`.
+      config: w.config,
       // Series data — computed/parsed form used for rendering
       series: w.seriesData.series,
       seriesNames: w.seriesData.seriesNames,

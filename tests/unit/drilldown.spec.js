@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createChartWithOptions } from './utils/utils.js'
+// Not in the default bundle since 8.0, so imported the way an app would.
+import '../../src/features/drilldown.js'
 import Drilldown from '../../src/modules/drilldown/Drilldown.js'
 
 // ---------------------------------------------------------------------------
@@ -253,6 +255,46 @@ describe('Drilldown — cross-type drill (bar → donut)', () => {
     expect(chart.w.config.chart.type).toBe('bar')
     expect(chart.w.globals.axisCharts).toBe(true)
     expect(chart.getState().series[0]).toEqual([100, 150, 200])
+  })
+})
+
+describe('Drilldown: a level of a type the page never loaded', () => {
+  // The update guard refuses an opt-in type before anything moves, so the
+  // chart stays on its level. The drill state has to stay with it: a level
+  // pushed and never shown put a breadcrumb over the root and made drillUp
+  // walk through levels nobody saw.
+  it('stays on the level it was, and fires drillDownError', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const errors = []
+    const chart = makeChart({
+      chart: {
+        events: { drillDownError: (info) => errors.push(info.id) },
+      },
+      drilldown: {
+        enabled: true,
+        series: [
+          {
+            id: '2024-q',
+            name: '2024 parts',
+            chart: { type: 'waffle' },
+            data: [{ x: 'A', y: 1 }],
+          },
+        ],
+      },
+    })
+
+    await expect(chart.drillDown('2024-q')).rejects.toThrow(
+      'chart type "waffle" is not registered',
+    )
+    expect(chart.drilldown.depth).toBe(0)
+    expect(chart.drilldown.path).toEqual(['root'])
+    expect(chart.w.config.chart.type).toBe('bar')
+    expect(errors).toEqual(['2024-q'])
+
+    // A second click does not stack a level on top of the one never shown.
+    await expect(chart.drillDown('2024-q')).rejects.toThrow()
+    expect(chart.drilldown.depth).toBe(0)
+    vi.restoreAllMocks()
   })
 })
 

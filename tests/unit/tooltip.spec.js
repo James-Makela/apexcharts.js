@@ -770,6 +770,23 @@ describe('Tooltip.handleStickyTooltip', () => {
     expect(runBound(-121, 120).handleMouseOut).toHaveBeenCalled()
     expect(runBound(621, 120).handleMouseOut).toHaveBeenCalled()
   })
+
+  // A plot box rarely lands on whole pixels: a 1194.29px grid starting at x.36
+  // reports hoverX = -0.36 for the leftmost column of pixels INSIDE it, which
+  // is where a line chart's first marker sits. Bounding at a bare 0 hid the
+  // tooltip on the point being pointed at; it only ever looked right because
+  // the caller used to re-activate the tooltip it had just hidden.
+  it('counts a fraction of a pixel past the edge as still on the plot', () => {
+    expect(runBound(-0.36, 0).create).toHaveBeenCalled()
+    expect(runBound(-0.99, 0).create).toHaveBeenCalled()
+    expect(runBound(500.36, 0).create).toHaveBeenCalled()
+    // A whole pixel out is out, which is the bound the two tests above pin.
+    expect(runBound(-1, 0).handleMouseOut).toHaveBeenCalled()
+    expect(runBound(501, 0).handleMouseOut).toHaveBeenCalled()
+    // Same slack at the far side of the bar pad.
+    expect(runBound(-120.5, 120).create).toHaveBeenCalled()
+    expect(runBound(-121, 120).handleMouseOut).toHaveBeenCalled()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -779,8 +796,26 @@ describe('Tooltip.handleStickyTooltip', () => {
 describe('Tooltip.axisChartsTooltips', () => {
   function runHover(elGrid, clientY) {
     const handleMouseOut = vi.fn()
+    // The plot: x 0..500, y 100..300.
+    const elWrap = document.createElement('div')
+    elWrap.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 500,
+      height: 400,
+    })
     const self = {
-      w: { interact: {} },
+      w: {
+        interact: {},
+        globals: {},
+        layout: {
+          translateX: 0,
+          translateY: 100,
+          gridWidth: 500,
+          gridHeight: 200,
+        },
+        dom: { elWrap },
+      },
       handleMouseOut,
     }
     const opt = { elGrid, ttItems: [] }
@@ -1350,6 +1385,42 @@ describe('Tooltip integration (chart rendering)', () => {
     expect(tooltip).not.toBeNull()
   })
 
+  // Custom tooltips written against earlier releases read the chart off
+  // `opts.ctx`, the timeline demo among them (`opts.ctx.w`). It went missing
+  // when the tooltip modules stopped holding the chart, and every hover threw.
+  it('hands tooltip.custom the chart instance as opts.ctx', () => {
+    const custom = vi.fn((opts) => {
+      const w = opts.ctx.w
+      const name = w.config.series[opts.seriesIndex].name
+      return `<div class="custom-tt">${name} ${opts.y1}-${opts.y2}</div>`
+    })
+    const chart = createChartWithOptions({
+      chart: { type: 'rangeBar' },
+      plotOptions: { bar: { horizontal: true, rangeBarGroupRows: true } },
+      series: [
+        { name: 'Washington', data: [{ x: 'President', y: [1789, 1797] }] },
+        { name: 'Adams', data: [{ x: 'President', y: [1797, 1801] }] },
+      ],
+      tooltip: { custom },
+    })
+
+    chart.tooltip.tooltipLabels.handleCustomTooltip({
+      i: 1,
+      j: 0,
+      y1: 1797,
+      y2: 1801,
+      w: chart.w,
+    })
+
+    expect(custom).toHaveBeenCalledOnce()
+    const opts = custom.mock.calls[0][0]
+    expect(opts.ctx).toBe(chart)
+    expect(opts.w).toBe(chart.w)
+    expect(
+      chart.el.querySelector('.apexcharts-tooltip .custom-tt').textContent,
+    ).toBe('Adams 1797-1801')
+  })
+
   it('renders correct number of groups for multi-series chart', () => {
     const chart = lineChart({
       series: [
@@ -1391,5 +1462,95 @@ describe('Tooltip integration (chart rendering)', () => {
     })
     const groups = chart.el.querySelectorAll('.apexcharts-tooltip-series-group')
     expect(groups.length).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Tooltip config after updateOptions
+// ---------------------------------------------------------------------------
+
+// The module is built once per chart and outlives every update, while
+// `updateOptions` replaces `w.config.tooltip` with a merged object. It used to
+// capture that object at construction, so every later tooltip option was
+// accepted and silently dropped. The visible one: toggling `theme.mode` to
+// dark at runtime turned the axes dark and left the tooltip white.
+describe('Tooltip config follows updateOptions', () => {
+  const mount = (tooltip, extra = {}) =>
+    createChartWithOptions({
+      chart: { type: 'bar' },
+      series: [
+        { name: 'A', data: [10, 20, 30] },
+        { name: 'B', data: [15, 25, 35] },
+      ],
+      xaxis: { categories: ['x', 'y', 'z'] },
+      tooltip,
+      ...extra,
+    })
+
+  const themeClass = (chart) => {
+    const el = chart.el.querySelector('.apexcharts-tooltip')
+    if (el.classList.contains('apexcharts-theme-dark')) return 'dark'
+    if (el.classList.contains('apexcharts-theme-light')) return 'light'
+    return 'none'
+  }
+
+  it('reads the live config, not the one the chart was born with', async () => {
+    const chart = mount({ shared: false, intersect: false })
+    expect(chart.tooltip.tConfig).toBe(chart.w.config.tooltip)
+
+    await chart.updateOptions({ tooltip: { shared: true, intersect: false } })
+    // The identity matters: every `this.tConfig.*` and `ttCtx.tConfig.*` read
+    // in the module and its sub-modules resolves through this one reference.
+    expect(chart.tooltip.tConfig).toBe(chart.w.config.tooltip)
+    expect(chart.tooltip.tConfig.shared).toBe(true)
+    chart.destroy()
+  })
+
+  it('a runtime theme toggle reaches the tooltip, not just the axes', async () => {
+    const chart = mount({}, { theme: { mode: 'light' } })
+    expect(themeClass(chart)).toBe('light')
+
+    await chart.updateOptions({ theme: { mode: 'dark' } })
+    expect(themeClass(chart)).toBe('dark')
+
+    // And back, so this is a live read rather than a one-way latch.
+    await chart.updateOptions({ theme: { mode: 'light' } })
+    expect(themeClass(chart)).toBe('light')
+    chart.destroy()
+  })
+
+  it('an updated chart matches one built with the same options', async () => {
+    const target = { shared: true, intersect: false, x: { show: false } }
+
+    const born = mount(target)
+    const updated = mount({ shared: false, intersect: true, x: { show: true } })
+    await updated.updateOptions({ tooltip: target })
+
+    const read = (c) => ({
+      shared: c.tooltip.tConfig.shared,
+      xShow: c.tooltip.tConfig.x.show,
+      showOnIntersect: c.tooltip.showOnIntersect,
+      showTooltipTitle: c.tooltip.showTooltipTitle,
+      fixedTooltip: c.tooltip.fixedTooltip,
+    })
+    expect(read(updated)).toEqual(read(born))
+    born.destroy()
+    updated.destroy()
+  })
+
+  it('the flags derived from it are re-derived too, not just the object', async () => {
+    const chart = mount({ shared: false, intersect: true })
+    expect(chart.tooltip.showOnIntersect).toBe(true)
+
+    await chart.updateOptions({ tooltip: { shared: false, intersect: false } })
+    expect(chart.tooltip.showOnIntersect).toBe(false)
+
+    // `fixed.enabled` and `x.show` ride the same path.
+    await chart.updateOptions({
+      tooltip: { fixed: { enabled: true }, x: { show: false } },
+    })
+    expect(chart.tooltip.fixedTooltip).toBe(true)
+    expect(chart.tooltip.showTooltipTitle).toBe(false)
+    chart.destroy()
   })
 })

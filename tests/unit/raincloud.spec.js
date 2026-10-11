@@ -1,4 +1,6 @@
 import { createChartWithOptions } from './utils/utils.js'
+// Not in the default bundle since 8.0, so imported the way an app would.
+import '../../src/entries/violin.js'
 import { fiveNumberSummary } from '../../src/charts/common/Stats'
 import {
   registerSeriesTransform,
@@ -10,7 +12,7 @@ import {
   resolveLanes,
 } from '../../src/charts/Violin'
 // Side effect: registers the 'raincloud' series transform (the opt-in
-// feature — deliberately NOT part of src/entries/full.js).
+// feature, deliberately NOT part of src/entries/standard.js).
 import { raincloudTransform } from '../../src/features/raincloud'
 
 // ---------------------------------------------------------------------------

@@ -45,6 +45,10 @@ class BarStacked extends Bar {
       class: 'apexcharts-bar-series apexcharts-plot-series',
     })
 
+    // Highlight filter (opt-in feature): each segment's part, stacked solid
+    // over the faded wholes. Null without the feature.
+    const hf = this.ctx.highlightFilter
+
     let x = 0
     let y = 0
 
@@ -212,11 +216,10 @@ class BarStacked extends Bar {
         const flipClass = w.globals.isBarHorizontal
           ? 'apexcharts-flip-x'
           : 'apexcharts-flip-y'
-        const wantsFlip =
-          (this.barHelpers.arrBorderRadius[realIndex][j] === 'bottom' &&
-            w.seriesData.series[realIndex][j] > 0) ||
-          (this.barHelpers.arrBorderRadius[realIndex][j] === 'top' &&
-            w.seriesData.series[realIndex][j] < 0)
+        const wantsFlip = this.cornerFlip(
+          this.barHelpers.arrBorderRadius[realIndex][j],
+          w.seriesData.series[realIndex][j],
+        )
 
         // The mirror is a DISCRETE flag over CONTINUOUS geometry, so it cannot
         // simply follow the new corner state: it would snap on frame 0 while
@@ -246,6 +249,15 @@ class BarStacked extends Bar {
           heldMirrors = true
         }
         elSeries = this.renderSeries({
+          hl: hf?.bar(this, {
+            i,
+            j,
+            realIndex,
+            translationsIndex,
+            paths,
+            zeroH,
+            zeroW,
+          }),
           realIndex,
           pathFill: pathFill.color,
           ...(pathFill.useRangeColor ? { lineFill: pathFill.color } : {}),
@@ -287,6 +299,19 @@ class BarStacked extends Bar {
     if (heldMirrors) this.settleHeldMirrors()
 
     return ret
+  }
+
+  /**
+   * Whether a stacked segment with this corner state and value is drawn
+   * mirrored. Stacked segments are built top-rounded only, so a radius that
+   * belongs at the other end (a positive segment rounded at the bottom, a
+   * negative one at the top) comes from the apexcharts-flip-y/-x class. The
+   * highlight filter applies the same rule to its parts.
+   * @param {string} state the segment's corner state (createBorderRadiusArr)
+   * @param {number} v the segment's value
+   */
+  cornerFlip(state, v) {
+    return (state === 'bottom' && v > 0) || (state === 'top' && v < 0)
   }
 
   /**
@@ -446,12 +471,10 @@ class BarStacked extends Bar {
       prevBarW = prevBarW + this.groupCtx.prevXF[k][j]
     }
 
-    let gsi = i // an index to keep track of the series inside a group
-    if (/** @type {Record<string,any>} */ (w.config.series[realIndex]).name) {
-      gsi = seriesGroup.indexOf(
-        /** @type {Record<string,any>} */ (w.config.series[realIndex]).name,
-      )
-    }
+    // Where this series sits in its group's stack. See the note in
+    // drawStackedColumnPaths: the index has to count the series this renderer
+    // has already drawn for the group, which is exactly what prevX holds.
+    const gsi = this.groupCtx.prevX.length
 
     if (gsi > 0) {
       let bXP = zeroW
@@ -573,10 +596,14 @@ class BarStacked extends Bar {
         (!isNaN(this.groupCtx.prevYF[k][j]) ? this.groupCtx.prevYF[k][j] : 0)
     }
 
-    let gsi = i // an index to keep track of the series inside a group
-    if (seriesGroup) {
-      gsi = seriesGroup.indexOf(w.seriesData.seriesNames[realIndex])
-    }
+    // Where this series sits in its group's stack, which is what indexes the
+    // prevY/prevYF/prevYVal arrays. Those arrays are pushed once per series
+    // THIS renderer draws, so the index must count stacked bars only.
+    // Reading the position out of seriesGroup counted every member of the
+    // group, line and area series included, so in a mixed chart every bar
+    // that followed a non-bar series looked past the end of prevY, found no
+    // previous layer and restarted its stack from the axis (#5105).
+    const gsi = this.groupCtx.prevY.length
     if (
       (gsi > 0 && !w.axisFlags.isXNumeric) ||
       (gsi > 0 &&
