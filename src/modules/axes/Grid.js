@@ -102,6 +102,8 @@ class Grid {
         w.config.chart.type,
       ) || gl.comboBarCount > 0
 
+    const ignoreBarPad = !!w.config.grid?.padding?.ignoreBarPad
+
     let barWidthLeft = 0
     let barWidthRight = 0
     if (hasBar && w.axisFlags.isXNumeric && !gl.isBarHorizontal) {
@@ -113,9 +115,9 @@ class Grid {
 
     return {
       grid: {
-        x: -strokeSize / 2 - 2,
+        x: ignoreBarPad ? 0 : -strokeSize / 2 - 2,
         y: -strokeSize / 2 - 2,
-        width: w.layout.gridWidth + strokeSize + 4,
+        width: w.layout.gridWidth + (ignoreBarPad ? 0 : strokeSize + 4),
         height: w.layout.gridHeight + strokeSize + 4,
       },
       bar: {
@@ -144,10 +146,6 @@ class Grid {
     const gl = w.globals
     const graphics = new Graphics(this.w)
 
-    const strokeSize = Array.isArray(w.config.stroke.width)
-      ? Math.max(...w.config.stroke.width)
-      : w.config.stroke.width
-
     /**
      * @param {string} id
      */
@@ -163,11 +161,6 @@ class Grid {
     w.dom.elForecastMask = createClipPath(`forecastMask${gl.cuid}`)
     w.dom.elNonForecastMask = createClipPath(`nonForecastMask${gl.cuid}`)
 
-    const hasBar =
-      ['bar', 'rangeBar', 'candlestick', 'boxPlot', 'violin'].includes(
-        w.config.chart.type,
-      ) || w.globals.comboBarCount > 0
-
     const rects = Grid.maskRects(w)
     /**
      * @param {{ x: number, y: number, width: number, height: number }} r
@@ -175,44 +168,6 @@ class Grid {
     const drawClipRect = (r) =>
       graphics.drawRect(r.x, r.y, r.width, r.height, 0, '#fff')
 
-    let barWidthLeft = 0
-    let barWidthRight = 0
-    if (hasBar && w.axisFlags.isXNumeric && !w.globals.isBarHorizontal) {
-      barWidthLeft = Math.max(w.layout.gridPad.left, gl.barPadForNumericAxis)
-      barWidthRight = Math.max(w.layout.gridPad.right, gl.barPadForNumericAxis)
-    }
-
-    const xOffset = w.config.grid?.padding?.ignoreBarPad ? 0 : -strokeSize / 2 - 2
-
-    w.dom.elGridRect = graphics.drawRect(
-      xOffset,
-      -strokeSize / 2 - 2,
-      w.layout.gridWidth + Math.abs(xOffset) * 2,
-      w.layout.gridHeight + strokeSize + 4,
-      0,
-      '#fff',
-    )
-
-    w.dom.elGridRectBar = graphics.drawRect(
-      -strokeSize / 2 - barWidthLeft - 2,
-      -strokeSize / 2 - 2,
-      w.layout.gridWidth + strokeSize + barWidthRight + barWidthLeft + 4,
-      w.layout.gridHeight + strokeSize + 4,
-      0,
-      '#fff',
-    )
-
-    const markerSize = w.globals.markers.largestSize
-
-    w.dom.elGridRectMarker = graphics.drawRect(
-      Math.min(-strokeSize / 2 - barWidthLeft - 2, -markerSize),
-      -markerSize,
-      w.layout.gridWidth +
-        Math.max(strokeSize + barWidthRight + barWidthLeft + 4, markerSize * 2),
-      w.layout.gridHeight + markerSize * 2,
-      0,
-      '#fff',
-    )
     w.dom.elGridRect = drawClipRect(rects.grid)
     w.dom.elGridRectBar = drawClipRect(rects.bar)
     w.dom.elGridRectMarker = drawClipRect(rects.marker)

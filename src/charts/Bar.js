@@ -119,7 +119,7 @@ class Bar {
          * @param {any} s
          * @param {number} i
          */
-        .map((s, i) => {
+        .map((_s, i) => {
           return barSeriesIndices.indexOf(i) === -1 ? i : -1
         })
         /**
@@ -723,7 +723,7 @@ class Bar {
       renderedPath.attr('clip-path', `url(#${maskId})`)
 
       // renderedPath.attr('clip-path', `url(#gridRectBarMask${w.globals.cuid})`)
-      // if (leaving) renderedPath.node.classList.add('apexcharts-leaving')
+      if (leaving) renderedPath.node.classList.add('apexcharts-leaving')
 
       // This stage's funnel shadow, on the stage's clock (see draw).
       const sh = this._shadow
